@@ -29,7 +29,9 @@ app.use(express.json());
 
 // Serve static files from React app in production
 if (process.env.NODE_ENV === 'production') {
-  app.use(express.static(path.join(__dirname, '../portfolio-app/dist')));
+  const distPath = path.resolve(process.cwd(), 'portfolio-app', 'dist');
+  console.log('Serving static files from:', distPath);
+  app.use(express.static(distPath));
 }
 
 // Optional: mirror API under a hidden prefix in production and block direct /api
@@ -352,7 +354,7 @@ app.delete('/api/subdivisions/:sid', (req, res) => {
 // Catch-all route to serve React app for client-side routing (production only)
 if (process.env.NODE_ENV === 'production') {
   app.get('*', (req, res) => {
-    res.sendFile(path.join(__dirname, '../portfolio-app/dist/index.html'));
+    res.sendFile(path.resolve(process.cwd(), 'portfolio-app', 'dist', 'index.html'));
   });
 }
 
