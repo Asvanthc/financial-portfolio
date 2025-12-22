@@ -352,9 +352,16 @@ app.delete('/api/subdivisions/:sid', (req, res) => {
 })
 
 // Catch-all route to serve React app for client-side routing (production only)
+// Only for non-API routes
 if (process.env.NODE_ENV === 'production') {
   app.get('*', (req, res) => {
-    res.sendFile(path.resolve(process.cwd(), 'portfolio-app', 'dist', 'index.html'));
+    // Don't intercept API routes
+    if (req.path.startsWith('/api')) {
+      return res.status(404).json({ error: 'API endpoint not found' });
+    }
+    const indexPath = path.resolve(process.cwd(), 'portfolio-app', 'dist', 'index.html');
+    console.log('Serving index.html from:', indexPath, 'for path:', req.path);
+    res.sendFile(indexPath);
   });
 }
 
