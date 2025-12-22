@@ -1,0 +1,164 @@
+{
+  "divisions": [
+    {
+      "id": "div_mf_main",
+      "name": "MF",
+      "targetPercent": 50,
+      "holdings": [],
+      "subdivisions": [
+        {
+          "id": "sub_index_mf",
+          "name": "Index MF",
+          "targetPercent": 45,
+          "holdings": [
+            {
+              "id": "h_nifty50",
+              "name": "Nippon Nifty50",
+              "invested": 10000,
+              "targetPercent": 80,
+              "current": 10000
+            },
+            {
+              "id": "h_evietf",
+              "name": "EVIETF",
+              "invested": 1500,
+              "targetPercent": 5,
+              "current": 1500
+            },
+            {
+              "id": "h_infraietf",
+              "name": "INFRAIETF",
+              "invested": 1500,
+              "targetPercent": 5,
+              "current": 1500
+            },
+            {
+              "id": "h_itbees",
+              "name": "ITBEES",
+              "invested": 1000,
+              "targetPercent": 10,
+              "current": 1000
+            }
+          ]
+        },
+        {
+          "id": "sub_flexicap_mf",
+          "name": "Flexi-cap MF",
+          "targetPercent": 20,
+          "holdings": [
+            {
+              "id": "h_parag",
+              "name": "Parag Parikh",
+              "invested": 3000,
+              "targetPercent": 50,
+              "current": 3000
+            },
+            {
+              "id": "h_mahendra",
+              "name": "Mahendra Manulife",
+              "invested": 3000,
+              "targetPercent": 50,
+              "current": 3000
+            }
+          ]
+        },
+        {
+          "id": "sub_midcap_mf",
+          "name": "Mid-cap MF",
+          "targetPercent": 15,
+          "holdings": [
+            {
+              "id": "h_kotak",
+              "name": "Kotak",
+              "invested": 5500,
+              "targetPercent": 100,
+              "current": 5500
+            }
+          ]
+        },
+        {
+          "id": "sub_metals_mf",
+          "name": "Gold/silver ETF/MF",
+          "targetPercent": 13,
+          "holdings": [
+            {
+              "id": "h_gold",
+              "name": "Gold",
+              "invested": 11200,
+              "targetPercent": 80,
+              "current": 11200
+            },
+            {
+              "id": "h_silver",
+              "name": "Silver",
+              "invested": 2500,
+              "targetPercent": 20,
+              "current": 2500
+            }
+          ]
+        },
+        {
+          "id": "sub_liquid_mf",
+          "name": "Liquid",
+          "targetPercent": 0,
+          "holdings": []
+        },
+        {
+          "id": "sub_nasdaq_mf",
+          "name": "Nasdaq ETF",
+          "targetPercent": 5,
+          "holdings": [
+            {
+              "id": "h_nasdaq_etf",
+              "name": "Nasdaq ETF",
+              "invested": 2300,
+              "current": 2300
+            }
+          ]
+        },
+        {
+          "id": "sub_divyield_mf",
+          "name": "Divident yield(icici)",
+          "targetPercent": 2,
+          "holdings": [
+            {
+              "id": "h_divyield_icici",
+              "name": "Divident yield(icici)",
+              "invested": 6000,
+              "current": 6000
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "div_iwish",
+      "name": "iWish",
+      "targetPercent": 30,
+      "holdings": [
+        {
+          "id": "h_iwish_main",
+          "name": "iWish",
+          "invested": 118753,
+          "current": 121996
+        }
+      ],
+      "subdivisions": []
+    },
+    {
+      "id": "div_stocks",
+      "name": "direct stocks",
+      "targetPercent": 20,
+      "holdings": [
+        {
+          "id": "h_direct_stocks",
+          "name": "Direct Stocks",
+          "invested": 116900,
+          "current": 130000
+        }
+      ],
+      "subdivisions": []
+    }
+  ],
+  "updatedAt": "2025-12-22T10:26:10.442Z"
+}

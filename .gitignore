@@ -1,0 +1,24 @@
+# Node modules
+node_modules/
+portfolio-app/node_modules/
+
+# Build outputs
+portfolio-app/dist/
+dist/
+
+# Development
+.vscode/
+venv/
+*.log
+npm-debug.log*
+
+# Uploads
+uploads/
+
+# Backups
+*.bak
+*.backup
+
+# OS files
+.DS_Store
+Thumbs.db

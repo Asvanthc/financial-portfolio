@@ -1,0 +1,31 @@
+{
+  "name": "financial-portfolio",
+  "version": "1.0.0",
+  "main": "index.js",
+  "engines": {
+    "node": ">=18.0.0",
+    "npm": ">=9.0.0"
+  },
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "server": "node server/index.js",
+    "client": "npm --prefix portfolio-app run dev",
+    "dev": "concurrently \"npm run server\" \"npm run client\"",
+    "build": "cd portfolio-app && npm install && npm run build",
+    "start": "NODE_ENV=production node server/index.js",
+    "postinstall": "cd portfolio-app && npm install"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "cors": "^2.8.5",
+    "express": "^4.18.2",
+    "multer": "^2.0.0",
+    "xlsx": "^0.18.5"
+  },
+  "devDependencies": {
+    "concurrently": "^8.2.2"
+  },
+  "description": ""
+}
