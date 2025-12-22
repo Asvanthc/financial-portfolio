@@ -7,7 +7,3 @@ services:
     envVars:
       - key: NODE_ENV
         value: production
-      - key: API_BASE_PATH
-        value: /t/a/s/d/z7p3q9x1
-      - key: DISABLE_DIRECT_API
-        value: "true"
