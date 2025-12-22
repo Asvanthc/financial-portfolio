@@ -32,6 +32,25 @@ if (process.env.NODE_ENV === 'production') {
   app.use(express.static(path.join(__dirname, '../portfolio-app/dist')));
 }
 
+// Optional: mirror API under a hidden prefix in production and block direct /api
+// Set API_BASE_PATH to a custom path like /t/a/s/d/xyz123 and DISABLE_DIRECT_API=true
+const API_BASE_PATH = process.env.API_BASE_PATH
+if (process.env.NODE_ENV === 'production' && API_BASE_PATH && API_BASE_PATH !== '/api') {
+  // Rewrite requests under hidden prefix to /api while marking them trusted
+  app.use(API_BASE_PATH, (req, res, next) => {
+    req.url = '/api' + req.url
+    req.skipApiBlock = true
+    next()
+  })
+  // Block direct /api access unless coming via the hidden prefix
+  app.use((req, res, next) => {
+    if (process.env.DISABLE_DIRECT_API === 'true' && req.url.startsWith('/api') && !req.skipApiBlock) {
+      return res.status(404).json({ error: 'not found' })
+    }
+    next()
+  })
+}
+
 // Storage for uploads: place next to existing workbook and replace it atomically
 const upload = multer({ dest: path.resolve(process.cwd(), 'uploads') });
 

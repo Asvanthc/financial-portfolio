@@ -1,5 +1,8 @@
-// Use relative URLs in production, absolute in development
-const API_ROOT = import.meta.env.PROD ? '' : 'http://localhost:3001'
+// Configurable API root: use VITE_API_ROOT if provided (for GH Pages + Render),
+// else use relative in production (served by the Node server),
+// and localhost in development.
+const API_ROOT =
+  import.meta.env.VITE_API_ROOT?.trim() || (import.meta.env.PROD ? '' : 'http://localhost:3001')
 
 async function json(method, path, body) {
   const r = await fetch(`${API_ROOT}${path}`, {
