@@ -1,0 +1,10 @@
+--- a/server/index.js
++++ b/server/index.js
+@@ -29,7 +29,8 @@
+ 
+ // Serve static files from React app in production
+ if (process.env.NODE_ENV === 'production') {
+-  app.use(express.static(path.join(__dirname, '../portfolio-app/dist')));
++  const distPath = path.resolve(__dirname, '..', 'portfolio-app', 'dist');
++  app.use(express.static(distPath));
+ }

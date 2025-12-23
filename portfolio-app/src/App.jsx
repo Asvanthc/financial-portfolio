@@ -201,6 +201,7 @@ export default function App() {
               <tr style={{ borderBottom: '2px solid #334155', background: 'linear-gradient(180deg, #1e293b 0%, #0f1724 100%)' }}>
                 <th style={{ textAlign: 'left', padding: 'clamp(12px, 2vw, 14px)', color: '#94a3b8', fontSize: 'clamp(9px, 1.5vw, 10px)', fontWeight: 800, textTransform: 'uppercase', letterSpacing: '1px' }}>Division</th>
                 <th style={{ textAlign: 'right', padding: 'clamp(12px, 2vw, 14px)', color: '#94a3b8', fontSize: 'clamp(9px, 1.5vw, 10px)', fontWeight: 800, textTransform: 'uppercase', letterSpacing: '1px' }}>Current</th>
+                <th style={{ textAlign: 'right', padding: 'clamp(12px, 2vw, 14px)', color: '#94a3b8', fontSize: 'clamp(9px, 1.5vw, 10px)', fontWeight: 800, textTransform: 'uppercase', letterSpacing: '1px' }}>P/L</th>
                 <th style={{ textAlign: 'center', padding: 'clamp(12px, 2vw, 14px)', color: '#94a3b8', fontSize: 'clamp(9px, 1.5vw, 10px)', fontWeight: 800, textTransform: 'uppercase', letterSpacing: '1px' }}>Status</th>
                 <th style={{ textAlign: 'right', padding: 'clamp(12px, 2vw, 14px)', color: '#94a3b8', fontSize: 'clamp(9px, 1.5vw, 10px)', fontWeight: 800, textTransform: 'uppercase', letterSpacing: '1px' }}>Current %</th>
                 <th style={{ textAlign: 'right', padding: 'clamp(12px, 2vw, 14px)', color: '#94a3b8', fontSize: 'clamp(9px, 1.5vw, 10px)', fontWeight: 800, textTransform: 'uppercase', letterSpacing: '1px' }}>Target %</th>
@@ -229,6 +230,20 @@ export default function App() {
                     onMouseLeave={(e) => e.currentTarget.style.background = addition > 0 ? 'rgba(99, 102, 241, 0.1)' : 'transparent'}>
                       <td style={{ padding: 'clamp(12px, 2vw, 14px)', color: '#f1f5f9', fontWeight: 700, fontSize: 'clamp(12px, 2vw, 13px)' }}>{d.name}</td>
                       <td style={{ padding: 'clamp(12px, 2vw, 14px)', color: '#818cf8', textAlign: 'right', fontWeight: 700 }}>₹{(Number(d.current) || 0).toLocaleString()}</td>
+                      <td style={{ padding: 'clamp(12px, 2vw, 14px)', textAlign: 'right' }}>
+                        {(() => {
+                          const invested = Number(d.invested) || 0
+                          const profit = Number(d.profit) || 0
+                          const pct = invested > 0 ? (profit / invested) * 100 : 0
+                          const color = profit >= 0 ? '#22c55e' : '#ef4444'
+                          return (
+                            <div style={{ display: 'inline-flex', flexDirection: 'column', alignItems: 'flex-end', lineHeight: 1.2 }}>
+                              <span style={{ color, fontWeight: 800 }}> {profit >= 0 ? '+' : ''}₹{profit.toLocaleString()} </span>
+                              <span style={{ color, fontWeight: 700, fontSize: '0.9em', opacity: 0.9 }}> {invested > 0 ? `${profit >= 0 ? '+' : ''}${pct.toFixed(2)}%` : '—'} </span>
+                            </div>
+                          )
+                        })()}
+                      </td>
                       <td style={{ padding: 'clamp(12px, 2vw, 14px)', textAlign: 'center' }}>
                         {addition > 0 ? (
                           <span style={{ background: 'linear-gradient(135deg, #6366f1 0%, #4f46e5 100%)', color: 'white', padding: '4px 12px', borderRadius: 6, fontSize: 'clamp(9px, 1.5vw, 10px)', fontWeight: 800, letterSpacing: '0.5px', boxShadow: '0 2px 8px rgba(99,102,241,0.4)' }}>ADD</span>

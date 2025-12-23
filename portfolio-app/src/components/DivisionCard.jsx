@@ -12,6 +12,7 @@ export default function DivisionCard({ division, analytics, subdivisionGoalSeek,
   const invested = divAnalytics.invested || 0
   const current = divAnalytics.current || 0
   const profit = divAnalytics.profit || 0
+  const profitPercent = invested > 0 ? (profit / invested) * 100 : 0
   const targetPercent = Number(division.targetPercent) || 0
   const currentPercent = divAnalytics.currentPercent || 0
   const delta = divAnalytics.deltaPercent || 0
@@ -137,9 +138,16 @@ export default function DivisionCard({ division, analytics, subdivisionGoalSeek,
             <div style={{ fontSize: 'clamp(14px, 2.2vw, 16px)', fontWeight: 800, color: delta >= 0 ? '#4ade80' : '#f87171', textShadow: delta >= 0 ? '0 0 10px rgba(74,222,128,0.3)' : '0 0 10px rgba(248,113,113,0.3)' }}>{delta > 0 ? '+' : ''}{delta.toFixed(2)}%</div>
           </div>
 
-          <div style={{ textAlign: 'right', minWidth: 'clamp(70px, 11vw, 85px)' }}>
+          <div style={{ textAlign: 'right', minWidth: 'clamp(90px, 13vw, 110px)' }}>
             <div style={{ fontSize: 'clamp(9px, 1.5vw, 10px)', color: '#94a3b8', marginBottom: 5, textTransform: 'uppercase', fontWeight: 800, letterSpacing: '0.8px' }}>💵 P/L</div>
-            <div style={{ fontSize: 'clamp(14px, 2.2vw, 16px)', fontWeight: 800, color: `#${gainLoss}`, textShadow: profit >= 0 ? '0 0 10px rgba(34,197,94,0.3)' : '0 0 10px rgba(239,68,68,0.3)' }}>{profit >= 0 ? '+' : ''}₹{profit.toLocaleString()}</div>
+            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 2 }}>
+              <div style={{ fontSize: 'clamp(14px, 2.2vw, 16px)', fontWeight: 800, color: `#${gainLoss}`, textShadow: profit >= 0 ? '0 0 10px rgba(34,197,94,0.3)' : '0 0 10px rgba(239,68,68,0.3)' }}>
+                {profit >= 0 ? '+' : ''}₹{profit.toLocaleString()}
+              </div>
+              <div style={{ fontSize: 'clamp(11px, 1.8vw, 12px)', fontWeight: 700, color: `#${gainLoss}`, opacity: 0.9 }}>
+                {invested > 0 ? `${profit >= 0 ? '+' : ''}${profitPercent.toFixed(2)}%` : '—'}
+              </div>
+            </div>
           </div>
 
           <div style={{ textAlign: 'right', minWidth: 'clamp(80px, 12vw, 95px)' }}>
@@ -220,6 +228,7 @@ export default function DivisionCard({ division, analytics, subdivisionGoalSeek,
                 const subCurrentPct = subAnalytics.currentPercent || 0
                 const subTargetPct = subAnalytics.targetPercent || 0
                 const subDelta = subAnalytics.deltaPercent || 0
+                const subProfitPercent = subInvested > 0 ? (subProfit / subInvested) * 100 : 0
 
                 return (
                   <div 
@@ -289,9 +298,16 @@ export default function DivisionCard({ division, analytics, subdivisionGoalSeek,
                           <div style={{ fontSize: 'clamp(8px, 1.4vw, 9px)', color: '#94a3b8', marginBottom: 4, textTransform: 'uppercase', fontWeight: 800, letterSpacing: '0.6px' }}>➕ To Add</div>
                           <div style={{ fontSize: 'clamp(12px, 2vw, 14px)', fontWeight: 900, color: '#fb923c' }}>₹{Math.ceil(subGoalSeekAdds[sub.id] || 0).toLocaleString()}</div>
                         </div>
-                        <div style={{ textAlign: 'right', minWidth: 'clamp(65px, 10vw, 75px)' }}>
+                        <div style={{ textAlign: 'right', minWidth: 'clamp(85px, 12vw, 100px)' }}>
                           <div style={{ fontSize: 'clamp(8px, 1.4vw, 9px)', color: '#94a3b8', marginBottom: 4, textTransform: 'uppercase', fontWeight: 800, letterSpacing: '0.6px' }}>💸 P/L</div>
-                          <div style={{ fontSize: 'clamp(12px, 2vw, 14px)', fontWeight: 800, color: subProfit >= 0 ? '#4ade80' : '#f87171' }}>{subProfit >= 0 ? '+' : ''}₹{subProfit.toLocaleString()}</div>
+                          <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 2 }}>
+                            <div style={{ fontSize: 'clamp(12px, 2vw, 14px)', fontWeight: 800, color: subProfit >= 0 ? '#4ade80' : '#f87171' }}>
+                              {subProfit >= 0 ? '+' : ''}₹{subProfit.toLocaleString()}
+                            </div>
+                            <div style={{ fontSize: 'clamp(10px, 1.6vw, 11px)', fontWeight: 700, color: subProfit >= 0 ? '#4ade80' : '#f87171', opacity: 0.9 }}>
+                              {subInvested > 0 ? `${subProfit >= 0 ? '+' : ''}${subProfitPercent.toFixed(2)}%` : '—'}
+                            </div>
+                          </div>
                         </div>
                         {hoveredSub === sub.id && (
                           <button
