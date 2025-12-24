@@ -1,4 +1,4 @@
-import React, { useState } from 'react'
+import React, { useState, useRef } from 'react'
 import { api } from '../api'
 import AddHoldingForm from './AddHoldingForm'
 import Modal from './Modal'
@@ -9,10 +9,34 @@ export default function HoldingsEditor({ divId, subdivId, holdings = [], onUpdat
   const [adjustHolding, setAdjustHolding] = useState(null)
   const [adjustAmount, setAdjustAmount] = useState('')
   const [adjustMode, setAdjustMode] = useState('add')
+  const [localHoldings, setLocalHoldings] = useState(holdings)
+  const updateTimersRef = useRef({})
 
-  async function updateHolding(hid, data) {
-    await api.updateHolding(hid, data)
-    onUpdate?.()
+  // Sync local holdings with prop
+  React.useEffect(() => {
+    setLocalHoldings(holdings)
+  }, [holdings.map(h => `${h.id}:${h.invested}:${h.current}:${h.name}`).join('|')])
+
+  const updateHolding = async (hid, data) => {
+    // Optimistic update
+    setLocalHoldings(prev => prev.map(h => h.id === hid ? { ...h, ...data } : h))
+    
+    // Clear pending timer if exists
+    if (updateTimersRef.current[hid]) {
+      clearTimeout(updateTimersRef.current[hid])
+    }
+    
+    // Debounce: wait 800ms before saving to server
+    updateTimersRef.current[hid] = setTimeout(async () => {
+      try {
+        await api.updateHolding(hid, data)
+        onUpdate?.()
+      } catch (e) {
+        console.error('Failed to update holding:', e)
+        setLocalHoldings(holdings)
+        onUpdate?.()
+      }
+    }, 800)
   }
 
   async function deleteHolding(hid) {
@@ -66,7 +90,7 @@ export default function HoldingsEditor({ divId, subdivId, holdings = [], onUpdat
           </tr>
         </thead>
         <tbody>
-          {holdings.map(h => {
+          {localHoldings.map(h => {
             const pl = (Number(h.current) || 0) - (Number(h.invested) || 0)
             return (
               <tr 

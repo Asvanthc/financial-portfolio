@@ -1,4 +1,4 @@
-import React, { useState } from 'react'
+import React, { useState, useRef, useCallback, useEffect } from 'react'
 import { api } from '../api'
 import HoldingsEditor from './HoldingsEditor'
 
@@ -7,13 +7,20 @@ export default function DivisionCard({ division, analytics, subdivisionGoalSeek,
   const [newSubDiv, setNewSubDiv] = useState({ name: '', targetPercent: '' })
   const [hoveredDiv, setHoveredDiv] = useState(false)
   const [hoveredSub, setHoveredSub] = useState(null)
+  const [localDivision, setLocalDivision] = useState(division)
+  const updateTimerRef = useRef(null)
+
+  // Sync localDivision when division prop changes (after server updates)
+  useEffect(() => {
+    setLocalDivision(division)
+  }, [division.id, division.name, division.targetPercent])
 
   const divAnalytics = analytics.divisions?.find(d => d.id === division.id) || {}
   const invested = divAnalytics.invested || 0
   const current = divAnalytics.current || 0
   const profit = divAnalytics.profit || 0
   const profitPercent = invested > 0 ? (profit / invested) * 100 : 0
-  const targetPercent = Number(division.targetPercent) || 0
+  const targetPercent = Number(localDivision.targetPercent) || 0
   const currentPercent = divAnalytics.currentPercent || 0
   const delta = divAnalytics.deltaPercent || 0
   const requiredAdd = divAnalytics.requiredAddition || 0
@@ -28,10 +35,29 @@ export default function DivisionCard({ division, analytics, subdivisionGoalSeek,
   const subGoalSeekAdds = divSubGoalSeek.additionsBySubdivision || {}
   const totalSubGoalSeek = divSubGoalSeek.requiredAddition || 0
 
-  async function updateDivision(patch) {
-    await api.updateDivision(division.id, patch)
-    onUpdate?.()
-  }
+  // Debounced update: show change immediately, save to server with delay
+  const updateDivision = useCallback(async (patch) => {
+    // Optimistic update: update local state immediately
+    setLocalDivision(prev => ({ ...prev, ...patch }))
+    
+    // Clear pending timer if exists
+    if (updateTimerRef.current) {
+      clearTimeout(updateTimerRef.current)
+    }
+    
+    // Debounce: wait 800ms before saving to server
+    updateTimerRef.current = setTimeout(async () => {
+      try {
+        await api.updateDivision(division.id, patch)
+        onUpdate?.()
+      } catch (e) {
+        console.error('Failed to update division:', e)
+        // Revert to server state on error
+        setLocalDivision(division)
+        onUpdate?.()
+      }
+    }, 800)
+  }, [division, onUpdate])
 
   async function deleteDivision() {
     if (confirm(`Delete division "${division.name}"?`)) {
@@ -84,7 +110,7 @@ export default function DivisionCard({ division, analytics, subdivisionGoalSeek,
           <input
             onClick={e => e.stopPropagation()}
             type="text"
-            value={division.name}
+            value={localDivision.name}
             onChange={e => updateDivision({ name: e.target.value })}
             style={{
               background: 'transparent',
