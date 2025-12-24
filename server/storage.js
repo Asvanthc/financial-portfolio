@@ -28,7 +28,9 @@ function loadPortfolio() {
 function savePortfolio(portfolio) {
   ensureDataFile()
   const data = { ...portfolio, updatedAt: new Date().toISOString() }
+  console.log('[STORAGE] Saving portfolio to disk:', DATA_FILE)
   fs.writeFileSync(DATA_FILE, JSON.stringify(data, null, 2))
+  console.log('[STORAGE] Portfolio saved successfully at', data.updatedAt)
   return data
 }
 

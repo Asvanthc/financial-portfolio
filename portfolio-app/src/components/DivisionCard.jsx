@@ -1,4 +1,4 @@
-import React, { useState, useRef, useCallback, useEffect } from 'react'
+import React, { useState, useRef, useCallback } from 'react'
 import { api } from '../api'
 import HoldingsEditor from './HoldingsEditor'
 
@@ -7,20 +7,24 @@ export default function DivisionCard({ division, analytics, subdivisionGoalSeek,
   const [newSubDiv, setNewSubDiv] = useState({ name: '', targetPercent: '' })
   const [hoveredDiv, setHoveredDiv] = useState(false)
   const [hoveredSub, setHoveredSub] = useState(null)
-  const [localDivision, setLocalDivision] = useState(division)
-  const updateTimerRef = useRef(null)
+  const [editingName, setEditingName] = useState(division.name)
+  const [editingTarget, setEditingTarget] = useState(division.targetPercent)
+  const isSavingRef = useRef(false)
 
-  // Sync localDivision when division prop changes (after server updates)
-  useEffect(() => {
-    setLocalDivision(division)
-  }, [division.id, division.name, division.targetPercent])
+  // Sync editing state when division prop changes (from server or initial load)
+  React.useEffect(() => {
+    if (!isSavingRef.current) {
+      setEditingName(division.name)
+      setEditingTarget(division.targetPercent)
+    }
+  }, [division.name, division.targetPercent])
 
   const divAnalytics = analytics.divisions?.find(d => d.id === division.id) || {}
   const invested = divAnalytics.invested || 0
   const current = divAnalytics.current || 0
   const profit = divAnalytics.profit || 0
   const profitPercent = invested > 0 ? (profit / invested) * 100 : 0
-  const targetPercent = Number(localDivision.targetPercent) || 0
+  const targetPercent = Number(editingTarget) || 0
   const currentPercent = divAnalytics.currentPercent || 0
   const delta = divAnalytics.deltaPercent || 0
   const requiredAdd = divAnalytics.requiredAddition || 0
@@ -35,29 +39,25 @@ export default function DivisionCard({ division, analytics, subdivisionGoalSeek,
   const subGoalSeekAdds = divSubGoalSeek.additionsBySubdivision || {}
   const totalSubGoalSeek = divSubGoalSeek.requiredAddition || 0
 
-  // Debounced update: show change immediately, save to server with delay
+  // Direct save without debounce to ensure persistence
   const updateDivision = useCallback(async (patch) => {
-    // Optimistic update: update local state immediately
-    setLocalDivision(prev => ({ ...prev, ...patch }))
+    // Skip if already saving
+    if (isSavingRef.current) return
     
-    // Clear pending timer if exists
-    if (updateTimerRef.current) {
-      clearTimeout(updateTimerRef.current)
+    isSavingRef.current = true
+    console.log('Saving division update:', division.id, patch)
+    
+    try {
+      await api.updateDivision(division.id, patch)
+      console.log('Division update saved successfully')
+      onUpdate?.()
+    } catch (e) {
+      console.error('Failed to update division:', e)
+      alert('Failed to save changes: ' + e.message)
+    } finally {
+      isSavingRef.current = false
     }
-    
-    // Debounce: wait 800ms before saving to server
-    updateTimerRef.current = setTimeout(async () => {
-      try {
-        await api.updateDivision(division.id, patch)
-        onUpdate?.()
-      } catch (e) {
-        console.error('Failed to update division:', e)
-        // Revert to server state on error
-        setLocalDivision(division)
-        onUpdate?.()
-      }
-    }, 800)
-  }, [division, onUpdate])
+  }, [division.id, onUpdate])
 
   async function deleteDivision() {
     if (confirm(`Delete division "${division.name}"?`)) {
@@ -110,8 +110,13 @@ export default function DivisionCard({ division, analytics, subdivisionGoalSeek,
           <input
             onClick={e => e.stopPropagation()}
             type="text"
-            value={localDivision.name}
-            onChange={e => updateDivision({ name: e.target.value })}
+            value={editingName}
+            onChange={e => setEditingName(e.target.value)}
+            onBlur={e => {
+              if (e.target.value !== division.name) {
+                updateDivision({ name: e.target.value })
+              }
+            }}
             style={{
               background: 'transparent',
               color: '#e6e9ef',
@@ -133,8 +138,14 @@ export default function DivisionCard({ division, analytics, subdivisionGoalSeek,
               onClick={e => e.stopPropagation()}
               type="number"
               step="0.01"
-              value={targetPercent}
-              onChange={e => updateDivision({ targetPercent: Number(e.target.value) || 0 })}
+              value={editingTarget}
+              onChange={e => setEditingTarget(e.target.value)}
+              onBlur={e => {
+                const newVal = Number(e.target.value) || 0
+                if (newVal !== division.targetPercent) {
+                  updateDivision({ targetPercent: newVal })
+                }
+              }}
               style={{
                 width: 65,
                 padding: '6px 8px',
