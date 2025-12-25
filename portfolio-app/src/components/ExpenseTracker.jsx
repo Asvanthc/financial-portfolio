@@ -15,6 +15,7 @@ export default function ExpenseTracker({ expenses = [], onUpdate }) {
   const [selectedMonth, setSelectedMonth] = useState(new Date().getMonth() + 1)
   const [saving, setSaving] = useState(false)
   const [filterMode, setFilterMode] = useState('month') // 'month' or 'range'
+  const [rangePreset, setRangePreset] = useState('custom') // 'custom', 'last3months', 'last6months', 'thisyear', 'lastyear'
   const [rangeStart, setRangeStart] = useState('')
   const [rangeEnd, setRangeEnd] = useState('')
 
@@ -22,6 +23,36 @@ export default function ExpenseTracker({ expenses = [], onUpdate }) {
   useEffect(() => {
     loadCategories()
   }, [])
+
+  // Calculate range from preset
+  useEffect(() => {
+    if (filterMode === 'range' && rangePreset !== 'custom') {
+      const now = new Date()
+      const currentYear = now.getFullYear()
+      const currentMonth = now.getMonth() + 1
+      
+      switch (rangePreset) {
+        case 'last3months':
+          const m3 = new Date(currentYear, currentMonth - 4, 1)
+          setRangeStart(`${m3.getFullYear()}-${String(m3.getMonth() + 1).padStart(2, '0')}`)
+          setRangeEnd(`${currentYear}-${String(currentMonth).padStart(2, '0')}`)
+          break
+        case 'last6months':
+          const m6 = new Date(currentYear, currentMonth - 7, 1)
+          setRangeStart(`${m6.getFullYear()}-${String(m6.getMonth() + 1).padStart(2, '0')}`)
+          setRangeEnd(`${currentYear}-${String(currentMonth).padStart(2, '0')}`)
+          break
+        case 'thisyear':
+          setRangeStart(`${currentYear}-01`)
+          setRangeEnd(`${currentYear}-${String(currentMonth).padStart(2, '0')}`)
+          break
+        case 'lastyear':
+          setRangeStart(`${currentYear - 1}-01`)
+          setRangeEnd(`${currentYear - 1}-12`)
+          break
+      }
+    }
+  }, [filterMode, rangePreset])
 
   const loadCategories = async () => {
     try {
@@ -277,26 +308,32 @@ export default function ExpenseTracker({ expenses = [], onUpdate }) {
       {/* Summary Cards */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(250px, 1fr))', gap: 20, marginBottom: 32 }}>
         <div style={{ background: 'linear-gradient(135deg, rgba(34,197,94,0.15), rgba(34,197,94,0.05)), #0f1724', padding: 20, borderRadius: 12, border: '2px solid rgba(34,197,94,0.3)' }}>
-          <div style={{ fontSize: 11, color: '#86efac', marginBottom: 8, fontWeight: 700, textTransform: 'uppercase' }}>💰 Total Income</div>
+          <div style={{ fontSize: 11, color: '#86efac', marginBottom: 8, fontWeight: 700, textTransform: 'uppercase' }}>
+            💰 {filterMode === 'range' ? 'Range Income' : `${months[selectedMonth - 1]} Income`}
+          </div>
           <div style={{ fontSize: 28, fontWeight: 900, color: '#22c55e' }}>₹{monthlyTotal.income.toLocaleString()}</div>
-          <div style={{ fontSize: 12, color: '#86efac', marginTop: 6 }}>Overall: ₹{overallTotal.income.toLocaleString()}</div>
+          <div style={{ fontSize: 12, color: '#86efac', marginTop: 6 }}>Overall Gross: ₹{overallTotal.income.toLocaleString()}</div>
         </div>
         <div style={{ background: 'linear-gradient(135deg, rgba(239,68,68,0.15), rgba(239,68,68,0.05)), #0f1724', padding: 20, borderRadius: 12, border: '2px solid rgba(239,68,68,0.3)' }}>
-          <div style={{ fontSize: 11, color: '#fca5a5', marginBottom: 8, fontWeight: 700, textTransform: 'uppercase' }}>💸 Total Expense</div>
+          <div style={{ fontSize: 11, color: '#fca5a5', marginBottom: 8, fontWeight: 700, textTransform: 'uppercase' }}>
+            💸 {filterMode === 'range' ? 'Range Expense' : `${months[selectedMonth - 1]} Expense`}
+          </div>
           <div style={{ fontSize: 28, fontWeight: 900, color: '#ef4444' }}>₹{monthlyTotal.expense.toLocaleString()}</div>
-          <div style={{ fontSize: 12, color: '#fca5a5', marginTop: 6 }}>Overall: ₹{overallTotal.expense.toLocaleString()}</div>
+          <div style={{ fontSize: 12, color: '#fca5a5', marginTop: 6 }}>Overall Gross: ₹{overallTotal.expense.toLocaleString()}</div>
         </div>
         <div style={{ background: 'linear-gradient(135deg, rgba(59,130,246,0.15), rgba(59,130,246,0.05)), #0f1724', padding: 20, borderRadius: 12, border: '2px solid rgba(59,130,246,0.3)' }}>
-          <div style={{ fontSize: 11, color: '#93c5fd', marginBottom: 8, fontWeight: 700, textTransform: 'uppercase' }}>💎 Net Savings</div>
+          <div style={{ fontSize: 11, color: '#93c5fd', marginBottom: 8, fontWeight: 700, textTransform: 'uppercase' }}>
+            💎 {filterMode === 'range' ? 'Range Savings' : `${months[selectedMonth - 1]} Savings`}
+          </div>
           <div style={{ fontSize: 28, fontWeight: 900, color: monthlyTotal.balance >= 0 ? '#3b82f6' : '#ef4444' }}>
             {monthlyTotal.balance >= 0 ? '+' : ''}₹{monthlyTotal.balance.toLocaleString()}
           </div>
-          <div style={{ fontSize: 12, color: '#93c5fd', marginTop: 6 }}>Overall: ₹{overallTotal.balance.toLocaleString()}</div>
+          <div style={{ fontSize: 12, color: '#93c5fd', marginTop: 6 }}>Overall Gross: ₹{overallTotal.balance.toLocaleString()}</div>
         </div>
       </div>
 
       {/* Filters */}
-      <div style={{ display: 'flex', gap: 16, marginBottom: 24, flexWrap: 'wrap' }}>
+      <div style={{ display: 'flex', gap: 16, marginBottom: 24, flexWrap: 'wrap', alignItems: 'center' }}>
         {filterMode === 'month' ? (
           <>
             <select value={selectedYear} onChange={e => setSelectedYear(Number(e.target.value))} style={{ padding: '10px 16px', background: '#0a1018', color: '#e6e9ef', border: '2px solid #2d3f5f', borderRadius: 8, fontSize: 14, fontWeight: 600 }}>
@@ -305,29 +342,44 @@ export default function ExpenseTracker({ expenses = [], onUpdate }) {
             <select value={selectedMonth} onChange={e => setSelectedMonth(Number(e.target.value))} style={{ padding: '10px 16px', background: '#0a1018', color: '#e6e9ef', border: '2px solid #2d3f5f', borderRadius: 8, fontSize: 14, fontWeight: 600 }}>
               {months.map((m, idx) => <option key={idx} value={idx + 1}>{m}</option>)}
             </select>
-            <div style={{ padding: '10px 20px', background: 'linear-gradient(135deg, #22c55e, #16a34a)', borderRadius: 8, color: 'white', fontWeight: 700, fontSize: 14 }}>
-              {months[selectedMonth - 1]} {selectedYear}: Income ₹{monthlyTotal.income.toLocaleString()} | Expense ₹{monthlyTotal.expense.toLocaleString()} | Balance ₹{monthlyTotal.balance.toLocaleString()}
-            </div>
           </>
         ) : (
           <>
-            <div style={{ fontSize: 14, fontWeight: 700, color: '#e6e9ef' }}>📍 Start:</div>
-            <input 
-              type="month" 
-              value={rangeStart}
-              onChange={e => setRangeStart(e.target.value)}
+            <div style={{ fontSize: 14, fontWeight: 700, color: '#e6e9ef' }}>📊 Range Preset:</div>
+            <select 
+              value={rangePreset} 
+              onChange={e => setRangePreset(e.target.value)}
               style={{ padding: '10px 16px', background: '#0a1018', color: '#e6e9ef', border: '2px solid #2d3f5f', borderRadius: 8, fontSize: 14, fontWeight: 600, cursor: 'pointer' }}
-            />
-            <div style={{ fontSize: 14, fontWeight: 700, color: '#e6e9ef' }}>📍 End:</div>
-            <input 
-              type="month" 
-              value={rangeEnd}
-              onChange={e => setRangeEnd(e.target.value)}
-              style={{ padding: '10px 16px', background: '#0a1018', color: '#e6e9ef', border: '2px solid #2d3f5f', borderRadius: 8, fontSize: 14, fontWeight: 600, cursor: 'pointer' }}
-            />
+            >
+              <option value="custom">Custom Range</option>
+              <option value="last3months">Last 3 Months</option>
+              <option value="last6months">Last 6 Months</option>
+              <option value="thisyear">This Year</option>
+              <option value="lastyear">Last Year</option>
+            </select>
+            
+            {rangePreset === 'custom' && (
+              <>
+                <div style={{ fontSize: 14, fontWeight: 700, color: '#e6e9ef' }}>📍 Start:</div>
+                <input 
+                  type="month" 
+                  value={rangeStart}
+                  onChange={e => setRangeStart(e.target.value)}
+                  style={{ padding: '10px 16px', background: '#0a1018', color: '#e6e9ef', border: '2px solid #2d3f5f', borderRadius: 8, fontSize: 14, fontWeight: 600, cursor: 'pointer' }}
+                />
+                <div style={{ fontSize: 14, fontWeight: 700, color: '#e6e9ef' }}>📍 End:</div>
+                <input 
+                  type="month" 
+                  value={rangeEnd}
+                  onChange={e => setRangeEnd(e.target.value)}
+                  style={{ padding: '10px 16px', background: '#0a1018', color: '#e6e9ef', border: '2px solid #2d3f5f', borderRadius: 8, fontSize: 14, fontWeight: 600, cursor: 'pointer' }}
+                />
+              </>
+            )}
+            
             {rangeStart && rangeEnd && (
               <div style={{ padding: '10px 20px', background: 'linear-gradient(135deg, #8b5cf6, #7c3aed)', borderRadius: 8, color: 'white', fontWeight: 700, fontSize: 14 }}>
-                📊 Range Summary: Income ₹{monthlyTotal.income.toLocaleString()} | Expense ₹{monthlyTotal.expense.toLocaleString()} | Balance ₹{monthlyTotal.balance.toLocaleString()}
+                📊 {rangePreset !== 'custom' ? rangePreset.replace(/([A-Z])/g, ' $1').replace(/^./, str => str.toUpperCase()) : 'Custom'}: Income ₹{monthlyTotal.income.toLocaleString()} | Expense ₹{monthlyTotal.expense.toLocaleString()} | Net ₹{monthlyTotal.balance.toLocaleString()}
               </div>
             )}
           </>
