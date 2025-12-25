@@ -336,6 +336,22 @@ export default function ExpenseTracker({ expenses = [], onUpdate }) {
     }]
   }
 
+  // Financial Runway - How many months can savings sustain current expenses
+  const avgMonthlyExpense = monthlyTrend.reduce((sum, m) => sum + m.expense, 0) / monthlyTrend.filter(m => m.expense > 0).length || 1
+  const avgMonthlyIncome = monthlyTrend.reduce((sum, m) => sum + m.income, 0) / monthlyTrend.filter(m => m.income > 0).length || 1
+  const avgMonthlySavings = avgMonthlyIncome - avgMonthlyExpense
+  const totalSavings = overallTotal.balance
+  const runwayMonths = avgMonthlyExpense > 0 ? (totalSavings / avgMonthlyExpense).toFixed(1) : 0
+  const runwayColor = runwayMonths >= 6 ? '#22c55e' : runwayMonths >= 3 ? '#f59e0b' : '#ef4444'
+
+  // Expense Stability Score - Coefficient of Variation (lower is more stable)
+  const expenseValues = monthlyTrend.map(m => m.expense).filter(e => e > 0)
+  const expenseMean = expenseValues.reduce((sum, val) => sum + val, 0) / expenseValues.length || 1
+  const expenseStdDev = Math.sqrt(expenseValues.reduce((sum, val) => sum + Math.pow(val - expenseMean, 2), 0) / expenseValues.length)
+  const expenseCV = (expenseStdDev / expenseMean) * 100
+  const stabilityScore = Math.max(0, 100 - expenseCV).toFixed(0)
+  const stabilityColor = stabilityScore >= 70 ? '#22c55e' : stabilityScore >= 50 ? '#f59e0b' : '#ef4444'
+
   // Expense Concentration Analysis (REPLACES Income Concentration since you have single income)
   const totalExpenseAmount = Object.values(expenseBreakdown).reduce((sum, amt) => sum + amt, 0)
   const expenseConcentration = Object.entries(expenseBreakdown).map(([cat, amt]) => ({
