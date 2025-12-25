@@ -6,6 +6,12 @@ services:
     plan: free
     buildCommand: npm install && npm run build
     startCommand: node server/index.js
+    disk:
+      name: portfolio-data
+      mountPath: /opt/render/project/src/data
+      sizeGB: 1
     envVars:
       - key: NODE_ENV
         value: production
+      - key: MONGODB_URI
+        sync: false

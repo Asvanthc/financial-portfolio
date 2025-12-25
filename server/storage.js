@@ -2,6 +2,24 @@ const fs = require('fs')
 const path = require('path')
 const { randomUUID } = require('crypto')
 
+// MongoDB support (optional)
+let db = null
+let portfolioCollection = null
+
+if (process.env.MONGODB_URI) {
+  const { MongoClient } = require('mongodb')
+  const client = new MongoClient(process.env.MONGODB_URI)
+  client.connect()
+    .then(() => {
+      db = client.db('financial-portfolio')
+      portfolioCollection = db.collection('portfolio')
+      console.log('[STORAGE] Connected to MongoDB')
+    })
+    .catch(err => {
+      console.error('[STORAGE] MongoDB connection failed, using file system:', err.message)
+    })
+}
+
 const DATA_DIR = path.resolve(process.cwd(), 'data')
 const DATA_FILE = path.join(DATA_DIR, 'portfolio.json')
 
@@ -13,7 +31,21 @@ function ensureDataFile() {
   }
 }
 
-function loadPortfolio() {
+async function loadPortfolio() {
+  // Try MongoDB first
+  if (portfolioCollection) {
+    try {
+      const doc = await portfolioCollection.findOne({ _id: 'main' })
+      if (doc) {
+        const data = { divisions: doc.divisions || [], updatedAt: doc.updatedAt }
+        return data
+      }
+    } catch (e) {
+      console.error('[STORAGE] MongoDB read failed:', e.message)
+    }
+  }
+  
+  // Fallback to file system
   ensureDataFile()
   const raw = fs.readFileSync(DATA_FILE, 'utf8')
   try {
@@ -25,9 +57,26 @@ function loadPortfolio() {
   }
 }
 
-function savePortfolio(portfolio) {
-  ensureDataFile()
+async function savePortfolio(portfolio) {
   const data = { ...portfolio, updatedAt: new Date().toISOString() }
+  
+  // Try MongoDB first
+  if (portfolioCollection) {
+    try {
+      await portfolioCollection.updateOne(
+        { _id: 'main' },
+        { $set: { divisions: data.divisions, updatedAt: data.updatedAt } },
+        { upsert: true }
+      )
+      console.log('[STORAGE] Portfolio saved to MongoDB at', data.updatedAt)
+      return data
+    } catch (e) {
+      console.error('[STORAGE] MongoDB save failed:', e.message)
+    }
+  }
+  
+  // Fallback to file system
+  ensureDataFile()
   console.log('[STORAGE] Saving portfolio to disk:', DATA_FILE)
   fs.writeFileSync(DATA_FILE, JSON.stringify(data, null, 2))
   console.log('[STORAGE] Portfolio saved successfully at', data.updatedAt)

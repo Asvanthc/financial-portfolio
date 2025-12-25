@@ -160,60 +160,60 @@ app.get('/api/group', (req, res) => {
 });
 
 // Portfolio JSON storage CRUD
-app.get('/api/portfolio', (_req, res) => {
+app.get('/api/portfolio', async (_req, res) => {
   try {
-    const p = loadPortfolio()
+    const p = await loadPortfolio()
     res.json(p)
   } catch (e) { res.status(500).json({ error: e.message }) }
 })
 
-app.post('/api/portfolio', (req, res) => {
+app.post('/api/portfolio', async (req, res) => {
   try {
     const body = req.body || {}
-    const next = savePortfolio({ divisions: Array.isArray(body.divisions) ? body.divisions : [], updatedAt: new Date().toISOString() })
+    const next = await savePortfolio({ divisions: Array.isArray(body.divisions) ? body.divisions : [], updatedAt: new Date().toISOString() })
     res.json(next)
   } catch (e) { res.status(500).json({ error: e.message }) }
 })
 
-app.post('/api/divisions', (req, res) => {
+app.post('/api/divisions', async (req, res) => {
   try {
     const { name, targetPercent } = req.body || {}
     if (!name) return res.status(400).json({ error: 'name required' })
-    const p = loadPortfolio()
+    const p = await loadPortfolio()
     const d = createDivision({ name, targetPercent })
     p.divisions.push(d)
-    savePortfolio(p)
+    await savePortfolio(p)
     res.json(d)
   } catch (e) { res.status(500).json({ error: e.message }) }
 })
 
-app.patch('/api/divisions/:id', (req, res) => {
+app.patch('/api/divisions/:id', async (req, res) => {
   try {
-    const p = loadPortfolio()
+    const p = await loadPortfolio()
     const d = p.divisions.find(x => x.id === req.params.id)
     if (!d) return res.status(404).json({ error: 'division not found' })
     const { name, targetPercent } = req.body || {}
     if (name !== undefined) d.name = name
     if (targetPercent !== undefined) d.targetPercent = Number(targetPercent) || 0
-    savePortfolio(p)
+    await savePortfolio(p)
     res.json(d)
   } catch (e) { res.status(500).json({ error: e.message }) }
 })
 
-app.delete('/api/divisions/:id', (req, res) => {
+app.delete('/api/divisions/:id', async (req, res) => {
   try {
-    const p = loadPortfolio()
+    const p = await loadPortfolio()
     const idx = p.divisions.findIndex(x => x.id === req.params.id)
     if (idx === -1) return res.status(404).json({ error: 'division not found' })
     const [removed] = p.divisions.splice(idx, 1)
-    savePortfolio(p)
+    await savePortfolio(p)
     res.json(removed)
   } catch (e) { res.status(500).json({ error: e.message }) }
 })
 
-app.post('/api/divisions/:id/subdivisions', (req, res) => {
+app.post('/api/divisions/:id/subdivisions', async (req, res) => {
   try {
-    const p = loadPortfolio()
+    const p = await loadPortfolio()
     const d = p.divisions.find(x => x.id === req.params.id)
     if (!d) return res.status(404).json({ error: 'division not found' })
     const { name, targetPercent } = req.body || {}
@@ -221,14 +221,14 @@ app.post('/api/divisions/:id/subdivisions', (req, res) => {
     const sd = createSubdivision({ name, targetPercent })
     d.subdivisions = d.subdivisions || []
     d.subdivisions.push(sd)
-    savePortfolio(p)
+    await savePortfolio(p)
     res.json(sd)
   } catch (e) { res.status(500).json({ error: e.message }) }
 })
 
-app.post('/api/divisions/:id/holdings', (req, res) => {
+app.post('/api/divisions/:id/holdings', async (req, res) => {
   try {
-    const p = loadPortfolio()
+    const p = await loadPortfolio()
     const d = p.divisions.find(x => x.id === req.params.id)
     if (!d) return res.status(404).json({ error: 'division not found' })
     const { name, invested, current, subdivisionId } = req.body || {}
@@ -243,14 +243,14 @@ app.post('/api/divisions/:id/holdings', (req, res) => {
       d.holdings = d.holdings || []
       d.holdings.push(h)
     }
-    savePortfolio(p)
+    await savePortfolio(p)
     res.json(h)
   } catch (e) { res.status(500).json({ error: e.message }) }
 })
 
-app.patch('/api/holdings/:hid', (req, res) => {
+app.patch('/api/holdings/:hid', async (req, res) => {
   try {
-    const p = loadPortfolio()
+    const p = await loadPortfolio()
     let found
     for (const d of p.divisions) {
       if (d.holdings) {
@@ -269,32 +269,32 @@ app.patch('/api/holdings/:hid', (req, res) => {
     if (invested !== undefined) found.invested = Number(invested) || 0
     if (current !== undefined) found.current = Number(current) || 0
     if (targetPercent !== undefined) found.targetPercent = Number(targetPercent) || 0
-    savePortfolio(p)
+    await savePortfolio(p)
     res.json(found)
   } catch (e) { res.status(500).json({ error: e.message }) }
 })
 
-app.delete('/api/holdings/:hid', (req, res) => {
+app.delete('/api/holdings/:hid', async (req, res) => {
   try {
-    const p = loadPortfolio()
+    const p = await loadPortfolio()
     for (const d of p.divisions) {
       if (d.holdings) {
         const idx = d.holdings.findIndex(x => x.id === req.params.hid)
-        if (idx !== -1) { const [rm] = d.holdings.splice(idx, 1); savePortfolio(p); return res.json(rm) }
+        if (idx !== -1) { const [rm] = d.holdings.splice(idx, 1); await savePortfolio(p); return res.json(rm) }
       }
       for (const sd of (d.subdivisions || [])) {
         const idx = (sd.holdings || []).findIndex(x => x.id === req.params.hid)
-        if (idx !== -1) { const [rm] = sd.holdings.splice(idx, 1); savePortfolio(p); return res.json(rm) }
+        if (idx !== -1) { const [rm] = sd.holdings.splice(idx, 1); await savePortfolio(p); return res.json(rm) }
       }
     }
     return res.status(404).json({ error: 'holding not found' })
   } catch (e) { res.status(500).json({ error: e.message }) }
 })
 
-app.get('/api/portfolio/analytics', (req, res) => {
+app.get('/api/portfolio/analytics', async (req, res) => {
   try {
     const budget = req.query.budget
-    const p = loadPortfolio()
+    const p = await loadPortfolio()
     const analytics = computeAnalytics(p)
     const budgetAdds = budget !== undefined ? computeBudgetAllocation(analytics.divisions, budget) : {}
     res.json({ ...analytics, budget, budgetAdditions: budgetAdds })
@@ -302,9 +302,9 @@ app.get('/api/portfolio/analytics', (req, res) => {
 })
 
 // Subdivision goal seek for each division
-app.get('/api/subdivision-goal-seek', (req, res) => {
+app.get('/api/subdivision-goal-seek', async (req, res) => {
   try {
-    const p = loadPortfolio()
+    const p = await loadPortfolio()
     const result = {}
     for (const div of p.divisions) {
       const goalSeek = computeSubdivisionGoalSeek(div)
@@ -315,9 +315,9 @@ app.get('/api/subdivision-goal-seek', (req, res) => {
 })
 
 // Subdivision update/delete
-app.patch('/api/subdivisions/:sid', (req, res) => {
+app.patch('/api/subdivisions/:sid', async (req, res) => {
   try {
-    const p = loadPortfolio()
+    const p = await loadPortfolio()
     let sub
     for (const d of p.divisions) {
       for (const sd of (d.subdivisions || [])) {
@@ -329,21 +329,21 @@ app.patch('/api/subdivisions/:sid', (req, res) => {
     const { name, targetPercent } = req.body || {}
     if (name !== undefined) sub.name = name
     if (targetPercent !== undefined) sub.targetPercent = Number(targetPercent) || 0
-    savePortfolio(p)
+    await savePortfolio(p)
     res.json(sub)
   } catch (e) { res.status(500).json({ error: e.message }) }
 })
 
-app.delete('/api/subdivisions/:sid', (req, res) => {
+app.delete('/api/subdivisions/:sid', async (req, res) => {
   try {
-    const p = loadPortfolio()
+    const p = await loadPortfolio()
     for (const d of p.divisions) {
       const arr = d.subdivisions || []
       const idx = arr.findIndex(sd => sd.id === req.params.sid)
       if (idx !== -1) {
         const [rm] = arr.splice(idx, 1)
         d.subdivisions = arr
-        savePortfolio(p)
+        await savePortfolio(p)
         return res.json(rm)
       }
     }
