@@ -342,6 +342,61 @@ export default function ExpenseTracker({ expenses = [], onUpdate }) {
     ]
   }
 
+  // Cumulative Cash Flow
+  let cumulativeCashFlow = 0
+  const cumulativeFlowData = {
+    labels: trendLabels,
+    datasets: [{
+      label: 'Cumulative Cash Flow (₹)',
+      data: monthlyTrend.map(m => {
+        cumulativeCashFlow += m.savings
+        return cumulativeCashFlow
+      }),
+      backgroundColor: monthlyTrend.map((m, idx) => {
+        const cumulative = monthlyTrend.slice(0, idx + 1).reduce((sum, month) => sum + month.savings, 0)
+        return cumulative >= 0 ? 'rgba(34, 197, 94, 0.7)' : 'rgba(239, 68, 68, 0.7)'
+      }),
+      borderColor: '#3b82f6',
+      borderWidth: 2
+    }]
+  }
+
+  // Income Concentration Analysis
+  const totalIncomeAmount = Object.values(incomeBreakdown).reduce((sum, amt) => sum + amt, 0)
+  const incomeConcentration = Object.entries(incomeBreakdown).map(([cat, amt]) => ({
+    category: cat,
+    percentage: totalIncomeAmount > 0 ? ((amt / totalIncomeAmount) * 100).toFixed(1) : 0,
+    amount: amt
+  })).sort((a, b) => b.percentage - a.percentage)
+  
+  const topIncomeSource = incomeConcentration[0]
+  const concentrationRisk = topIncomeSource ? parseFloat(topIncomeSource.percentage) : 0
+  const concentrationColor = concentrationRisk < 50 ? '#22c55e' : concentrationRisk < 70 ? '#f59e0b' : '#ef4444'
+  const concentrationRating = concentrationRisk < 50 ? 'Well Diversified' : concentrationRisk < 70 ? 'Moderate Risk' : 'High Concentration Risk'
+
+  // Expense Category Trends (comparing current period to overall average)
+  const overallExpenseBreakdown = {}
+  expenses.filter(e => e.type === 'expense').forEach(e => {
+    overallExpenseBreakdown[e.category] = (overallExpenseBreakdown[e.category] || 0) + Number(e.amount)
+  })
+  const overallExpenseTotal = Object.values(overallExpenseBreakdown).reduce((sum, amt) => sum + amt, 0)
+  
+  const categoryTrendAnalysis = Object.keys(expenseBreakdown).map(cat => {
+    const currentAmount = expenseBreakdown[cat]
+    const overallAmount = overallExpenseBreakdown[cat] || 0
+    const currentPercentage = monthlyTotal.expense > 0 ? (currentAmount / monthlyTotal.expense) * 100 : 0
+    const overallPercentage = overallExpenseTotal > 0 ? (overallAmount / overallExpenseTotal) * 100 : 0
+    const variance = currentPercentage - overallPercentage
+    
+    return {
+      category: cat,
+      currentPct: currentPercentage.toFixed(1),
+      overallPct: overallPercentage.toFixed(1),
+      variance: variance.toFixed(1),
+      trend: variance > 5 ? '⬆️ Increasing' : variance < -5 ? '⬇️ Decreasing' : '➡️ Stable'
+    }
+  }).sort((a, b) => Math.abs(b.variance) - Math.abs(a.variance))
+
   return (
     <div>
       {/* Filter Mode Selection */}
@@ -452,6 +507,19 @@ export default function ExpenseTracker({ expenses = [], onUpdate }) {
           </div>
           <div style={{ fontSize: 11, color: '#94a3b8', marginTop: 8, lineHeight: 1.5 }}>
             Target: 20-30% for healthy finances
+          </div>
+        </div>
+
+        <div style={{ background: `linear-gradient(135deg, ${concentrationColor === '#22c55e' ? 'rgba(34,197,94,0.15)' : concentrationColor === '#f59e0b' ? 'rgba(245,158,11,0.15)' : 'rgba(239,68,68,0.15)'}, rgba(0,0,0,0.05)), #0f1724`, padding: 20, borderRadius: 12, border: `2px solid ${concentrationColor}40`, boxShadow: `0 4px 16px ${concentrationColor}30` }}>
+          <div style={{ fontSize: 11, color: concentrationColor, marginBottom: 8, fontWeight: 700, textTransform: 'uppercase', display: 'flex', alignItems: 'center', gap: 6 }}>
+            🎯 Income Concentration
+          </div>
+          <div style={{ fontSize: 32, fontWeight: 900, color: concentrationColor }}>{concentrationRisk}%</div>
+          <div style={{ fontSize: 13, color: concentrationColor, marginTop: 6, fontWeight: 600 }}>
+            {concentrationRating}
+          </div>
+          <div style={{ fontSize: 11, color: '#94a3b8', marginTop: 8, lineHeight: 1.5 }}>
+            {topIncomeSource ? `Top source: ${topIncomeSource.category}` : 'No income data'}
           </div>
         </div>
       </div>
@@ -626,6 +694,82 @@ export default function ExpenseTracker({ expenses = [], onUpdate }) {
           </ul>
         </div>
       </div>
+
+      {/* Cumulative Cash Flow Waterfall */}
+      <div style={{ background: 'linear-gradient(135deg, #0a1018 0%, #0f1724 100%)', padding: 24, borderRadius: 14, border: '2px solid #1e293b', boxShadow: '0 4px 20px rgba(0,0,0,0.3)', marginBottom: 32 }}>
+        <h3 style={{ margin: '0 0 20px 0', color: '#e6e9ef', fontSize: 18, fontWeight: 700, display: 'flex', alignItems: 'center', gap: 8 }}>
+          💰 Cumulative Cash Flow {filterMode === 'range' ? '(Range)' : `(${selectedYear})`}
+        </h3>
+        <Bar data={cumulativeFlowData} options={{ 
+          responsive: true, 
+          maintainAspectRatio: true, 
+          plugins: { 
+            legend: { display: false },
+            tooltip: { 
+              callbacks: { 
+                label: (context) => `Cumulative: ₹${context.parsed.y.toLocaleString()}` 
+              } 
+            }
+          }, 
+          scales: { 
+            x: { ticks: { color: '#64748b', font: { size: 11 } }, grid: { color: '#1e293b' } }, 
+            y: { ticks: { color: '#64748b', font: { size: 11 } }, grid: { color: '#1e293b' } } 
+          } 
+        }} />
+        <div style={{ marginTop: 16, padding: 16, background: 'rgba(34,197,94,0.08)', borderRadius: 8, border: '1px solid rgba(34,197,94,0.2)' }}>
+          <div style={{ fontSize: 12, color: '#86efac', fontWeight: 700, marginBottom: 8 }}>📊 Cash Flow Pattern:</div>
+          <ul style={{ margin: 0, paddingLeft: 20, fontSize: 11, color: '#cbd5e1', lineHeight: 1.8 }}>
+            <li>Rising cumulative flow = consistent wealth building</li>
+            <li>Flat line = break-even lifestyle (no savings growth)</li>
+            <li>Declining flow = burning through savings (action needed)</li>
+          </ul>
+        </div>
+      </div>
+
+      {/* Category Spending Trend Analysis */}
+      {categoryTrendAnalysis.length > 0 && (
+        <div style={{ background: 'linear-gradient(135deg, #0a1018 0%, #0f1724 100%)', padding: 24, borderRadius: 14, border: '2px solid #1e293b', boxShadow: '0 4px 20px rgba(0,0,0,0.3)', marginBottom: 32 }}>
+          <h3 style={{ margin: '0 0 20px 0', color: '#e6e9ef', fontSize: 18, fontWeight: 700, display: 'flex', alignItems: 'center', gap: 8 }}>
+            📈 Category Spending Trends vs Overall Average
+          </h3>
+          <div style={{ overflowX: 'auto' }}>
+            <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+              <thead>
+                <tr style={{ borderBottom: '2px solid #2d3f5f' }}>
+                  <th style={{ padding: 14, textAlign: 'left', color: '#94a3b8', fontSize: 12, fontWeight: 700, textTransform: 'uppercase' }}>Category</th>
+                  <th style={{ padding: 14, textAlign: 'right', color: '#94a3b8', fontSize: 12, fontWeight: 700, textTransform: 'uppercase' }}>Current %</th>
+                  <th style={{ padding: 14, textAlign: 'right', color: '#94a3b8', fontSize: 12, fontWeight: 700, textTransform: 'uppercase' }}>Overall %</th>
+                  <th style={{ padding: 14, textAlign: 'right', color: '#94a3b8', fontSize: 12, fontWeight: 700, textTransform: 'uppercase' }}>Variance</th>
+                  <th style={{ padding: 14, textAlign: 'center', color: '#94a3b8', fontSize: 12, fontWeight: 700, textTransform: 'uppercase' }}>Trend</th>
+                </tr>
+              </thead>
+              <tbody>
+                {categoryTrendAnalysis.slice(0, 8).map((trend, idx) => (
+                  <tr key={idx} style={{ borderBottom: '1px solid #1e293b', transition: 'all 0.2s' }}
+                    onMouseEnter={e => e.currentTarget.style.background = 'rgba(59,130,246,0.05)'}
+                    onMouseLeave={e => e.currentTarget.style.background = 'transparent'}>
+                    <td style={{ padding: 14, color: '#e6e9ef', fontSize: 13, fontWeight: 600 }}>{trend.category}</td>
+                    <td style={{ padding: 14, textAlign: 'right', color: '#22d3ee', fontSize: 13, fontWeight: 700 }}>{trend.currentPct}%</td>
+                    <td style={{ padding: 14, textAlign: 'right', color: '#94a3b8', fontSize: 13 }}>{trend.overallPct}%</td>
+                    <td style={{ padding: 14, textAlign: 'right', color: Math.abs(trend.variance) > 5 ? (trend.variance > 0 ? '#ef4444' : '#22c55e') : '#94a3b8', fontSize: 13, fontWeight: 700 }}>
+                      {trend.variance > 0 ? '+' : ''}{trend.variance}%
+                    </td>
+                    <td style={{ padding: 14, textAlign: 'center', fontSize: 13 }}>{trend.trend}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          <div style={{ marginTop: 16, padding: 16, background: 'rgba(245,158,11,0.08)', borderRadius: 8, border: '1px solid rgba(245,158,11,0.2)' }}>
+            <div style={{ fontSize: 12, color: '#fbbf24', fontWeight: 700, marginBottom: 8 }}>⚠️ What to Watch:</div>
+            <ul style={{ margin: 0, paddingLeft: 20, fontSize: 11, color: '#cbd5e1', lineHeight: 1.8 }}>
+              <li>Variance &gt;+5%: Spending more than usual in this category</li>
+              <li>Variance &lt;-5%: Successfully reducing spending in this category</li>
+              <li>Large variances may indicate lifestyle changes or one-time expenses</li>
+            </ul>
+          </div>
+        </div>
+      )}
 
       {/* Category Statistics for Selected Month/Range */}
       {(Object.keys(expenseBreakdown).length > 0 || Object.keys(incomeBreakdown).length > 0) && (
