@@ -501,16 +501,16 @@ export default function ExpenseTracker({ expenses = [], onUpdate }) {
           </div>
         </div>
 
-        <div style={{ background: `linear-gradient(135deg, ${concentrationColor === '#22c55e' ? 'rgba(34,197,94,0.15)' : concentrationColor === '#f59e0b' ? 'rgba(245,158,11,0.15)' : 'rgba(239,68,68,0.15)'}, rgba(0,0,0,0.05)), #0f1724`, padding: 20, borderRadius: 12, border: `2px solid ${concentrationColor}40`, boxShadow: `0 4px 16px ${concentrationColor}30` }}>
-          <div style={{ fontSize: 11, color: concentrationColor, marginBottom: 8, fontWeight: 700, textTransform: 'uppercase', display: 'flex', alignItems: 'center', gap: 6 }}>
-            🎯 Income Concentration
+        <div style={{ background: `linear-gradient(135deg, ${expenseConcentrationColor === '#22c55e' ? 'rgba(34,197,94,0.15)' : expenseConcentrationColor === '#f59e0b' ? 'rgba(245,158,11,0.15)' : 'rgba(239,68,68,0.15)'}, rgba(0,0,0,0.05)), #0f1724`, padding: 20, borderRadius: 12, border: `2px solid ${expenseConcentrationColor}40`, boxShadow: `0 4px 16px ${expenseConcentrationColor}30` }}>
+          <div style={{ fontSize: 11, color: expenseConcentrationColor, marginBottom: 8, fontWeight: 700, textTransform: 'uppercase', display: 'flex', alignItems: 'center', gap: 6 }}>
+            🎯 Expense Concentration
           </div>
-          <div style={{ fontSize: 32, fontWeight: 900, color: concentrationColor }}>{concentrationRisk}%</div>
-          <div style={{ fontSize: 13, color: concentrationColor, marginTop: 6, fontWeight: 600 }}>
-            {concentrationRating}
+          <div style={{ fontSize: 32, fontWeight: 900, color: expenseConcentrationColor }}>{expenseConcentrationRisk}%</div>
+          <div style={{ fontSize: 13, color: expenseConcentrationColor, marginTop: 6, fontWeight: 600 }}>
+            {expenseConcentrationRating}
           </div>
           <div style={{ fontSize: 11, color: '#94a3b8', marginTop: 8, lineHeight: 1.5 }}>
-            {topIncomeSource ? `Top source: ${topIncomeSource.category}` : 'No income data'}
+            {topExpenseSource ? `Top expense: ${topExpenseSource.category}` : 'No expense data'}
           </div>
         </div>
       </div>
