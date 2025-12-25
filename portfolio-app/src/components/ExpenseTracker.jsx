@@ -299,6 +299,49 @@ export default function ExpenseTracker({ expenses = [], onUpdate }) {
     }]
   }
 
+  // Financial Runway - How many months can savings sustain current expenses
+  const avgMonthlyExpense = monthlyTrend.reduce((sum, m) => sum + m.expense, 0) / monthlyTrend.filter(m => m.expense > 0).length || 1
+  const avgMonthlyIncome = monthlyTrend.reduce((sum, m) => sum + m.income, 0) / monthlyTrend.filter(m => m.income > 0).length || 1
+  const avgMonthlySavings = avgMonthlyIncome - avgMonthlyExpense
+  const totalSavings = overallTotal.balance
+  const runwayMonths = avgMonthlyExpense > 0 ? (totalSavings / avgMonthlyExpense).toFixed(1) : 0
+  const runwayColor = runwayMonths >= 6 ? '#22c55e' : runwayMonths >= 3 ? '#f59e0b' : '#ef4444'
+
+  // Expense Stability Score - Coefficient of Variation (lower is more stable)
+  const expenseValues = monthlyTrend.map(m => m.expense).filter(e => e > 0)
+  const expenseMean = expenseValues.reduce((sum, val) => sum + val, 0) / expenseValues.length || 1
+  const expenseStdDev = Math.sqrt(expenseValues.reduce((sum, val) => sum + Math.pow(val - expenseMean, 2), 0) / expenseValues.length)
+  const expenseCV = (expenseStdDev / expenseMean) * 100
+  const stabilityScore = Math.max(0, 100 - expenseCV).toFixed(0)
+  const stabilityColor = stabilityScore >= 70 ? '#22c55e' : stabilityScore >= 50 ? '#f59e0b' : '#ef4444'
+
+  // Month-over-Month Growth Rates
+  const momGrowthData = {
+    labels: trendLabels.slice(1),
+    datasets: [
+      {
+        label: 'Income Growth %',
+        data: monthlyTrend.slice(1).map((m, idx) => {
+          const prev = monthlyTrend[idx].income
+          return prev > 0 ? (((m.income - prev) / prev) * 100).toFixed(1) : 0
+        }),
+        backgroundColor: 'rgba(34, 197, 94, 0.7)',
+        borderColor: '#22c55e',
+        borderWidth: 2
+      },
+      {
+        label: 'Expense Growth %',
+        data: monthlyTrend.slice(1).map((m, idx) => {
+          const prev = monthlyTrend[idx].expense
+          return prev > 0 ? (((m.expense - prev) / prev) * 100).toFixed(1) : 0
+        }),
+        backgroundColor: 'rgba(239, 68, 68, 0.7)',
+        borderColor: '#ef4444',
+        borderWidth: 2
+      }
+    ]
+  }
+
   return (
     <div>
       {/* Filter Mode Selection */}
@@ -366,6 +409,50 @@ export default function ExpenseTracker({ expenses = [], onUpdate }) {
             {monthlyTotal.balance >= 0 ? '+' : ''}₹{monthlyTotal.balance.toLocaleString()}
           </div>
           <div style={{ fontSize: 12, color: '#93c5fd', marginTop: 6 }}>Overall Gross: ₹{overallTotal.balance.toLocaleString()}</div>
+        </div>
+      </div>
+
+      {/* Financial Health Indicators */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: 20, marginBottom: 32 }}>
+        <div style={{ background: `linear-gradient(135deg, ${runwayColor === '#22c55e' ? 'rgba(34,197,94,0.15)' : runwayColor === '#f59e0b' ? 'rgba(245,158,11,0.15)' : 'rgba(239,68,68,0.15)'}, rgba(0,0,0,0.05)), #0f1724`, padding: 20, borderRadius: 12, border: `2px solid ${runwayColor}40`, boxShadow: `0 4px 16px ${runwayColor}30` }}>
+          <div style={{ fontSize: 11, color: runwayColor, marginBottom: 8, fontWeight: 700, textTransform: 'uppercase', display: 'flex', alignItems: 'center', gap: 6 }}>
+            ⏱️ Financial Runway
+          </div>
+          <div style={{ fontSize: 32, fontWeight: 900, color: runwayColor }}>{runwayMonths}</div>
+          <div style={{ fontSize: 13, color: runwayColor, marginTop: 6, fontWeight: 600 }}>
+            months of expenses covered
+          </div>
+          <div style={{ fontSize: 11, color: '#94a3b8', marginTop: 8, lineHeight: 1.5 }}>
+            Based on avg monthly expense of ₹{avgMonthlyExpense.toLocaleString()}
+          </div>
+        </div>
+
+        <div style={{ background: `linear-gradient(135deg, ${stabilityColor === '#22c55e' ? 'rgba(34,197,94,0.15)' : stabilityColor === '#f59e0b' ? 'rgba(245,158,11,0.15)' : 'rgba(239,68,68,0.15)'}, rgba(0,0,0,0.05)), #0f1724`, padding: 20, borderRadius: 12, border: `2px solid ${stabilityColor}40`, boxShadow: `0 4px 16px ${stabilityColor}30` }}>
+          <div style={{ fontSize: 11, color: stabilityColor, marginBottom: 8, fontWeight: 700, textTransform: 'uppercase', display: 'flex', alignItems: 'center', gap: 6 }}>
+            📊 Expense Stability Score
+          </div>
+          <div style={{ fontSize: 32, fontWeight: 900, color: stabilityColor }}>{stabilityScore}/100</div>
+          <div style={{ fontSize: 13, color: stabilityColor, marginTop: 6, fontWeight: 600 }}>
+            {stabilityScore >= 70 ? 'Highly Consistent' : stabilityScore >= 50 ? 'Moderately Stable' : 'Volatile Spending'}
+          </div>
+          <div style={{ fontSize: 11, color: '#94a3b8', marginTop: 8, lineHeight: 1.5 }}>
+            Lower variation = better budget control
+          </div>
+        </div>
+
+        <div style={{ background: 'linear-gradient(135deg, rgba(139,92,246,0.15), rgba(139,92,246,0.05)), #0f1724', padding: 20, borderRadius: 12, border: '2px solid rgba(139,92,246,0.3)', boxShadow: '0 4px 16px rgba(139,92,246,0.3)' }}>
+          <div style={{ fontSize: 11, color: '#c4b5fd', marginBottom: 8, fontWeight: 700, textTransform: 'uppercase', display: 'flex', alignItems: 'center', gap: 6 }}>
+            📈 Avg Monthly Savings
+          </div>
+          <div style={{ fontSize: 32, fontWeight: 900, color: avgMonthlySavings >= 0 ? '#a78bfa' : '#ef4444' }}>
+            {avgMonthlySavings >= 0 ? '+' : ''}₹{avgMonthlySavings.toLocaleString()}
+          </div>
+          <div style={{ fontSize: 13, color: '#c4b5fd', marginTop: 6, fontWeight: 600 }}>
+            {avgMonthlyIncome > 0 ? `${((avgMonthlySavings / avgMonthlyIncome) * 100).toFixed(1)}% savings rate` : 'No data'}
+          </div>
+          <div style={{ fontSize: 11, color: '#94a3b8', marginTop: 8, lineHeight: 1.5 }}>
+            Target: 20-30% for healthy finances
+          </div>
         </div>
       </div>
 
@@ -507,6 +594,37 @@ export default function ExpenseTracker({ expenses = [], onUpdate }) {
             }} />
           </div>
         )}
+      </div>
+
+      {/* Month-over-Month Growth Analysis */}
+      <div style={{ background: 'linear-gradient(135deg, #0a1018 0%, #0f1724 100%)', padding: 24, borderRadius: 14, border: '2px solid #1e293b', boxShadow: '0 4px 20px rgba(0,0,0,0.3)', marginBottom: 32 }}>
+        <h3 style={{ margin: '0 0 20px 0', color: '#e6e9ef', fontSize: 18, fontWeight: 700, display: 'flex', alignItems: 'center', gap: 8 }}>
+          📊 Month-over-Month Growth Rates {filterMode === 'range' ? '(Range)' : `(${selectedYear})`}
+        </h3>
+        <Bar data={momGrowthData} options={{ 
+          responsive: true, 
+          maintainAspectRatio: true, 
+          plugins: { 
+            legend: { labels: { color: '#94a3b8', font: { size: 12, weight: '600' } } },
+            tooltip: { 
+              callbacks: { 
+                label: (context) => `${context.dataset.label}: ${context.parsed.y}%` 
+              } 
+            }
+          }, 
+          scales: { 
+            x: { ticks: { color: '#64748b', font: { size: 11 } }, grid: { color: '#1e293b' } }, 
+            y: { ticks: { color: '#64748b', font: { size: 11 }, callback: (value) => value + '%' }, grid: { color: '#1e293b' } } 
+          } 
+        }} />
+        <div style={{ marginTop: 16, padding: 16, background: 'rgba(99,102,241,0.08)', borderRadius: 8, border: '1px solid rgba(99,102,241,0.2)' }}>
+          <div style={{ fontSize: 12, color: '#c4b5fd', fontWeight: 700, marginBottom: 8 }}>💡 Financial Insights:</div>
+          <ul style={{ margin: 0, paddingLeft: 20, fontSize: 11, color: '#cbd5e1', lineHeight: 1.8 }}>
+            <li>Positive income growth with controlled expense growth = healthy finances</li>
+            <li>Income growth slower than expense growth = warning sign</li>
+            <li>Negative income growth = consider diversifying income sources</li>
+          </ul>
+        </div>
       </div>
 
       {/* Category Statistics for Selected Month/Range */}
