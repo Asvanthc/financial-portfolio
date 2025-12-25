@@ -633,57 +633,6 @@ export default function ExpenseTracker({ expenses = [], onUpdate }) {
           </div>
         )}
         
-        {/* Top Income Sources */}
-        {Object.keys(incomeBreakdown).length > 0 && (
-          <div style={{ background: 'linear-gradient(135deg, #0a1018 0%, #0f1724 100%)', padding: 24, borderRadius: 14, border: '2px solid #1e293b', boxShadow: '0 4px 20px rgba(0,0,0,0.3)' }}>
-            <h3 style={{ margin: '0 0 20px 0', color: '#e6e9ef', fontSize: 18, fontWeight: 700, display: 'flex', alignItems: 'center', gap: 8 }}>
-              💰 Top Income Sources {filterMode === 'range' ? '(Range)' : `(${months[selectedMonth - 1]})`}
-            </h3>
-            <Bar data={incomeCategoryBarData} options={{ 
-              indexAxis: 'y',
-              responsive: true, 
-              maintainAspectRatio: true, 
-              plugins: { 
-                legend: { display: false } 
-              }, 
-              scales: { 
-                x: { ticks: { color: '#64748b', font: { size: 11 } }, grid: { color: '#1e293b' } }, 
-                y: { ticks: { color: '#64748b', font: { size: 11 } }, grid: { color: '#1e293b' } } 
-              } 
-            }} />
-          </div>
-        )}
-      </div>
-
-      {/* Month-over-Month Growth Analysis */}
-      <div style={{ background: 'linear-gradient(135deg, #0a1018 0%, #0f1724 100%)', padding: 24, borderRadius: 14, border: '2px solid #1e293b', boxShadow: '0 4px 20px rgba(0,0,0,0.3)', marginBottom: 32 }}>
-        <h3 style={{ margin: '0 0 20px 0', color: '#e6e9ef', fontSize: 18, fontWeight: 700, display: 'flex', alignItems: 'center', gap: 8 }}>
-          📊 Month-over-Month Growth Rates {filterMode === 'range' ? '(Range)' : `(${selectedYear})`}
-        </h3>
-        <Bar data={momGrowthData} options={{ 
-          responsive: true, 
-          maintainAspectRatio: true, 
-          plugins: { 
-            legend: { labels: { color: '#94a3b8', font: { size: 12, weight: '600' } } },
-            tooltip: { 
-              callbacks: { 
-                label: (context) => `${context.dataset.label}: ${context.parsed.y}%` 
-              } 
-            }
-          }, 
-          scales: { 
-            x: { ticks: { color: '#64748b', font: { size: 11 } }, grid: { color: '#1e293b' } }, 
-            y: { ticks: { color: '#64748b', font: { size: 11 }, callback: (value) => value + '%' }, grid: { color: '#1e293b' } } 
-          } 
-        }} />
-        <div style={{ marginTop: 16, padding: 16, background: 'rgba(99,102,241,0.08)', borderRadius: 8, border: '1px solid rgba(99,102,241,0.2)' }}>
-          <div style={{ fontSize: 12, color: '#c4b5fd', fontWeight: 700, marginBottom: 8 }}>💡 Financial Insights:</div>
-          <ul style={{ margin: 0, paddingLeft: 20, fontSize: 11, color: '#cbd5e1', lineHeight: 1.8 }}>
-            <li>Positive income growth with controlled expense growth = healthy finances</li>
-            <li>Income growth slower than expense growth = warning sign</li>
-            <li>Negative income growth = consider diversifying income sources</li>
-          </ul>
-        </div>
       </div>
 
       {/* Cumulative Cash Flow Waterfall */}
