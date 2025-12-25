@@ -1,9 +1,9 @@
 import React, { useState, useEffect } from 'react'
-import { Chart as ChartJS, CategoryScale, LinearScale, BarElement, LineElement, PointElement, ArcElement, Title, Tooltip, Legend } from 'chart.js'
-import { Bar, Line, Doughnut } from 'react-chartjs-2'
+import { Chart as ChartJS, CategoryScale, LinearScale, BarElement, Title, Tooltip, Legend } from 'chart.js'
+import { Bar } from 'react-chartjs-2'
 import { api } from '../api'
 
-ChartJS.register(CategoryScale, LinearScale, BarElement, LineElement, PointElement, ArcElement, Title, Tooltip, Legend)
+ChartJS.register(CategoryScale, LinearScale, BarElement, Title, Tooltip, Legend)
 
 export default function ExpenseTracker({ expenses = [], onUpdate }) {
   const [newEntry, setNewEntry] = useState({ type: 'expense', category: '', amount: '', month: '', year: new Date().getFullYear(), description: '' })
@@ -232,33 +232,70 @@ export default function ExpenseTracker({ expenses = [], onUpdate }) {
     }
   }
 
-  // Chart data
-  const trendChartData = {
-    labels: months,
-    datasets: [
-      { label: 'Income', data: monthlyTrend.map(m => m.income), borderColor: '#22c55e', backgroundColor: 'rgba(34, 197, 94, 0.1)', tension: 0.4 },
-      { label: 'Expense', data: monthlyTrend.map(m => m.expense), borderColor: '#ef4444', backgroundColor: 'rgba(239, 68, 68, 0.1)', tension: 0.4 },
-      { label: 'Savings', data: monthlyTrend.map(m => m.savings), borderColor: '#3b82f6', backgroundColor: 'rgba(59, 130, 246, 0.1)', tension: 0.4 }
-    ]
-  }
-
-  const expenseDoughnutData = {
-    labels: Object.keys(expenseBreakdown),
+  // Inferential Chart Data
+  
+  // Savings Rate Over Time
+  const savingsRateData = {
+    labels: trendLabels,
     datasets: [{
-      data: Object.values(expenseBreakdown),
-      backgroundColor: ['#ef4444', '#f97316', '#f59e0b', '#eab308', '#84cc16', '#22c55e', '#10b981', '#14b8a6', '#06b6d4', '#0ea5e9'],
-      borderWidth: 2,
-      borderColor: '#0a1018'
+      label: 'Savings Rate %',
+      data: monthlyTrend.map(m => m.income > 0 ? ((m.savings / m.income) * 100).toFixed(1) : 0),
+      backgroundColor: monthlyTrend.map(m => m.savings >= 0 ? 'rgba(34, 197, 94, 0.7)' : 'rgba(239, 68, 68, 0.7)'),
+      borderColor: monthlyTrend.map(m => m.savings >= 0 ? '#22c55e' : '#ef4444'),
+      borderWidth: 2
     }]
   }
 
-  const incomeDoughnutData = {
-    labels: Object.keys(incomeBreakdown),
+  // Top Expense Categories (Bar Chart)
+  const topExpenseCategories = Object.entries(expenseBreakdown)
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 8)
+  
+  const expenseCategoryBarData = {
+    labels: topExpenseCategories.map(([cat]) => cat),
     datasets: [{
-      data: Object.values(incomeBreakdown),
-      backgroundColor: ['#22c55e', '#10b981', '#14b8a6', '#06b6d4', '#0ea5e9', '#3b82f6', '#6366f1', '#8b5cf6', '#a855f7', '#d946ef'],
-      borderWidth: 2,
-      borderColor: '#0a1018'
+      label: 'Expense Amount (₹)',
+      data: topExpenseCategories.map(([, amt]) => amt),
+      backgroundColor: 'rgba(239, 68, 68, 0.7)',
+      borderColor: '#ef4444',
+      borderWidth: 2
+    }]
+  }
+
+  // Income vs Expense Comparison (Bar Chart)
+  const incomeVsExpenseData = {
+    labels: trendLabels,
+    datasets: [
+      {
+        label: 'Income',
+        data: monthlyTrend.map(m => m.income),
+        backgroundColor: 'rgba(34, 197, 94, 0.7)',
+        borderColor: '#22c55e',
+        borderWidth: 2
+      },
+      {
+        label: 'Expense',
+        data: monthlyTrend.map(m => m.expense),
+        backgroundColor: 'rgba(239, 68, 68, 0.7)',
+        borderColor: '#ef4444',
+        borderWidth: 2
+      }
+    ]
+  }
+
+  // Category Distribution (Top Income Sources)
+  const topIncomeCategories = Object.entries(incomeBreakdown)
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 6)
+  
+  const incomeCategoryBarData = {
+    labels: topIncomeCategories.map(([cat]) => cat),
+    datasets: [{
+      label: 'Income Amount (₹)',
+      data: topIncomeCategories.map(([, amt]) => amt),
+      backgroundColor: 'rgba(34, 197, 94, 0.7)',
+      borderColor: '#22c55e',
+      borderWidth: 2
     }]
   }
 
@@ -386,30 +423,88 @@ export default function ExpenseTracker({ expenses = [], onUpdate }) {
         )}
       </div>
 
-      {/* Charts */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(400px, 1fr))', gap: 24, marginBottom: 32 }}>
+      {/* Inferential Charts */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(450px, 1fr))', gap: 24, marginBottom: 32 }}>
+        {/* Savings Rate Over Time */}
         <div style={{ background: 'linear-gradient(135deg, #0a1018 0%, #0f1724 100%)', padding: 24, borderRadius: 14, border: '2px solid #1e293b', boxShadow: '0 4px 20px rgba(0,0,0,0.3)' }}>
           <h3 style={{ margin: '0 0 20px 0', color: '#e6e9ef', fontSize: 18, fontWeight: 700, display: 'flex', alignItems: 'center', gap: 8 }}>
-            📈 {filterMode === 'range' ? 'Date Range Trend' : `Monthly Trend (${selectedYear})`}
+            📊 Savings Rate Trend {filterMode === 'range' ? '(Range)' : `(${selectedYear})`}
           </h3>
-          <Line data={{ labels: trendLabels, datasets: trendChartData.datasets }} options={{ responsive: true, maintainAspectRatio: true, plugins: { legend: { labels: { color: '#94a3b8', font: { size: 12, weight: '600' } } } }, scales: { x: { ticks: { color: '#64748b', font: { size: 11 } }, grid: { color: '#1e293b' } }, y: { ticks: { color: '#64748b', font: { size: 11 } }, grid: { color: '#1e293b' } } } }} />
+          <Bar data={savingsRateData} options={{ 
+            responsive: true, 
+            maintainAspectRatio: true, 
+            plugins: { 
+              legend: { display: false },
+              tooltip: { 
+                callbacks: { 
+                  label: (context) => `Savings Rate: ${context.parsed.y}%` 
+                } 
+              } 
+            }, 
+            scales: { 
+              x: { ticks: { color: '#64748b', font: { size: 11 } }, grid: { color: '#1e293b' } }, 
+              y: { ticks: { color: '#64748b', font: { size: 11 }, callback: (value) => value + '%' }, grid: { color: '#1e293b' }, beginAtZero: true } 
+            } 
+          }} />
+        </div>
+
+        {/* Income vs Expense Comparison */}
+        <div style={{ background: 'linear-gradient(135deg, #0a1018 0%, #0f1724 100%)', padding: 24, borderRadius: 14, border: '2px solid #1e293b', boxShadow: '0 4px 20px rgba(0,0,0,0.3)' }}>
+          <h3 style={{ margin: '0 0 20px 0', color: '#e6e9ef', fontSize: 18, fontWeight: 700, display: 'flex', alignItems: 'center', gap: 8 }}>
+            📈 Income vs Expense {filterMode === 'range' ? '(Range)' : `(${selectedYear})`}
+          </h3>
+          <Bar data={incomeVsExpenseData} options={{ 
+            responsive: true, 
+            maintainAspectRatio: true, 
+            plugins: { 
+              legend: { labels: { color: '#94a3b8', font: { size: 12, weight: '600' } } } 
+            }, 
+            scales: { 
+              x: { ticks: { color: '#64748b', font: { size: 11 } }, grid: { color: '#1e293b' } }, 
+              y: { ticks: { color: '#64748b', font: { size: 11 } }, grid: { color: '#1e293b' } } 
+            } 
+          }} />
         </div>
         
+        {/* Top Expense Categories */}
         {Object.keys(expenseBreakdown).length > 0 && (
           <div style={{ background: 'linear-gradient(135deg, #0a1018 0%, #0f1724 100%)', padding: 24, borderRadius: 14, border: '2px solid #1e293b', boxShadow: '0 4px 20px rgba(0,0,0,0.3)' }}>
             <h3 style={{ margin: '0 0 20px 0', color: '#e6e9ef', fontSize: 18, fontWeight: 700, display: 'flex', alignItems: 'center', gap: 8 }}>
-              💸 Expense Categories {filterMode === 'range' ? '(Range)' : `(${months[selectedMonth - 1]})`}
+              💸 Top Expense Categories {filterMode === 'range' ? '(Range)' : `(${months[selectedMonth - 1]})`}
             </h3>
-            <Doughnut data={expenseDoughnutData} options={{ responsive: true, maintainAspectRatio: true, plugins: { legend: { position: 'right', labels: { color: '#94a3b8', font: { size: 11, weight: '600' }, padding: 12 } } } }} />
+            <Bar data={expenseCategoryBarData} options={{ 
+              indexAxis: 'y',
+              responsive: true, 
+              maintainAspectRatio: true, 
+              plugins: { 
+                legend: { display: false } 
+              }, 
+              scales: { 
+                x: { ticks: { color: '#64748b', font: { size: 11 } }, grid: { color: '#1e293b' } }, 
+                y: { ticks: { color: '#64748b', font: { size: 11 } }, grid: { color: '#1e293b' } } 
+              } 
+            }} />
           </div>
         )}
         
+        {/* Top Income Sources */}
         {Object.keys(incomeBreakdown).length > 0 && (
           <div style={{ background: 'linear-gradient(135deg, #0a1018 0%, #0f1724 100%)', padding: 24, borderRadius: 14, border: '2px solid #1e293b', boxShadow: '0 4px 20px rgba(0,0,0,0.3)' }}>
             <h3 style={{ margin: '0 0 20px 0', color: '#e6e9ef', fontSize: 18, fontWeight: 700, display: 'flex', alignItems: 'center', gap: 8 }}>
-              💰 Income Sources {filterMode === 'range' ? '(Range)' : `(${months[selectedMonth - 1]})`}
+              💰 Top Income Sources {filterMode === 'range' ? '(Range)' : `(${months[selectedMonth - 1]})`}
             </h3>
-            <Doughnut data={incomeDoughnutData} options={{ responsive: true, maintainAspectRatio: true, plugins: { legend: { position: 'right', labels: { color: '#94a3b8', font: { size: 11, weight: '600' }, padding: 12 } } } }} />
+            <Bar data={incomeCategoryBarData} options={{ 
+              indexAxis: 'y',
+              responsive: true, 
+              maintainAspectRatio: true, 
+              plugins: { 
+                legend: { display: false } 
+              }, 
+              scales: { 
+                x: { ticks: { color: '#64748b', font: { size: 11 } }, grid: { color: '#1e293b' } }, 
+                y: { ticks: { color: '#64748b', font: { size: 11 } }, grid: { color: '#1e293b' } } 
+              } 
+            }} />
           </div>
         )}
       </div>
