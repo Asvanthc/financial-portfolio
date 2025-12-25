@@ -28,4 +28,7 @@ export const api = {
   deleteHolding: (hid) => json('DELETE', `/api/holdings/${hid}`),
   analytics: (budget) => fetch(`${API_ROOT}/api/portfolio/analytics${budget!==undefined?`?budget=${encodeURIComponent(budget)}`:''}`).then(r=>r.json()),
   subdivisionGoalSeek: () => fetch(`${API_ROOT}/api/subdivision-goal-seek`).then(r=>r.json()),
+  getExpenses: () => fetch(`${API_ROOT}/api/expenses`).then(r=>r.json()),
+  addExpense: (exp) => json('POST', '/api/expenses', exp),
+  deleteExpense: (id) => json('DELETE', `/api/expenses/${id}`),
 }

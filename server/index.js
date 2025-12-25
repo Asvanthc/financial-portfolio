@@ -351,6 +351,54 @@ app.delete('/api/subdivisions/:sid', async (req, res) => {
   } catch (e) { res.status(500).json({ error: e.message }) }
 })
 
+// ===== EXPENSES ROUTES =====
+
+// Get all expenses
+app.get('/api/expenses', async (req, res) => {
+  try {
+    const p = await loadPortfolio()
+    res.json(p.expenses || [])
+  } catch (e) { res.status(500).json({ error: e.message }) }
+})
+
+// Add new expense
+app.post('/api/expenses', async (req, res) => {
+  try {
+    const p = await loadPortfolio()
+    if (!p.expenses) p.expenses = []
+    
+    const newExpense = {
+      id: crypto.randomUUID(),
+      type: req.body.type, // 'income' or 'expense'
+      category: req.body.category,
+      amount: req.body.amount,
+      month: req.body.month,
+      year: req.body.year,
+      description: req.body.description,
+      createdAt: new Date().toISOString()
+    }
+    
+    p.expenses.push(newExpense)
+    await savePortfolio(p)
+    res.json(newExpense)
+  } catch (e) { res.status(500).json({ error: e.message }) }
+})
+
+// Delete expense
+app.delete('/api/expenses/:id', async (req, res) => {
+  try {
+    const p = await loadPortfolio()
+    if (!p.expenses) p.expenses = []
+    
+    const idx = p.expenses.findIndex(e => e.id === req.params.id)
+    if (idx === -1) return res.status(404).json({ error: 'Expense not found' })
+    
+    p.expenses.splice(idx, 1)
+    await savePortfolio(p)
+    res.json({ success: true })
+  } catch (e) { res.status(500).json({ error: e.message }) }
+})
+
 // Catch-all route to serve React app for client-side routing (production only)
 // Only for non-API routes
 if (process.env.NODE_ENV === 'production') {

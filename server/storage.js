@@ -37,7 +37,7 @@ async function loadPortfolio() {
     try {
       const doc = await portfolioCollection.findOne({ _id: 'main' })
       if (doc) {
-        const data = { divisions: doc.divisions || [], updatedAt: doc.updatedAt }
+        const data = { divisions: doc.divisions || [], expenses: doc.expenses || [], updatedAt: doc.updatedAt }
         return data
       }
     } catch (e) {
@@ -51,6 +51,7 @@ async function loadPortfolio() {
   try {
     const data = JSON.parse(raw)
     if (!Array.isArray(data.divisions)) data.divisions = []
+    if (!Array.isArray(data.expenses)) data.expenses = []
     return data
   } catch (e) {
     throw new Error('Failed to parse portfolio data: ' + e.message)
@@ -65,7 +66,7 @@ async function savePortfolio(portfolio) {
     try {
       await portfolioCollection.updateOne(
         { _id: 'main' },
-        { $set: { divisions: data.divisions, updatedAt: data.updatedAt } },
+        { $set: { divisions: data.divisions, expenses: data.expenses || [], updatedAt: data.updatedAt } },
         { upsert: true }
       )
       console.log('[STORAGE] Portfolio saved to MongoDB at', data.updatedAt)

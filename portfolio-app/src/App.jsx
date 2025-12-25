@@ -5,6 +5,7 @@ import PortfolioCharts from './components/PortfolioCharts'
 import AddDivisionForm from './components/AddDivisionForm'
 import MonthlyPlanner from './components/MonthlyPlanner'
 import DeepAnalytics from './components/DeepAnalytics'
+import ExpenseTracker from './components/ExpenseTracker'
 
 export default function App() {
   const [portfolio, setPortfolio] = useState({ divisions: [] })
@@ -13,14 +14,17 @@ export default function App() {
   const [budget, setBudget] = useState('')
   const [showAddDivisionModal, setShowAddDivisionModal] = useState(false)
   const [activeTab, setActiveTab] = useState('overview')
+  const [expenses, setExpenses] = useState([])
 
   async function refreshAll() {
     const p = await api.getPortfolio()
     const a = await api.analytics(budget || undefined)
     const sgs = await api.subdivisionGoalSeek()
+    const exp = await api.getExpenses()
     setPortfolio(p)
     setAnalytics(a)
     setSubdivisionGoalSeek(sgs)
+    setExpenses(exp)
   }
 
   useEffect(() => { refreshAll() }, [])
@@ -55,7 +59,7 @@ export default function App() {
             📊 Financial Portfolio
           </h1>
           <div style={{ display: 'flex', gap: 'clamp(6px, 1.5vw, 10px)', background: 'linear-gradient(135deg, #0a1018 0%, #0f1724 100%)', padding: 'clamp(6px, 1.2vw, 8px)', borderRadius: 14, border: '2px solid #1e293b', boxShadow: '0 4px 16px rgba(0,0,0,0.3), inset 0 1px 0 rgba(255,255,255,0.05)', flexShrink: 0 }}>
-            {['overview', 'analytics', 'planner'].map(tab => (
+            {['overview', 'analytics', 'planner', 'expenses'].map(tab => (
               <button
                 key={tab}
                 onClick={() => setActiveTab(tab)}
@@ -88,7 +92,7 @@ export default function App() {
                   }
                 }}
               >
-                {tab === 'overview' ? '📊 Overview' : tab === 'analytics' ? '📈 Analytics' : '📅 Monthly Plan'}
+                {tab === 'overview' ? '📊 Overview' : tab === 'analytics' ? '📈 Analytics' : tab === 'planner' ? '📅 Monthly Plan' : '💸 Expenses'}
               </button>
             ))}
           </div>
@@ -346,6 +350,10 @@ export default function App() {
           analytics={analytics}
           divisions={portfolio.divisions || []}
         />
+      )}
+
+      {activeTab === 'expenses' && (
+        <ExpenseTracker expenses={expenses} onUpdate={refreshAll} />
       )}
 
       {/* Add division button */}
