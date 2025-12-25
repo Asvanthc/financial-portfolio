@@ -18,6 +18,7 @@ export default function ExpenseTracker({ expenses = [], onUpdate }) {
   const [rangePreset, setRangePreset] = useState('custom') // 'custom', 'last3months', 'last6months', 'thisyear', 'lastyear'
   const [rangeStart, setRangeStart] = useState('')
   const [rangeEnd, setRangeEnd] = useState('')
+  const [showMoreStats, setShowMoreStats] = useState(false)
 
   // Load categories on mount
   useEffect(() => {
@@ -388,6 +389,100 @@ export default function ExpenseTracker({ expenses = [], onUpdate }) {
     }
   }).sort((a, b) => Math.abs(b.variance) - Math.abs(a.variance))
 
+  // Additional inferential metrics for "More" panel
+  const burnEfficiencyRatio = monthlyTotal.income > 0 ? ((monthlyTotal.balance / monthlyTotal.income) * 100).toFixed(1) : '0.0'
+
+  const monthsByCategory = expenses.reduce((acc, exp) => {
+    const key = `${exp.year}-${exp.month}`
+    const set = acc[exp.category] || new Set()
+    set.add(key)
+    acc[exp.category] = set
+    return acc
+  }, {})
+  const recurringSpend = expenses
+    .filter(e => (monthsByCategory[e.category]?.size || 0) >= 2 && e.type === 'expense')
+    .reduce((sum, e) => sum + Number(e.amount || 0), 0)
+  const expenseRigidityIndex = monthlyTotal.expense > 0 ? ((recurringSpend / monthlyTotal.expense) * 100).toFixed(1) : '0.0'
+
+  let lifestyleInflationScore = '0.0'
+  if (monthlyTrend.length >= 2) {
+    const first = monthlyTrend[0]
+    const last = monthlyTrend[monthlyTrend.length - 1]
+    const incomeGrowth = ((last.income - first.income) / Math.max(first.income, 1)) * 100
+    const expenseGrowth = ((last.expense - first.expense) / Math.max(first.expense, 1)) * 100
+    lifestyleInflationScore = (expenseGrowth - incomeGrowth).toFixed(1)
+  }
+
+  const spendingVolatilityIndex = expenseCV ? expenseCV.toFixed(1) : '0.0'
+
+  const savingsConsistencyStreak = monthlyTrend.reduce((streak, month) => {
+    if (month.savings >= 0) {
+      return { current: streak.current + 1, best: Math.max(streak.best, streak.current + 1) }
+    }
+    return { current: 0, best: streak.best }
+  }, { current: 0, best: 0 }).best
+
+  const essentialCategories = ['Rent', 'Housing', 'Utilities', 'Bills', 'Groceries', 'Food', 'Healthcare', 'Insurance', 'Transport', 'Transportation', 'EMI', 'Loan']
+  const essentialSpend = expenses
+    .filter(e => e.type === 'expense' && essentialCategories.some(cat => e.category?.toLowerCase().includes(cat.toLowerCase())))
+    .reduce((sum, e) => sum + Number(e.amount || 0), 0)
+  const regretRatio = monthlyTotal.expense > 0 ? (((monthlyTotal.expense - essentialSpend) / monthlyTotal.expense) * 100).toFixed(1) : '0.0'
+
+  const totalIncomeAmount = Object.values(incomeBreakdown).reduce((sum, amt) => sum + amt, 0)
+  const incomeTopShare = (() => {
+    const values = Object.values(incomeBreakdown)
+    if (!values.length || totalIncomeAmount <= 0) return 0
+    return (Math.max(...values) / totalIncomeAmount) * 100
+  })()
+  const incomeDependencyScore = incomeTopShare.toFixed(1)
+
+  const shockAbsorptionCapacity = monthlyTotal.expense > 0 ? Math.min(((totalSavings / monthlyTotal.expense) / 6) * 100, 200).toFixed(1) : '0.0'
+
+  let runwayGrowthVelocity = '0.0'
+  if (monthlyTrend.length >= 2) {
+    const savingsSlope = (monthlyTrend[monthlyTrend.length - 1].savings - monthlyTrend[0].savings) / (monthlyTrend.length - 1)
+    runwayGrowthVelocity = avgMonthlyExpense > 0 ? (savingsSlope / avgMonthlyExpense).toFixed(2) : '0.00'
+  }
+
+  const wealthMomentumScore = (() => {
+    const raw = (avgMonthlySavings / Math.max(avgMonthlyExpense, 1)) * 100 - (expenseCV / 2)
+    const clamped = Math.max(-150, Math.min(150, raw))
+    return clamped.toFixed(0)
+  })()
+
+  const timeToFreedomYears = (() => {
+    const yearlySavings = avgMonthlySavings * 12
+    const target = avgMonthlyExpense * 12 * 25
+    const gap = Math.max(0, target - totalSavings)
+    if (yearlySavings <= 0) return 'Not on track'
+    return (gap / yearlySavings).toFixed(1)
+  })()
+
+  const financialStressIndex = (() => {
+    const base = 100
+    const volatilityPenalty = expenseCV / 2
+    const concentrationPenalty = expenseConcentrationRisk / 3
+    const negativeSavingsPenalty = avgMonthlySavings < 0 ? (Math.abs(avgMonthlySavings) / Math.max(avgMonthlyExpense, 1)) * 20 : 0
+    const burnPenalty = monthlyTotal.balance < 0 ? (Math.abs(monthlyTotal.balance) / Math.max(monthlyTotal.expense, 1)) * 10 : 0
+    const score = Math.max(0, Math.min(100, base - volatilityPenalty - concentrationPenalty - negativeSavingsPenalty - burnPenalty))
+    return score.toFixed(0)
+  })()
+
+  const extraStats = [
+    { label: 'Burn Efficiency Ratio', value: `${burnEfficiencyRatio}%`, note: 'Income turning into savings' },
+    { label: 'Expense Rigidity Index', value: `${expenseRigidityIndex}%`, note: 'Recurring spend share (hard to trim)' },
+    { label: 'Lifestyle Inflation Score', value: `${lifestyleInflationScore}%`, note: 'Expense growth minus income growth' },
+    { label: 'Spending Volatility Index', value: `${spendingVolatilityIndex}%`, note: 'Month-to-month expense fluctuation' },
+    { label: 'Savings Consistency Streak', value: `${savingsConsistencyStreak} mo`, note: 'Consecutive positive-savings months' },
+    { label: 'Regret Ratio', value: `${regretRatio}%`, note: 'Discretionary share of spending' },
+    { label: 'Income Dependency Score', value: `${incomeDependencyScore}%`, note: 'Reliance on top income source' },
+    { label: 'Shock Absorption Capacity', value: `${shockAbsorptionCapacity}%`, note: 'Coverage vs 6-month emergency target' },
+    { label: 'Runway Growth Velocity', value: `${runwayGrowthVelocity} mo/mo`, note: 'Runway change per month' },
+    { label: 'Wealth Momentum Score', value: `${wealthMomentumScore}`, note: 'Direction & strength of savings trend' },
+    { label: 'Time-to-Freedom', value: typeof timeToFreedomYears === 'string' ? timeToFreedomYears : `${timeToFreedomYears} yrs`, note: 'At 25x annual expenses' },
+    { label: 'Financial Stress Index', value: `${financialStressIndex}/100`, note: 'Lower = calmer finances' }
+  ]
+
   return (
     <div>
       {/* Filter Mode Selection */}
@@ -514,6 +609,39 @@ export default function ExpenseTracker({ expenses = [], onUpdate }) {
           </div>
         </div>
       </div>
+
+      <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 12 }}>
+        <button
+          onClick={() => setShowMoreStats(prev => !prev)}
+          style={{
+            padding: '10px 16px',
+            background: showMoreStats ? 'linear-gradient(135deg, #22c55e, #16a34a)' : 'linear-gradient(135deg, #1f2937, #111827)',
+            color: '#e6e9ef',
+            border: '2px solid #1e293b',
+            borderRadius: 10,
+            fontSize: 13,
+            fontWeight: 800,
+            cursor: 'pointer',
+            boxShadow: '0 6px 18px rgba(0,0,0,0.35)'
+          }}
+        >
+          {showMoreStats ? 'Hide extra insights' : 'More inferential insights'}
+        </button>
+      </div>
+
+      {showMoreStats && (
+        <div style={{ background: 'linear-gradient(135deg, #0a1018 0%, #0f1724 100%)', padding: 20, borderRadius: 14, border: '2px solid #1e293b', boxShadow: '0 4px 20px rgba(0,0,0,0.35)', marginBottom: 32 }}>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: 14 }}>
+            {extraStats.map(stat => (
+              <div key={stat.label} style={{ background: 'rgba(255,255,255,0.02)', border: '1px solid #1e293b', borderRadius: 12, padding: 14, boxShadow: '0 4px 12px rgba(0,0,0,0.25)' }}>
+                <div style={{ fontSize: 11, color: '#94a3b8', textTransform: 'uppercase', fontWeight: 700, marginBottom: 6 }}>{stat.label}</div>
+                <div style={{ fontSize: 24, fontWeight: 900, color: '#e6e9ef', marginBottom: 6 }}>{stat.value}</div>
+                <div style={{ fontSize: 12, color: '#cbd5e1', lineHeight: 1.5 }}>{stat.note}</div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
 
       {/* Filters */}
       <div style={{ display: 'flex', gap: 16, marginBottom: 24, flexWrap: 'wrap', alignItems: 'center' }}>
