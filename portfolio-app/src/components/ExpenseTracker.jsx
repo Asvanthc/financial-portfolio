@@ -8,13 +8,29 @@ ChartJS.register(CategoryScale, LinearScale, BarElement, LineElement, PointEleme
 export default function ExpenseTracker({ expenses = [], onUpdate }) {
   const [newEntry, setNewEntry] = useState({ type: 'expense', category: '', amount: '', month: '', year: new Date().getFullYear(), description: '' })
   const [newCategory, setNewCategory] = useState('')
-  const [categories, setCategories] = useState(['Food', 'Transport', 'Entertainment', 'Bills', 'Healthcare', 'Shopping', 'Salary', 'Investment Returns', 'Freelance', 'Other'])
+  const [expenseCategories, setExpenseCategories] = useState(['Food', 'Transport', 'Entertainment', 'Bills', 'Healthcare', 'Shopping', 'Other'])
+  const [incomeCategories, setIncomeCategories] = useState(['Salary', 'Investment Returns', 'Freelance', 'Other'])
   const [selectedYear, setSelectedYear] = useState(new Date().getFullYear())
   const [selectedMonth, setSelectedMonth] = useState(new Date().getMonth() + 1)
   const [saving, setSaving] = useState(false)
   const [filterMode, setFilterMode] = useState('month') // 'month' or 'range'
   const [rangeStart, setRangeStart] = useState('')
   const [rangeEnd, setRangeEnd] = useState('')
+
+  // Load categories on mount
+  useEffect(() => {
+    loadCategories()
+  }, [])
+
+  const loadCategories = async () => {
+    try {
+      const cats = await api.getCategories()
+      if (cats.expense?.length > 0) setExpenseCategories(cats.expense)
+      if (cats.income?.length > 0) setIncomeCategories(cats.income)
+    } catch (error) {
+      console.error('Failed to load categories:', error)
+    }
+  }
 
   const months = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December']
   const currentYear = new Date().getFullYear()
@@ -149,10 +165,38 @@ export default function ExpenseTracker({ expenses = [], onUpdate }) {
     }
   }
 
-  const addCategory = () => {
-    if (newCategory && !categories.includes(newCategory)) {
-      setCategories([...categories, newCategory])
+  const addCategory = async () => {
+    if (!newCategory) return
+    try {
+      const type = newEntry.type || 'expense'
+      const cats = newEntry.type === 'income' ? incomeCategories : expenseCategories
+      if (!cats.includes(newCategory)) {
+        await api.addCategory(type, newCategory)
+        if (newEntry.type === 'income') {
+          setIncomeCategories([...cats, newCategory])
+        } else {
+          setExpenseCategories([...cats, newCategory])
+        }
+      }
       setNewCategory('')
+    } catch (error) {
+      console.error('Failed to add category:', error)
+      alert('Failed to add category')
+    }
+  }
+
+  const deleteCategory = async (type, name) => {
+    if (!confirm(`Delete category "${name}"?`)) return
+    try {
+      await api.deleteCategory(type, name)
+      if (type === 'income') {
+        setIncomeCategories(incomeCategories.filter(c => c !== name))
+      } else {
+        setExpenseCategories(expenseCategories.filter(c => c !== name))
+      }
+    } catch (error) {
+      console.error('Failed to delete category:', error)
+      alert('Failed to delete category')
     }
   }
 
@@ -390,7 +434,7 @@ export default function ExpenseTracker({ expenses = [], onUpdate }) {
           </select>
           <select value={newEntry.category} onChange={e => setNewEntry({ ...newEntry, category: e.target.value })} style={{ padding: '12px 14px', background: '#0a1018', color: '#e6e9ef', border: '2px solid #2d3f5f', borderRadius: 8, fontSize: 14, fontWeight: 600, cursor: 'pointer', transition: 'all 0.2s' }}>
             <option value="">Select Category</option>
-            {categories.map(c => <option key={c} value={c}>{c}</option>)}
+            {(newEntry.type === 'income' ? incomeCategories : expenseCategories).map(c => <option key={c} value={c}>{c}</option>)}
           </select>
           <input type="number" placeholder="Amount (₹)" value={newEntry.amount} onChange={e => setNewEntry({ ...newEntry, amount: e.target.value })} style={{ padding: '12px 14px', background: '#0a1018', color: '#e6e9ef', border: '2px solid #2d3f5f', borderRadius: 8, fontSize: 14, fontWeight: 600 }} />
           <select value={newEntry.month} onChange={e => setNewEntry({ ...newEntry, month: e.target.value })} style={{ padding: '12px 14px', background: '#0a1018', color: '#e6e9ef', border: '2px solid #2d3f5f', borderRadius: 8, fontSize: 14, fontWeight: 600, cursor: 'pointer' }}>
@@ -419,6 +463,45 @@ export default function ExpenseTracker({ expenses = [], onUpdate }) {
           onMouseLeave={e => e.currentTarget.style.transform = 'translateY(0)'}>
           Add Category
         </button>
+      </div>
+
+      {/* Category Management */}
+      <div style={{ background: 'linear-gradient(135deg, #0a1018 0%, #0f1724 100%)', padding: 24, borderRadius: 14, border: '2px solid #1e293b', marginBottom: 24, boxShadow: '0 4px 20px rgba(0,0,0,0.3)' }}>
+        <h3 style={{ margin: '0 0 20px 0', color: '#e6e9ef', fontSize: 18, fontWeight: 700 }}>📂 Manage Categories</h3>
+        
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: 20 }}>
+          <div>
+            <h4 style={{ color: '#fca5a5', fontSize: 14, fontWeight: 700, marginBottom: 12, display: 'flex', alignItems: 'center', gap: 8 }}>💸 Expense Categories ({expenseCategories.length})</h4>
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+              {expenseCategories.map(cat => (
+                <div key={cat} style={{ background: 'rgba(239,68,68,0.15)', border: '1px solid rgba(239,68,68,0.3)', padding: '8px 12px', borderRadius: 6, display: 'flex', alignItems: 'center', gap: 8, color: '#fca5a5', fontSize: 13, fontWeight: 600 }}>
+                  {cat}
+                  <button onClick={() => deleteCategory('expense', cat)} style={{ background: 'rgba(239,68,68,0.3)', border: 'none', color: '#ef4444', padding: '2px 8px', borderRadius: 4, cursor: 'pointer', fontSize: 12, fontWeight: 700, transition: 'all 0.2s' }}
+                    onMouseEnter={e => e.currentTarget.style.background = 'rgba(239,68,68,0.5)'}
+                    onMouseLeave={e => e.currentTarget.style.background = 'rgba(239,68,68,0.3)'}>
+                    ✕
+                  </button>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          <div>
+            <h4 style={{ color: '#86efac', fontSize: 14, fontWeight: 700, marginBottom: 12, display: 'flex', alignItems: 'center', gap: 8 }}>💰 Income Categories ({incomeCategories.length})</h4>
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+              {incomeCategories.map(cat => (
+                <div key={cat} style={{ background: 'rgba(34,197,94,0.15)', border: '1px solid rgba(34,197,94,0.3)', padding: '8px 12px', borderRadius: 6, display: 'flex', alignItems: 'center', gap: 8, color: '#86efac', fontSize: 13, fontWeight: 600 }}>
+                  {cat}
+                  <button onClick={() => deleteCategory('income', cat)} style={{ background: 'rgba(34,197,94,0.3)', border: 'none', color: '#22c55e', padding: '2px 8px', borderRadius: 4, cursor: 'pointer', fontSize: 12, fontWeight: 700, transition: 'all 0.2s' }}
+                    onMouseEnter={e => e.currentTarget.style.background = 'rgba(34,197,94,0.5)'}
+                    onMouseLeave={e => e.currentTarget.style.background = 'rgba(34,197,94,0.3)'}>
+                    ✕
+                  </button>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
       </div>
 
       {/* Recent Entries */}

@@ -7,6 +7,11 @@ const XLSX = require('xlsx');
 const {
   loadPortfolio,
   savePortfolio,
+  loadExpenses,
+  saveExpense,
+  deleteExpense,
+  loadCategories,
+  saveCategories,
   createDivision,
   createSubdivision,
   createHolding,
@@ -356,46 +361,93 @@ app.delete('/api/subdivisions/:sid', async (req, res) => {
 // Get all expenses
 app.get('/api/expenses', async (req, res) => {
   try {
-    const p = await loadPortfolio()
-    res.json(p.expenses || [])
+    const expenses = await loadExpenses()
+    res.json(expenses)
   } catch (e) { res.status(500).json({ error: e.message }) }
 })
 
 // Add new expense
 app.post('/api/expenses', async (req, res) => {
   try {
-    const p = await loadPortfolio()
-    if (!p.expenses) p.expenses = []
-    
+    const { randomUUID } = require('crypto')
     const newExpense = {
-      id: crypto.randomUUID(),
-      type: req.body.type, // 'income' or 'expense'
+      type: req.body.type,
       category: req.body.category,
-      amount: req.body.amount,
-      month: req.body.month,
-      year: req.body.year,
-      description: req.body.description,
-      createdAt: new Date().toISOString()
+      amount: Number(req.body.amount),
+      month: Number(req.body.month),
+      year: Number(req.body.year),
+      description: req.body.description || ''
     }
     
-    p.expenses.push(newExpense)
-    await savePortfolio(p)
-    res.json(newExpense)
+    const saved = await saveExpense(newExpense)
+    res.json(saved)
   } catch (e) { res.status(500).json({ error: e.message }) }
 })
 
 // Delete expense
 app.delete('/api/expenses/:id', async (req, res) => {
   try {
-    const p = await loadPortfolio()
-    if (!p.expenses) p.expenses = []
-    
-    const idx = p.expenses.findIndex(e => e.id === req.params.id)
-    if (idx === -1) return res.status(404).json({ error: 'Expense not found' })
-    
-    p.expenses.splice(idx, 1)
-    await savePortfolio(p)
+    const result = await deleteExpense(req.params.id)
+    if (!result) return res.status(404).json({ error: 'Expense not found' })
     res.json({ success: true })
+  } catch (e) { res.status(500).json({ error: e.message }) }
+})
+
+// ===== CATEGORIES ROUTES =====
+
+// Get categories
+app.get('/api/categories', async (req, res) => {
+  try {
+    const categories = await loadCategories()
+    res.json(categories)
+  } catch (e) { res.status(500).json({ error: e.message }) }
+})
+
+// Save categories
+app.post('/api/categories', async (req, res) => {
+  try {
+    const { expense = [], income = [] } = req.body
+    const categories = await saveCategories({ expense, income })
+    res.json(categories)
+  } catch (e) { res.status(500).json({ error: e.message }) }
+})
+
+// Add category to list
+app.post('/api/categories/:type', async (req, res) => {
+  try {
+    const { type } = req.params
+    const { name } = req.body
+    
+    if (!['expense', 'income'].includes(type)) {
+      return res.status(400).json({ error: 'Invalid category type' })
+    }
+    if (!name || typeof name !== 'string') {
+      return res.status(400).json({ error: 'Category name required' })
+    }
+    
+    const categories = await loadCategories()
+    if (!categories[type].includes(name)) {
+      categories[type].push(name)
+      await saveCategories(categories)
+    }
+    res.json(categories)
+  } catch (e) { res.status(500).json({ error: e.message }) }
+})
+
+// Delete category from list
+app.delete('/api/categories/:type/:name', async (req, res) => {
+  try {
+    const { type, name } = req.params
+    const decodedName = decodeURIComponent(name)
+    
+    if (!['expense', 'income'].includes(type)) {
+      return res.status(400).json({ error: 'Invalid category type' })
+    }
+    
+    const categories = await loadCategories()
+    categories[type] = categories[type].filter(c => c !== decodedName)
+    await saveCategories(categories)
+    res.json(categories)
   } catch (e) { res.status(500).json({ error: e.message }) }
 })
 

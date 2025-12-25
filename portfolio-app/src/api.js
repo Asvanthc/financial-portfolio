@@ -31,4 +31,7 @@ export const api = {
   getExpenses: () => fetch(`${API_ROOT}/api/expenses`).then(r=>r.json()),
   addExpense: (exp) => json('POST', '/api/expenses', exp),
   deleteExpense: (id) => json('DELETE', `/api/expenses/${id}`),
+  getCategories: () => fetch(`${API_ROOT}/api/categories`).then(r=>r.json()),
+  addCategory: (type, name) => json('POST', `/api/categories/${type}`, { name }),
+  deleteCategory: (type, name) => json('DELETE', `/api/categories/${type}/${encodeURIComponent(name)}`),
 }

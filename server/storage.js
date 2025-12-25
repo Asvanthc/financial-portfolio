@@ -5,6 +5,8 @@ const { randomUUID } = require('crypto')
 // MongoDB support (optional)
 let db = null
 let portfolioCollection = null
+let expensesCollection = null
+let categoriesCollection = null
 
 if (process.env.MONGODB_URI) {
   const { MongoClient } = require('mongodb')
@@ -13,7 +15,9 @@ if (process.env.MONGODB_URI) {
     .then(() => {
       db = client.db('financial-portfolio')
       portfolioCollection = db.collection('portfolio')
-      console.log('[STORAGE] Connected to MongoDB')
+      expensesCollection = db.collection('expenses')
+      categoriesCollection = db.collection('categories')
+      console.log('[STORAGE] Connected to MongoDB with collections: portfolio, expenses, categories')
     })
     .catch(err => {
       console.error('[STORAGE] MongoDB connection failed, using file system:', err.message)
@@ -37,7 +41,7 @@ async function loadPortfolio() {
     try {
       const doc = await portfolioCollection.findOne({ _id: 'main' })
       if (doc) {
-        const data = { divisions: doc.divisions || [], expenses: doc.expenses || [], updatedAt: doc.updatedAt }
+        const data = { divisions: doc.divisions || [], updatedAt: doc.updatedAt }
         return data
       }
     } catch (e) {
@@ -51,10 +55,58 @@ async function loadPortfolio() {
   try {
     const data = JSON.parse(raw)
     if (!Array.isArray(data.divisions)) data.divisions = []
-    if (!Array.isArray(data.expenses)) data.expenses = []
     return data
   } catch (e) {
     throw new Error('Failed to parse portfolio data: ' + e.message)
+  }
+}
+
+async function loadExpenses() {
+  if (expensesCollection) {
+    try {
+      const expenses = await expensesCollection.find({}).toArray()
+      console.log('[STORAGE] Loaded', expenses.length, 'expenses from MongoDB')
+      return expenses
+    } catch (e) {
+      console.error('[STORAGE] MongoDB expenses read failed:', e.message)
+    }
+  }
+  
+  // Fallback to file system
+  ensureDataFile()
+  const raw = fs.readFileSync(DATA_FILE, 'utf8')
+  try {
+    const data = JSON.parse(raw)
+    return data.expenses || []
+  } catch (e) {
+    return []
+  }
+}
+
+async function loadCategories() {
+  if (categoriesCollection) {
+    try {
+      const doc = await categoriesCollection.findOne({ _id: 'categories' })
+      if (doc) {
+        return { expense: doc.expense || [], income: doc.income || [] }
+      }
+      return { expense: [], income: [] }
+    } catch (e) {
+      console.error('[STORAGE] MongoDB categories read failed:', e.message)
+    }
+  }
+  
+  // Fallback to file system
+  ensureDataFile()
+  const raw = fs.readFileSync(DATA_FILE, 'utf8')
+  try {
+    const data = JSON.parse(raw)
+    return {
+      expense: data.categories?.expense || [],
+      income: data.categories?.income || []
+    }
+  } catch (e) {
+    return { expense: [], income: [] }
   }
 }
 
@@ -66,7 +118,7 @@ async function savePortfolio(portfolio) {
     try {
       await portfolioCollection.updateOne(
         { _id: 'main' },
-        { $set: { divisions: data.divisions, expenses: data.expenses || [], updatedAt: data.updatedAt } },
+        { $set: { divisions: data.divisions, updatedAt: data.updatedAt } },
         { upsert: true }
       )
       console.log('[STORAGE] Portfolio saved to MongoDB at', data.updatedAt)
@@ -82,6 +134,64 @@ async function savePortfolio(portfolio) {
   fs.writeFileSync(DATA_FILE, JSON.stringify(data, null, 2))
   console.log('[STORAGE] Portfolio saved successfully at', data.updatedAt)
   return data
+}
+
+async function saveExpense(expense) {
+  if (expensesCollection) {
+    try {
+      const result = await expensesCollection.insertOne({ ...expense, createdAt: new Date().toISOString() })
+      console.log('[STORAGE] Expense saved to MongoDB:', result.insertedId)
+      return { ...expense, _id: result.insertedId }
+    } catch (e) {
+      console.error('[STORAGE] MongoDB expense save failed:', e.message)
+    }
+  }
+  
+  // Fallback: save to file
+  ensureDataFile()
+  const data = JSON.parse(fs.readFileSync(DATA_FILE, 'utf8'))
+  if (!data.expenses) data.expenses = []
+  expense._id = randomUUID()
+  data.expenses.push(expense)
+  fs.writeFileSync(DATA_FILE, JSON.stringify(data, null, 2))
+  return expense
+}
+
+async function deleteExpense(id) {
+  if (expensesCollection) {
+    try {
+      const { ObjectId } = require('mongodb')
+      await expensesCollection.deleteOne({ _id: new ObjectId(id) })
+      console.log('[STORAGE] Expense deleted from MongoDB:', id)
+      return true
+    } catch (e) {
+      console.error('[STORAGE] MongoDB expense delete failed:', e.message)
+    }
+  }
+  return false
+}
+
+async function saveCategories(categories) {
+  if (categoriesCollection) {
+    try {
+      await categoriesCollection.updateOne(
+        { _id: 'categories' },
+        { $set: { expense: categories.expense || [], income: categories.income || [], updatedAt: new Date().toISOString() } },
+        { upsert: true }
+      )
+      console.log('[STORAGE] Categories saved to MongoDB')
+      return categories
+    } catch (e) {
+      console.error('[STORAGE] MongoDB categories save failed:', e.message)
+    }
+  }
+  
+  // Fallback: save to file
+  ensureDataFile()
+  const data = JSON.parse(fs.readFileSync(DATA_FILE, 'utf8'))
+  data.categories = categories
+  fs.writeFileSync(DATA_FILE, JSON.stringify(data, null, 2))
+  return categories
 }
 
 function createDivision({ name, targetPercent = 0 }) {
@@ -102,6 +212,11 @@ module.exports = {
   DATA_FILE,
   loadPortfolio,
   savePortfolio,
+  loadExpenses,
+  saveExpense,
+  deleteExpense,
+  loadCategories,
+  saveCategories,
   createDivision,
   createSubdivision,
   createHolding,
