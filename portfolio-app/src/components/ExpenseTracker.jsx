@@ -406,11 +406,21 @@ export default function ExpenseTracker({ expenses = [], onUpdate }) {
 
   let lifestyleInflationScore = '0.0'
   if (monthlyTrend.length >= 2) {
-    const first = monthlyTrend[0]
-    const last = monthlyTrend[monthlyTrend.length - 1]
-    const incomeGrowth = ((last.income - first.income) / Math.max(first.income, 1)) * 100
-    const expenseGrowth = ((last.expense - first.expense) / Math.max(first.expense, 1)) * 100
-    lifestyleInflationScore = (expenseGrowth - incomeGrowth).toFixed(1)
+    const windowSize = Math.min(6, monthlyTrend.length)
+    const recent = monthlyTrend.slice(-windowSize)
+    const baseline = monthlyTrend.slice(0, windowSize)
+
+    const avg = (arr, key) => arr.reduce((sum, m) => sum + m[key], 0) / Math.max(arr.length, 1)
+    const baseIncome = Math.max(1, avg(baseline, 'income'))
+    const baseExpense = Math.max(1, avg(baseline, 'expense'))
+    const recentIncome = Math.max(1, avg(recent, 'income'))
+    const recentExpense = Math.max(1, avg(recent, 'expense'))
+
+    const incomeGrowth = ((recentIncome - baseIncome) / baseIncome) * 100
+    const expenseGrowth = ((recentExpense - baseExpense) / baseExpense) * 100
+    const raw = expenseGrowth - incomeGrowth
+    const clamped = Math.max(-300, Math.min(300, raw))
+    lifestyleInflationScore = clamped.toFixed(1)
   }
 
   const spendingVolatilityIndex = expenseCV ? expenseCV.toFixed(1) : '0.0'
@@ -631,6 +641,9 @@ export default function ExpenseTracker({ expenses = [], onUpdate }) {
 
       {showMoreStats && (
         <div style={{ background: 'linear-gradient(135deg, #0a1018 0%, #0f1724 100%)', padding: 20, borderRadius: 14, border: '2px solid #1e293b', boxShadow: '0 4px 20px rgba(0,0,0,0.35)', marginBottom: 32 }}>
+          <div style={{ color: '#cbd5e1', fontSize: 12, marginBottom: 12, lineHeight: 1.6 }}>
+            Quick reads: positive inflation = expenses rising faster than income; high rigidity = many fixed costs; higher shock capacity and runway velocity = stronger safety; stress index lower is better.
+          </div>
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: 14 }}>
             {extraStats.map(stat => (
               <div key={stat.label} style={{ background: 'rgba(255,255,255,0.02)', border: '1px solid #1e293b', borderRadius: 12, padding: 14, boxShadow: '0 4px 12px rgba(0,0,0,0.25)' }}>
