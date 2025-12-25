@@ -283,6 +283,131 @@ export default function ExpenseTracker({ expenses = [], onUpdate }) {
     ]
   }
 
+  // Expense Ratio Analysis - % of income consumed by each category (REPLACES Top Income Sources)
+  const totalIncomeForRatio = filterMode === 'range' && rangeStart && rangeEnd ? monthlyTotal.income : monthlyTotal.income
+  
+  const expenseRatioData = Object.entries(expenseBreakdown)
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 8)
+    .map(([cat, amt]) => ({
+      category: cat,
+      amount: amt,
+      percentOfIncome: totalIncomeForRatio > 0 ? ((amt / totalIncomeForRatio) * 100).toFixed(1) : 0
+    }))
+
+  const expenseRatioChartData = {
+    labels: expenseRatioData.map(d => d.category),
+    datasets: [{
+      label: '% of Income',
+      data: expenseRatioData.map(d => d.percentOfIncome),
+      backgroundColor: [
+        'rgba(239, 68, 68, 0.7)',
+        'rgba(249, 115, 22, 0.7)',
+        'rgba(245, 158, 11, 0.7)',
+        'rgba(234, 179, 8, 0.7)',
+        'rgba(132, 204, 22, 0.7)',
+        'rgba(34, 197, 94, 0.7)',
+        'rgba(16, 185, 129, 0.7)',
+        'rgba(20, 184, 166, 0.7)'
+      ],
+      borderColor: [
+        '#ef4444', '#f97316', '#f59e0b', '#eab308', '#84cc16', '#22c55e', '#10b981', '#14b8a6'
+      ],
+      borderWidth: 2
+    }]
+  }
+
+  // Cumulative Cash Flow
+  let cumulativeCashFlow = 0
+  const cumulativeFlowData = {
+    labels: trendLabels,
+    datasets: [{
+      label: 'Cumulative Cash Flow (₹)',
+      data: monthlyTrend.map(m => {
+        cumulativeCashFlow += m.savings
+        return cumulativeCashFlow
+      }),
+      backgroundColor: monthlyTrend.map((m, idx) => {
+        const cumulative = monthlyTrend.slice(0, idx + 1).reduce((sum, month) => sum + month.savings, 0)
+        return cumulative >= 0 ? 'rgba(34, 197, 94, 0.7)' : 'rgba(239, 68, 68, 0.7)'
+      }),
+      borderColor: '#3b82f6',
+      borderWidth: 2
+    }]
+  }
+
+  // Expense Concentration Analysis (REPLACES Income Concentration since you have single income)
+  const totalExpenseAmount = Object.values(expenseBreakdown).reduce((sum, amt) => sum + amt, 0)
+  const expenseConcentration = Object.entries(expenseBreakdown).map(([cat, amt]) => ({
+    category: cat,
+    percentage: totalExpenseAmount > 0 ? ((amt / totalExpenseAmount) * 100).toFixed(1) : 0,
+    amount: amt
+  })).sort((a, b) => b.percentage - a.percentage)
+  
+  const topExpenseSource = expenseConcentration[0]
+  const expenseConcentrationRisk = topExpenseSource ? parseFloat(topExpenseSource.percentage) : 0
+  const expenseConcentrationColor = expenseConcentrationRisk < 40 ? '#22c55e' : expenseConcentrationRisk < 60 ? '#f59e0b' : '#ef4444'
+  const expenseConcentrationRating = expenseConcentrationRisk < 40 ? 'Well Balanced' : expenseConcentrationRisk < 60 ? 'Moderate Concentration' : 'Highly Concentrated'
+
+  // Expense Category Trends (comparing current period to overall average)
+  const overallExpenseBreakdown = {}
+  expenses.filter(e => e.type === 'expense').forEach(e => {
+    overallExpenseBreakdown[e.category] = (overallExpenseBreakdown[e.category] || 0) + Number(e.amount)
+  })
+  const overallExpenseTotal = Object.values(overallExpenseBreakdown).reduce((sum, amt) => sum + amt, 0)
+  
+  const categoryTrendAnalysis = Object.keys(expenseBreakdown).map(cat => {
+    const currentAmount = expenseBreakdown[cat]
+    const overallAmount = overallExpenseBreakdown[cat] || 0
+    const currentPercentage = monthlyTotal.expense > 0 ? (currentAmount / monthlyTotal.expense) * 100 : 0
+    const overallPercentage = overallExpenseTotal > 0 ? (overallAmount / overallExpenseTotal) * 100 : 0
+    const variance = currentPercentage - overallPercentage
+    
+    return {
+      category: cat,
+      currentPct: currentPercentage.toFixed(1),
+      overallPct: overallPercentage.toFixed(1),
+      variance: variance.toFixed(1),
+      trend: variance > 5 ? '⬆️ Increasing' : variance < -5 ? '⬇️ Decreasing' : '➡️ Stable'
+    }
+  }).sort((a, b) => Math.abs(b.variance) - Math.abs(a.variance))
+
+  return (
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 8)
+  
+  const expenseCategoryBarData = {
+    labels: topExpenseCategories.map(([cat]) => cat),
+    datasets: [{
+      label: 'Expense Amount (₹)',
+      data: topExpenseCategories.map(([, amt]) => amt),
+      backgroundColor: 'rgba(239, 68, 68, 0.7)',
+      borderColor: '#ef4444',
+      borderWidth: 2
+    }]
+  }
+
+  // Income vs Expense Comparison (Bar Chart)
+  const incomeVsExpenseData = {
+    labels: trendLabels,
+    datasets: [
+      {
+        label: 'Income',
+        data: monthlyTrend.map(m => m.income),
+        backgroundColor: 'rgba(34, 197, 94, 0.7)',
+        borderColor: '#22c55e',
+        borderWidth: 2
+      },
+      {
+        label: 'Expense',
+        data: monthlyTrend.map(m => m.expense),
+        backgroundColor: 'rgba(239, 68, 68, 0.7)',
+        borderColor: '#ef4444',
+        borderWidth: 2
+      }
+    ]
+  }
+
   // Category Distribution (Top Income Sources)
   const topIncomeCategories = Object.entries(incomeBreakdown)
     .sort((a, b) => b[1] - a[1])
