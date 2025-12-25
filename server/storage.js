@@ -64,11 +64,59 @@ async function loadPortfolio() {
 async function loadExpenses() {
   if (expensesCollection) {
     try {
-      const expenses = await expensesCollection.find({}).toArray()
-      console.log('[STORAGE] Loaded', expenses.length, 'expenses from MongoDB')
-      return expenses
+      const count = await expensesCollection.countDocuments({})
+      if (count > 0) {
+        const expenses = await expensesCollection.find({}).toArray()
+        console.log('[STORAGE] Loaded', expenses.length, 'expenses from MongoDB')
+        return expenses
+      }
+      // If collection empty, check for legacy expenses in portfolio doc and migrate
+      if (portfolioCollection) {
+        const legacy = await portfolioCollection.findOne({ _id: 'main' })
+        const legacyExpenses = Array.isArray(legacy?.expenses) ? legacy.expenses : []
+        if (legacyExpenses.length > 0) {
+          console.log('[STORAGE] Migrating', legacyExpenses.length, 'legacy expenses from portfolio document')
+          const docs = legacyExpenses.map(exp => ({
+            type: exp.type,
+            category: exp.category,
+            amount: Number(exp.amount) || 0,
+            month: Number(exp.month) || 1,
+            year: Number(exp.year) || new Date().getFullYear(),
+            description: exp.description || '',
+            createdAt: exp.createdAt || new Date().toISOString()
+          }))
+          if (docs.length > 0) {
+            await expensesCollection.insertMany(docs)
+          }
+          await portfolioCollection.updateOne({ _id: 'main' }, { $unset: { expenses: '' } })
+          console.log('[STORAGE] Legacy expenses migrated and removed from portfolio document')
+
+          // Derive and persist categories
+          if (categoriesCollection) {
+            const expenseSet = new Set()
+            const incomeSet = new Set()
+            for (const exp of legacyExpenses) {
+              if (exp.type === 'income') incomeSet.add(exp.category)
+              else expenseSet.add(exp.category)
+            }
+            await categoriesCollection.updateOne(
+              { _id: 'categories' },
+              { $set: { 
+                  expense: Array.from(expenseSet),
+                  income: Array.from(incomeSet),
+                  updatedAt: new Date().toISOString() 
+                } },
+              { upsert: true }
+            )
+            console.log('[STORAGE] Categories updated from legacy data')
+          }
+          const migrated = await expensesCollection.find({}).toArray()
+          return migrated
+        }
+      }
+      return []
     } catch (e) {
-      console.error('[STORAGE] MongoDB expenses read failed:', e.message)
+      console.error('[STORAGE] MongoDB expenses read/migrate failed:', e.message)
     }
   }
   

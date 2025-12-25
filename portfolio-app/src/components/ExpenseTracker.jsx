@@ -8,6 +8,7 @@ ChartJS.register(CategoryScale, LinearScale, BarElement, LineElement, PointEleme
 export default function ExpenseTracker({ expenses = [], onUpdate }) {
   const [newEntry, setNewEntry] = useState({ type: 'expense', category: '', amount: '', month: '', year: new Date().getFullYear(), description: '' })
   const [newCategory, setNewCategory] = useState('')
+  const [categoryType, setCategoryType] = useState('expense')
   const [expenseCategories, setExpenseCategories] = useState(['Food', 'Transport', 'Entertainment', 'Bills', 'Healthcare', 'Shopping', 'Other'])
   const [incomeCategories, setIncomeCategories] = useState(['Salary', 'Investment Returns', 'Freelance', 'Other'])
   const [selectedYear, setSelectedYear] = useState(new Date().getFullYear())
@@ -168,11 +169,11 @@ export default function ExpenseTracker({ expenses = [], onUpdate }) {
   const addCategory = async () => {
     if (!newCategory) return
     try {
-      const type = newEntry.type || 'expense'
-      const cats = newEntry.type === 'income' ? incomeCategories : expenseCategories
+      const type = categoryType || 'expense'
+      const cats = type === 'income' ? incomeCategories : expenseCategories
       if (!cats.includes(newCategory)) {
         await api.addCategory(type, newCategory)
-        if (newEntry.type === 'income') {
+        if (type === 'income') {
           setIncomeCategories([...cats, newCategory])
         } else {
           setExpenseCategories([...cats, newCategory])
@@ -452,17 +453,27 @@ export default function ExpenseTracker({ expenses = [], onUpdate }) {
       </div>
 
       {/* Add Category */}
-      <div style={{ background: 'linear-gradient(135deg, #0a1018 0%, #0f1724 100%)', padding: 20, borderRadius: 10, border: '2px solid #1e293b', marginBottom: 24, display: 'flex', gap: 14, alignItems: 'center', boxShadow: '0 2px 10px rgba(0,0,0,0.2)' }}>
-        <div style={{ flex: 1 }}>
+      <div style={{ background: 'linear-gradient(135deg, #0a1018 0%, #0f1724 100%)', padding: 20, borderRadius: 10, border: '2px solid #1e293b', marginBottom: 24, display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 14, alignItems: 'center', boxShadow: '0 2px 10px rgba(0,0,0,0.2)' }}>
+        <div>
+          <div style={{ fontSize: 12, color: '#94a3b8', marginBottom: 6, fontWeight: 700 }}>Category Type</div>
+          <select value={categoryType} onChange={e => setCategoryType(e.target.value)} style={{ padding: '12px 16px', background: '#0a1018', color: '#e6e9ef', border: '2px solid #2d3f5f', borderRadius: 8, fontSize: 14, fontWeight: 600 }}>
+            <option value="expense">💸 Expense</option>
+            <option value="income">💰 Income</option>
+          </select>
+        </div>
+        <div style={{ gridColumn: 'span 2' }}>
+          <div style={{ fontSize: 12, color: '#94a3b8', marginBottom: 6, fontWeight: 700 }}>Category Name</div>
           <input type="text" placeholder="➕ Add new category name" value={newCategory} onChange={e => setNewCategory(e.target.value)} 
             onKeyPress={e => e.key === 'Enter' && addCategory()}
             style={{ width: '100%', padding: '12px 16px', background: '#0a1018', color: '#e6e9ef', border: '2px solid #2d3f5f', borderRadius: 8, fontSize: 14, fontWeight: 600 }} />
         </div>
-        <button onClick={addCategory} style={{ padding: '12px 24px', background: 'linear-gradient(135deg, #3b82f6, #2563eb)', color: 'white', border: 'none', borderRadius: 8, fontSize: 14, fontWeight: 700, cursor: 'pointer', whiteSpace: 'nowrap', transition: 'all 0.2s', boxShadow: '0 4px 12px rgba(59,130,246,0.3)' }}
-          onMouseEnter={e => e.currentTarget.style.transform = 'translateY(-2px)'}
-          onMouseLeave={e => e.currentTarget.style.transform = 'translateY(0)'}>
-          Add Category
-        </button>
+        <div>
+          <button onClick={addCategory} style={{ padding: '12px 24px', background: 'linear-gradient(135deg, #3b82f6, #2563eb)', color: 'white', border: 'none', borderRadius: 8, fontSize: 14, fontWeight: 700, cursor: 'pointer', whiteSpace: 'nowrap', transition: 'all 0.2s', boxShadow: '0 4px 12px rgba(59,130,246,0.3)' }}
+            onMouseEnter={e => e.currentTarget.style.transform = 'translateY(-2px)'}
+            onMouseLeave={e => e.currentTarget.style.transform = 'translateY(0)'}>
+            Add Category
+          </button>
+        </div>
       </div>
 
       {/* Category Management */}

@@ -362,14 +362,17 @@ app.delete('/api/subdivisions/:sid', async (req, res) => {
 app.get('/api/expenses', async (req, res) => {
   try {
     const expenses = await loadExpenses()
-    res.json(expenses)
+    const normalized = (expenses || []).map(e => {
+      const { _id, id, ...rest } = e || {}
+      return { id: String(id || _id || ''), ...rest }
+    })
+    res.json(normalized)
   } catch (e) { res.status(500).json({ error: e.message }) }
 })
 
 // Add new expense
 app.post('/api/expenses', async (req, res) => {
   try {
-    const { randomUUID } = require('crypto')
     const newExpense = {
       type: req.body.type,
       category: req.body.category,
@@ -380,7 +383,8 @@ app.post('/api/expenses', async (req, res) => {
     }
     
     const saved = await saveExpense(newExpense)
-    res.json(saved)
+    const { _id, id, ...rest } = saved || {}
+    res.json({ id: String(id || _id || ''), ...rest })
   } catch (e) { res.status(500).json({ error: e.message }) }
 })
 
