@@ -12,14 +12,28 @@ export default function ExpenseTracker({ expenses = [], onUpdate }) {
   const [selectedYear, setSelectedYear] = useState(new Date().getFullYear())
   const [selectedMonth, setSelectedMonth] = useState(new Date().getMonth() + 1)
   const [saving, setSaving] = useState(false)
+  const [filterMode, setFilterMode] = useState('month') // 'month' or 'range'
+  const [rangeStart, setRangeStart] = useState('')
+  const [rangeEnd, setRangeEnd] = useState('')
 
   const months = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December']
   const currentYear = new Date().getFullYear()
   const years = Array.from({ length: 5 }, (_, i) => currentYear - 2 + i)
 
-  // Calculate totals
-  const calculateTotals = (filterYear = null, filterMonth = null) => {
+  // Helper: Convert year-month to date for range comparison
+  const dateToComparable = (year, month) => year * 100 + month
+
+  // Calculate totals with range filter
+  const calculateTotals = (filterYear = null, filterMonth = null, useRange = false) => {
     const filtered = expenses.filter(e => {
+      if (useRange && rangeStart && rangeEnd) {
+        const [startYear, startMonth] = rangeStart.split('-').map(Number)
+        const [endYear, endMonth] = rangeEnd.split('-').map(Number)
+        const eDate = dateToComparable(e.year, e.month)
+        const startDate = dateToComparable(startYear, startMonth)
+        const endDate = dateToComparable(endYear, endMonth)
+        return eDate >= startDate && eDate <= endDate
+      }
       const matchYear = !filterYear || e.year === filterYear
       const matchMonth = !filterMonth || e.month === filterMonth
       return matchYear && matchMonth
@@ -30,13 +44,25 @@ export default function ExpenseTracker({ expenses = [], onUpdate }) {
     return { income, expense, balance: income - expense }
   }
 
-  const monthlyTotal = calculateTotals(selectedYear, selectedMonth)
-  const yearlyTotal = calculateTotals(selectedYear)
+  const monthlyTotal = filterMode === 'range' ? calculateTotals(null, null, true) : calculateTotals(selectedYear, selectedMonth)
+  const yearlyTotal = filterMode === 'range' ? calculateTotals(null, null, true) : calculateTotals(selectedYear)
   const overallTotal = calculateTotals()
 
-  // Category breakdown
+  // Category breakdown with range support
   const getCategoryBreakdown = (type) => {
-    const filtered = expenses.filter(e => e.type === type && e.year === selectedYear && e.month === selectedMonth)
+    let filtered
+    if (filterMode === 'range' && rangeStart && rangeEnd) {
+      const [startYear, startMonth] = rangeStart.split('-').map(Number)
+      const [endYear, endMonth] = rangeEnd.split('-').map(Number)
+      filtered = expenses.filter(e => {
+        const eDate = dateToComparable(e.year, e.month)
+        const startDate = dateToComparable(startYear, startMonth)
+        const endDate = dateToComparable(endYear, endMonth)
+        return e.type === type && eDate >= startDate && eDate <= endDate
+      })
+    } else {
+      filtered = expenses.filter(e => e.type === type && e.year === selectedYear && e.month === selectedMonth)
+    }
     const breakdown = {}
     filtered.forEach(e => {
       breakdown[e.category] = (breakdown[e.category] || 0) + Number(e.amount)
@@ -47,19 +73,50 @@ export default function ExpenseTracker({ expenses = [], onUpdate }) {
   const expenseBreakdown = getCategoryBreakdown('expense')
   const incomeBreakdown = getCategoryBreakdown('income')
 
-  // Monthly trend data
+  // Monthly trend data with range support
   const getMonthlyTrend = () => {
-    const monthlyData = months.map((_, idx) => {
-      const monthNum = idx + 1
-      const monthExpenses = expenses.filter(e => e.year === selectedYear && e.month === monthNum)
-      const income = monthExpenses.filter(e => e.type === 'income').reduce((sum, e) => sum + Number(e.amount), 0)
-      const expense = monthExpenses.filter(e => e.type === 'expense').reduce((sum, e) => sum + Number(e.amount), 0)
-      return { income, expense, savings: income - expense }
-    })
-    return monthlyData
+    if (filterMode === 'range' && rangeStart && rangeEnd) {
+      const [startYear, startMonth] = rangeStart.split('-').map(Number)
+      const [endYear, endMonth] = rangeEnd.split('-').map(Number)
+      const monthlyData = []
+      
+      let currentYear = startYear, currentMonth = startMonth
+      while (currentYear < endYear || (currentYear === endYear && currentMonth <= endMonth)) {
+        const monthExpenses = expenses.filter(e => e.year === currentYear && e.month === currentMonth)
+        const income = monthExpenses.filter(e => e.type === 'income').reduce((sum, e) => sum + Number(e.amount), 0)
+        const expense = monthExpenses.filter(e => e.type === 'expense').reduce((sum, e) => sum + Number(e.amount), 0)
+        monthlyData.push({ income, expense, savings: income - expense })
+        
+        currentMonth++
+        if (currentMonth > 12) { currentMonth = 1; currentYear++ }
+      }
+      return monthlyData
+    } else {
+      const monthlyData = months.map((_, idx) => {
+        const monthNum = idx + 1
+        const monthExpenses = expenses.filter(e => e.year === selectedYear && e.month === monthNum)
+        const income = monthExpenses.filter(e => e.type === 'income').reduce((sum, e) => sum + Number(e.amount), 0)
+        const expense = monthExpenses.filter(e => e.type === 'expense').reduce((sum, e) => sum + Number(e.amount), 0)
+        return { income, expense, savings: income - expense }
+      })
+      return monthlyData
+    }
   }
 
   const monthlyTrend = getMonthlyTrend()
+  const trendLabels = filterMode === 'range' && rangeStart && rangeEnd ? 
+    (() => {
+      const [startYear, startMonth] = rangeStart.split('-').map(Number)
+      const [endYear, endMonth] = rangeEnd.split('-').map(Number)
+      const labels = []
+      let currentYear = startYear, currentMonth = startMonth
+      while (currentYear < endYear || (currentYear === endYear && currentMonth <= endMonth)) {
+        labels.push(`${months[currentMonth - 1].substring(0, 3)} '${String(currentYear).substring(2)}`)
+        currentMonth++
+        if (currentMonth > 12) { currentMonth = 1; currentYear++ }
+      }
+      return labels
+    })() : months
 
   const addEntry = async () => {
     if (!newEntry.category || !newEntry.amount || !newEntry.month) {
@@ -131,53 +188,120 @@ export default function ExpenseTracker({ expenses = [], onUpdate }) {
 
   return (
     <div>
+      {/* Filter Mode Selection */}
+      <div style={{ display: 'flex', gap: 12, marginBottom: 24, alignItems: 'center', flexWrap: 'wrap', background: 'linear-gradient(135deg, #0a1018 0%, #0f1724 100%)', padding: 16, borderRadius: 12, border: '2px solid #1e293b' }}>
+        <div style={{ fontSize: 14, fontWeight: 700, color: '#e6e9ef' }}>📅 View Mode:</div>
+        <button 
+          onClick={() => setFilterMode('month')}
+          style={{ 
+            padding: '10px 20px', 
+            borderRadius: 8, 
+            border: 'none', 
+            fontSize: 14, 
+            fontWeight: 700, 
+            cursor: 'pointer',
+            background: filterMode === 'month' ? 'linear-gradient(135deg, #3b82f6, #2563eb)' : '#1e293b',
+            color: filterMode === 'month' ? 'white' : '#94a3b8',
+            transition: 'all 0.2s'
+          }}
+          onMouseEnter={e => e.currentTarget.style.transform = 'translateY(-2px)'}
+          onMouseLeave={e => e.currentTarget.style.transform = 'translateY(0)'}
+        >
+          📆 Month View
+        </button>
+        <button 
+          onClick={() => setFilterMode('range')}
+          style={{ 
+            padding: '10px 20px', 
+            borderRadius: 8, 
+            border: 'none', 
+            fontSize: 14, 
+            fontWeight: 700, 
+            cursor: 'pointer',
+            background: filterMode === 'range' ? 'linear-gradient(135deg, #8b5cf6, #7c3aed)' : '#1e293b',
+            color: filterMode === 'range' ? 'white' : '#94a3b8',
+            transition: 'all 0.2s'
+          }}
+          onMouseEnter={e => e.currentTarget.style.transform = 'translateY(-2px)'}
+          onMouseLeave={e => e.currentTarget.style.transform = 'translateY(0)'}
+        >
+          📊 Range View
+        </button>
+      </div>
+
       {/* Summary Cards */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(250px, 1fr))', gap: 20, marginBottom: 32 }}>
         <div style={{ background: 'linear-gradient(135deg, rgba(34,197,94,0.15), rgba(34,197,94,0.05)), #0f1724', padding: 20, borderRadius: 12, border: '2px solid rgba(34,197,94,0.3)' }}>
           <div style={{ fontSize: 11, color: '#86efac', marginBottom: 8, fontWeight: 700, textTransform: 'uppercase' }}>💰 Total Income</div>
-          <div style={{ fontSize: 28, fontWeight: 900, color: '#22c55e' }}>₹{overallTotal.income.toLocaleString()}</div>
-          <div style={{ fontSize: 12, color: '#86efac', marginTop: 6 }}>Year: ₹{yearlyTotal.income.toLocaleString()}</div>
+          <div style={{ fontSize: 28, fontWeight: 900, color: '#22c55e' }}>₹{monthlyTotal.income.toLocaleString()}</div>
+          <div style={{ fontSize: 12, color: '#86efac', marginTop: 6 }}>Overall: ₹{overallTotal.income.toLocaleString()}</div>
         </div>
         <div style={{ background: 'linear-gradient(135deg, rgba(239,68,68,0.15), rgba(239,68,68,0.05)), #0f1724', padding: 20, borderRadius: 12, border: '2px solid rgba(239,68,68,0.3)' }}>
           <div style={{ fontSize: 11, color: '#fca5a5', marginBottom: 8, fontWeight: 700, textTransform: 'uppercase' }}>💸 Total Expense</div>
-          <div style={{ fontSize: 28, fontWeight: 900, color: '#ef4444' }}>₹{overallTotal.expense.toLocaleString()}</div>
-          <div style={{ fontSize: 12, color: '#fca5a5', marginTop: 6 }}>Year: ₹{yearlyTotal.expense.toLocaleString()}</div>
+          <div style={{ fontSize: 28, fontWeight: 900, color: '#ef4444' }}>₹{monthlyTotal.expense.toLocaleString()}</div>
+          <div style={{ fontSize: 12, color: '#fca5a5', marginTop: 6 }}>Overall: ₹{overallTotal.expense.toLocaleString()}</div>
         </div>
         <div style={{ background: 'linear-gradient(135deg, rgba(59,130,246,0.15), rgba(59,130,246,0.05)), #0f1724', padding: 20, borderRadius: 12, border: '2px solid rgba(59,130,246,0.3)' }}>
           <div style={{ fontSize: 11, color: '#93c5fd', marginBottom: 8, fontWeight: 700, textTransform: 'uppercase' }}>💎 Net Savings</div>
-          <div style={{ fontSize: 28, fontWeight: 900, color: overallTotal.balance >= 0 ? '#3b82f6' : '#ef4444' }}>
-            {overallTotal.balance >= 0 ? '+' : ''}₹{overallTotal.balance.toLocaleString()}
+          <div style={{ fontSize: 28, fontWeight: 900, color: monthlyTotal.balance >= 0 ? '#3b82f6' : '#ef4444' }}>
+            {monthlyTotal.balance >= 0 ? '+' : ''}₹{monthlyTotal.balance.toLocaleString()}
           </div>
-          <div style={{ fontSize: 12, color: '#93c5fd', marginTop: 6 }}>Year: ₹{yearlyTotal.balance.toLocaleString()}</div>
+          <div style={{ fontSize: 12, color: '#93c5fd', marginTop: 6 }}>Overall: ₹{overallTotal.balance.toLocaleString()}</div>
         </div>
       </div>
 
       {/* Filters */}
       <div style={{ display: 'flex', gap: 16, marginBottom: 24, flexWrap: 'wrap' }}>
-        <select value={selectedYear} onChange={e => setSelectedYear(Number(e.target.value))} style={{ padding: '10px 16px', background: '#0a1018', color: '#e6e9ef', border: '2px solid #2d3f5f', borderRadius: 8, fontSize: 14, fontWeight: 600 }}>
-          {years.map(y => <option key={y} value={y}>{y}</option>)}
-        </select>
-        <select value={selectedMonth} onChange={e => setSelectedMonth(Number(e.target.value))} style={{ padding: '10px 16px', background: '#0a1018', color: '#e6e9ef', border: '2px solid #2d3f5f', borderRadius: 8, fontSize: 14, fontWeight: 600 }}>
-          {months.map((m, idx) => <option key={idx} value={idx + 1}>{m}</option>)}
-        </select>
-        <div style={{ padding: '10px 20px', background: 'linear-gradient(135deg, #22c55e, #16a34a)', borderRadius: 8, color: 'white', fontWeight: 700, fontSize: 14 }}>
-          {months[selectedMonth - 1]} {selectedYear}: Income ₹{monthlyTotal.income.toLocaleString()} | Expense ₹{monthlyTotal.expense.toLocaleString()} | Balance ₹{monthlyTotal.balance.toLocaleString()}
-        </div>
+        {filterMode === 'month' ? (
+          <>
+            <select value={selectedYear} onChange={e => setSelectedYear(Number(e.target.value))} style={{ padding: '10px 16px', background: '#0a1018', color: '#e6e9ef', border: '2px solid #2d3f5f', borderRadius: 8, fontSize: 14, fontWeight: 600 }}>
+              {years.map(y => <option key={y} value={y}>{y}</option>)}
+            </select>
+            <select value={selectedMonth} onChange={e => setSelectedMonth(Number(e.target.value))} style={{ padding: '10px 16px', background: '#0a1018', color: '#e6e9ef', border: '2px solid #2d3f5f', borderRadius: 8, fontSize: 14, fontWeight: 600 }}>
+              {months.map((m, idx) => <option key={idx} value={idx + 1}>{m}</option>)}
+            </select>
+            <div style={{ padding: '10px 20px', background: 'linear-gradient(135deg, #22c55e, #16a34a)', borderRadius: 8, color: 'white', fontWeight: 700, fontSize: 14 }}>
+              {months[selectedMonth - 1]} {selectedYear}: Income ₹{monthlyTotal.income.toLocaleString()} | Expense ₹{monthlyTotal.expense.toLocaleString()} | Balance ₹{monthlyTotal.balance.toLocaleString()}
+            </div>
+          </>
+        ) : (
+          <>
+            <div style={{ fontSize: 14, fontWeight: 700, color: '#e6e9ef' }}>📍 Start:</div>
+            <input 
+              type="month" 
+              value={rangeStart}
+              onChange={e => setRangeStart(e.target.value)}
+              style={{ padding: '10px 16px', background: '#0a1018', color: '#e6e9ef', border: '2px solid #2d3f5f', borderRadius: 8, fontSize: 14, fontWeight: 600, cursor: 'pointer' }}
+            />
+            <div style={{ fontSize: 14, fontWeight: 700, color: '#e6e9ef' }}>📍 End:</div>
+            <input 
+              type="month" 
+              value={rangeEnd}
+              onChange={e => setRangeEnd(e.target.value)}
+              style={{ padding: '10px 16px', background: '#0a1018', color: '#e6e9ef', border: '2px solid #2d3f5f', borderRadius: 8, fontSize: 14, fontWeight: 600, cursor: 'pointer' }}
+            />
+            {rangeStart && rangeEnd && (
+              <div style={{ padding: '10px 20px', background: 'linear-gradient(135deg, #8b5cf6, #7c3aed)', borderRadius: 8, color: 'white', fontWeight: 700, fontSize: 14 }}>
+                📊 Range Summary: Income ₹{monthlyTotal.income.toLocaleString()} | Expense ₹{monthlyTotal.expense.toLocaleString()} | Balance ₹{monthlyTotal.balance.toLocaleString()}
+              </div>
+            )}
+          </>
+        )}
       </div>
 
       {/* Charts */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(400px, 1fr))', gap: 24, marginBottom: 32 }}>
         <div style={{ background: 'linear-gradient(135deg, #0a1018 0%, #0f1724 100%)', padding: 24, borderRadius: 14, border: '2px solid #1e293b', boxShadow: '0 4px 20px rgba(0,0,0,0.3)' }}>
           <h3 style={{ margin: '0 0 20px 0', color: '#e6e9ef', fontSize: 18, fontWeight: 700, display: 'flex', alignItems: 'center', gap: 8 }}>
-            📈 Monthly Trend ({selectedYear})
+            📈 {filterMode === 'range' ? 'Date Range Trend' : `Monthly Trend (${selectedYear})`}
           </h3>
-          <Line data={trendChartData} options={{ responsive: true, maintainAspectRatio: true, plugins: { legend: { labels: { color: '#94a3b8', font: { size: 12, weight: '600' } } } }, scales: { x: { ticks: { color: '#64748b', font: { size: 11 } }, grid: { color: '#1e293b' } }, y: { ticks: { color: '#64748b', font: { size: 11 } }, grid: { color: '#1e293b' } } } }} />
+          <Line data={{ labels: trendLabels, datasets: trendChartData.datasets }} options={{ responsive: true, maintainAspectRatio: true, plugins: { legend: { labels: { color: '#94a3b8', font: { size: 12, weight: '600' } } } }, scales: { x: { ticks: { color: '#64748b', font: { size: 11 } }, grid: { color: '#1e293b' } }, y: { ticks: { color: '#64748b', font: { size: 11 } }, grid: { color: '#1e293b' } } } }} />
         </div>
         
         {Object.keys(expenseBreakdown).length > 0 && (
           <div style={{ background: 'linear-gradient(135deg, #0a1018 0%, #0f1724 100%)', padding: 24, borderRadius: 14, border: '2px solid #1e293b', boxShadow: '0 4px 20px rgba(0,0,0,0.3)' }}>
             <h3 style={{ margin: '0 0 20px 0', color: '#e6e9ef', fontSize: 18, fontWeight: 700, display: 'flex', alignItems: 'center', gap: 8 }}>
-              💸 Expense Categories ({months[selectedMonth - 1]})
+              💸 Expense Categories {filterMode === 'range' ? '(Range)' : `(${months[selectedMonth - 1]})`}
             </h3>
             <Doughnut data={expenseDoughnutData} options={{ responsive: true, maintainAspectRatio: true, plugins: { legend: { position: 'right', labels: { color: '#94a3b8', font: { size: 11, weight: '600' }, padding: 12 } } } }} />
           </div>
@@ -186,18 +310,18 @@ export default function ExpenseTracker({ expenses = [], onUpdate }) {
         {Object.keys(incomeBreakdown).length > 0 && (
           <div style={{ background: 'linear-gradient(135deg, #0a1018 0%, #0f1724 100%)', padding: 24, borderRadius: 14, border: '2px solid #1e293b', boxShadow: '0 4px 20px rgba(0,0,0,0.3)' }}>
             <h3 style={{ margin: '0 0 20px 0', color: '#e6e9ef', fontSize: 18, fontWeight: 700, display: 'flex', alignItems: 'center', gap: 8 }}>
-              💰 Income Sources ({months[selectedMonth - 1]})
+              💰 Income Sources {filterMode === 'range' ? '(Range)' : `(${months[selectedMonth - 1]})`}
             </h3>
             <Doughnut data={incomeDoughnutData} options={{ responsive: true, maintainAspectRatio: true, plugins: { legend: { position: 'right', labels: { color: '#94a3b8', font: { size: 11, weight: '600' }, padding: 12 } } } }} />
           </div>
         )}
       </div>
 
-      {/* Category Statistics for Selected Month */}
+      {/* Category Statistics for Selected Month/Range */}
       {(Object.keys(expenseBreakdown).length > 0 || Object.keys(incomeBreakdown).length > 0) && (
         <div style={{ background: 'linear-gradient(135deg, rgba(139,92,246,0.08), rgba(99,102,241,0.05)), #0f1724', padding: 24, borderRadius: 14, border: '2px solid rgba(139,92,246,0.3)', marginBottom: 32, boxShadow: '0 4px 20px rgba(0,0,0,0.3)' }}>
           <h3 style={{ margin: '0 0 20px 0', color: '#e6e9ef', fontSize: 20, fontWeight: 700, display: 'flex', alignItems: 'center', gap: 8 }}>
-            📊 Category Breakdown - {months[selectedMonth - 1]} {selectedYear}
+            📊 Category Breakdown {filterMode === 'range' ? `- ${rangeStart?.split('-')[0]}-${rangeStart?.split('-')[1]} to ${rangeEnd?.split('-')[0]}-${rangeEnd?.split('-')[1]}` : `- ${months[selectedMonth - 1]} ${selectedYear}`}
           </h3>
           
           {Object.keys(expenseBreakdown).length > 0 && (
