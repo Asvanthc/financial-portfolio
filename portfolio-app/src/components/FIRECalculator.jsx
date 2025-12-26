@@ -40,7 +40,10 @@ export default function FIRECalculator({ currentPortfolioValue, expenses }) {
     kidsEducation: { enabled: false, annualCost: 100000, startYear: 10, duration: 15 }
   })
 
-  // Calculate annual expenses from expense tracker data
+  // Suggested SIP from tracker
+  const [suggestedSIP, setSuggestedSIP] = useState(null)
+
+  // Calculate annual expenses from expense tracker data and suggest SIP from average savings
   useEffect(() => {
     if (expenses && expenses.length > 0) {
       const yearlyExpense = expenses
@@ -52,6 +55,25 @@ export default function FIRECalculator({ currentPortfolioValue, expenses }) {
       const annualized = uniqueMonths > 0 ? (yearlyExpense / uniqueMonths) * 12 : 0
       
       setInputs(prev => ({ ...prev, annualExpenses: Math.round(annualized) }))
+
+      // Compute average monthly savings (income - expense) across months
+      const byMonth = new Map()
+      expenses.forEach(e => {
+        const key = `${e.year}-${String(e.month).padStart(2, '0')}`
+        if (!byMonth.has(key)) byMonth.set(key, { income: 0, expense: 0 })
+        const rec = byMonth.get(key)
+        if (e.type === 'income') rec.income += Number(e.amount || 0)
+        if (e.type === 'expense') rec.expense += Number(e.amount || 0)
+      })
+      const monthEntries = Array.from(byMonth.values())
+      if (monthEntries.length > 0) {
+        const monthlySavings = monthEntries.map(m => (m.income - m.expense))
+        const avgSaving = monthlySavings.reduce((a, b) => a + b, 0) / monthlySavings.length
+        const clean = Math.max(0, Math.round(avgSaving))
+        setSuggestedSIP(clean)
+        // Prefill only if user hasn't entered anything
+        setInputs(prev => prev.monthlyContribution > 0 ? prev : { ...prev, monthlyContribution: clean })
+      }
     }
   }, [expenses])
 
@@ -433,12 +455,17 @@ export default function FIRECalculator({ currentPortfolioValue, expenses }) {
 
           <div>
             <label style={{ display: 'block', fontSize: 12, color: '#94a3b8', marginBottom: 6, fontWeight: 600 }}>🎯 Target FIRE Age</label>
-            <input 
-              type="number" 
-              value={inputs.targetAge}
-              onChange={e => handleInputChange('targetAge', e.target.value)}
-              style={{ width: '100%', padding: 10, background: '#0a1018', color: '#e6e9ef', border: '2px solid #2d3f5f', borderRadius: 8, fontSize: 14 }}
-            />
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr auto auto auto', gap: 8 }}>
+              <input 
+                type="number" 
+                value={inputs.targetAge}
+                onChange={e => handleInputChange('targetAge', e.target.value)}
+                style={{ width: '100%', padding: 10, background: '#0a1018', color: '#e6e9ef', border: '2px solid #2d3f5f', borderRadius: 8, fontSize: 14 }}
+              />
+              <button onClick={() => handleInputChange('targetAge', inputs.targetAge - 1)} style={{ padding: '10px 12px', background: 'rgba(59,130,246,0.1)', border: '1px solid rgba(59,130,246,0.3)', color: '#93c5fd', borderRadius: 8, cursor: 'pointer' }}>-1y</button>
+              <button onClick={() => handleInputChange('targetAge', inputs.targetAge + 1)} style={{ padding: '10px 12px', background: 'rgba(34,197,94,0.1)', border: '1px solid rgba(34,197,94,0.3)', color: '#86efac', borderRadius: 8, cursor: 'pointer' }}>+1y</button>
+              <button onClick={() => handleInputChange('targetAge', inputs.currentAge + 20)} style={{ padding: '10px 12px', background: 'rgba(168,85,247,0.1)', border: '1px solid rgba(168,85,247,0.3)', color: '#d8b4fe', borderRadius: 8, cursor: 'pointer' }}>+20y</button>
+            </div>
             <div style={{ fontSize: 11, color: '#64748b', marginTop: 4 }}>Age at which you want to retire. Adjust to see impact on savings needed.</div>
           </div>
 
@@ -455,13 +482,21 @@ export default function FIRECalculator({ currentPortfolioValue, expenses }) {
 
           <div>
             <label style={{ display: 'block', fontSize: 12, color: '#94a3b8', marginBottom: 6, fontWeight: 600 }}>📈 Monthly Contribution (₹)</label>
-            <input 
-              type="number" 
-              value={inputs.monthlyContribution}
-              onChange={e => handleInputChange('monthlyContribution', e.target.value)}
-              style={{ width: '100%', padding: 10, background: '#0a1018', color: '#e6e9ef', border: '2px solid #2d3f5f', borderRadius: 8, fontSize: 14 }}
-            />
-            <div style={{ fontSize: 11, color: '#64748b', marginTop: 4 }}>Amount you save & invest each month. Higher = faster path to FIRE.</div>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr auto auto auto auto', gap: 8 }}>
+              <input 
+                type="number" 
+                value={inputs.monthlyContribution}
+                onChange={e => handleInputChange('monthlyContribution', e.target.value)}
+                style={{ width: '100%', padding: 10, background: '#0a1018', color: '#e6e9ef', border: '2px solid #2d3f5f', borderRadius: 8, fontSize: 14 }}
+              />
+              <button onClick={() => suggestedSIP != null && handleInputChange('monthlyContribution', suggestedSIP)} style={{ padding: '10px 12px', background: 'rgba(34,197,94,0.1)', border: '1px solid rgba(34,197,94,0.3)', color: '#86efac', borderRadius: 8, cursor: 'pointer' }}>Use {suggestedSIP ? `₹${suggestedSIP.toLocaleString()}` : 'suggested'}</button>
+              <button onClick={() => handleInputChange('monthlyContribution', inputs.monthlyContribution + 5000)} style={{ padding: '10px 12px', background: 'rgba(59,130,246,0.1)', border: '1px solid rgba(59,130,246,0.3)', color: '#93c5fd', borderRadius: 8, cursor: 'pointer' }}>+₹5k</button>
+              <button onClick={() => handleInputChange('monthlyContribution', inputs.monthlyContribution + 10000)} style={{ padding: '10px 12px', background: 'rgba(59,130,246,0.1)', border: '1px solid rgba(59,130,246,0.3)', color: '#93c5fd', borderRadius: 8, cursor: 'pointer' }}>+₹10k</button>
+              <button onClick={() => handleInputChange('monthlyContribution', 0)} style={{ padding: '10px 12px', background: 'rgba(239,68,68,0.1)', border: '1px solid rgba(239,68,68,0.3)', color: '#fca5a5', borderRadius: 8, cursor: 'pointer' }}>Reset</button>
+            </div>
+            <div style={{ fontSize: 11, color: '#64748b', marginTop: 4 }}>
+              Amount you save & invest each month. {suggestedSIP != null ? `Suggested from tracker: ₹${suggestedSIP.toLocaleString()}.` : ''}
+            </div>
           </div>
 
           <div>
@@ -473,6 +508,7 @@ export default function FIRECalculator({ currentPortfolioValue, expenses }) {
               onChange={e => handleInputChange('accumulationReturn', e.target.value)}
               style={{ width: '100%', padding: 10, background: '#0a1018', color: '#e6e9ef', border: '2px solid #2d3f5f', borderRadius: 8, fontSize: 14 }}
             />
+            <input type="range" min="4" max="16" step="0.1" value={inputs.accumulationReturn} onChange={e => handleInputChange('accumulationReturn', e.target.value)} style={{ width: '100%', marginTop: 8 }} />
             <div style={{ fontSize: 11, color: '#64748b', marginTop: 4 }}>Expected returns BEFORE retirement (equity-heavy, 80-90%). India equity historical: 11-12%</div>
           </div>
 
@@ -485,6 +521,7 @@ export default function FIRECalculator({ currentPortfolioValue, expenses }) {
               onChange={e => handleInputChange('withdrawalReturn', e.target.value)}
               style={{ width: '100%', padding: 10, background: '#0a1018', color: '#e6e9ef', border: '2px solid #2d3f5f', borderRadius: 8, fontSize: 14 }}
             />
+            <input type="range" min="4" max="10" step="0.1" value={inputs.withdrawalReturn} onChange={e => handleInputChange('withdrawalReturn', e.target.value)} style={{ width: '100%', marginTop: 8 }} />
             <div style={{ fontSize: 11, color: '#64748b', marginTop: 4 }}>Expected returns AFTER retirement (balanced 60/40). Conservative: 7-8%</div>
           </div>
 
@@ -497,6 +534,7 @@ export default function FIRECalculator({ currentPortfolioValue, expenses }) {
               onChange={e => handleInputChange('inflationRate', e.target.value)}
               style={{ width: '100%', padding: 10, background: '#0a1018', color: '#e6e9ef', border: '2px solid #2d3f5f', borderRadius: 8, fontSize: 14 }}
             />
+            <input type="range" min="3" max="8" step="0.1" value={inputs.inflationRate} onChange={e => handleInputChange('inflationRate', e.target.value)} style={{ width: '100%', marginTop: 8 }} />
             <div style={{ fontSize: 11, color: '#64748b', marginTop: 4 }}>Estimated annual inflation. India ~5-6%. Higher inflation = higher FIRE number needed.</div>
           </div>
 
@@ -509,6 +547,7 @@ export default function FIRECalculator({ currentPortfolioValue, expenses }) {
               onChange={e => handleInputChange('safeWithdrawalRate', e.target.value)}
               style={{ width: '100%', padding: 10, background: '#0a1018', color: '#e6e9ef', border: '2px solid #2d3f5f', borderRadius: 8, fontSize: 14 }}
             />
+            <input type="range" min="3" max="5.5" step="0.1" value={inputs.safeWithdrawalRate} onChange={e => handleInputChange('safeWithdrawalRate', e.target.value)} style={{ width: '100%', marginTop: 8 }} />
             <div style={{ fontSize: 11, color: '#64748b', marginTop: 4 }}>% of corpus you withdraw annually. 4% rule (25x expenses) is historically safe for 30+ years.</div>
           </div>
 
