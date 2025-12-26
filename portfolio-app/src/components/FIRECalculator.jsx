@@ -338,7 +338,14 @@ export default function FIRECalculator({ currentPortfolioValue, expenses }) {
 
           <div style={{ padding: 12, background: 'rgba(245,158,11,0.08)', borderRadius: 8, borderLeft: '4px solid #f59e0b' }}>
             <div style={{ fontSize: 13, color: '#cbd5e1', lineHeight: 1.6 }}>
-              <strong style={{ color: '#f59e0b' }}>To reach FIRE by age {inputs.targetAge}:</strong> {yearsUntilTarget > 0 && gap > 0 ? `Need to save ₹${Math.round(gap / yearsUntilTarget / 12).toLocaleString()}/month` : 'Already on track!'}
+              <strong style={{ color: '#f59e0b' }}>To reach FIRE by age {inputs.targetAge}:</strong>{' '}
+              {(() => {
+                if (gap <= 0) return 'Already on track!'
+                if (yearsUntilTarget <= 0) return 'Target age is now or past; increase contributions or push target age.'
+                const neededPerMonth = gap / yearsUntilTarget / 12
+                if (neededPerMonth <= inputs.monthlyContribution + 1) return 'Already on track!'
+                return `Need to save ₹${Math.round(neededPerMonth).toLocaleString()}/month`
+              })()}
             </div>
           </div>
 
