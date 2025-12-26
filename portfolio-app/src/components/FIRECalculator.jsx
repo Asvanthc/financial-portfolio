@@ -18,7 +18,8 @@ export default function FIRECalculator({ currentPortfolioValue, expenses }) {
     currentAge: currentAge,
     targetAge: currentAge + 20,
     annualExpenses: 0,
-    expectedReturn: 8,
+    accumulationReturn: 11,      // Higher returns during working years (equity-heavy)
+    withdrawalReturn: 8,          // Conservative returns post-retirement (balanced portfolio)
     inflationRate: 6,
     safeWithdrawalRate: 4,
     monthlyContribution: 0,
@@ -44,30 +45,37 @@ export default function FIRECalculator({ currentPortfolioValue, expenses }) {
     setInputs(prev => ({ ...prev, [field]: Number(value) }))
   }
 
-  // FIRE Calculations
-  const fireNumber = inputs.annualExpenses * (100 / inputs.safeWithdrawalRate)
+  // FIRE Calculations with edge case handling
+  const fireNumber = inputs.annualExpenses > 0 && inputs.safeWithdrawalRate > 0 
+    ? inputs.annualExpenses * (100 / inputs.safeWithdrawalRate)
+    : 0
   const currentSavings = currentPortfolioValue + inputs.additionalSavings
   const gap = Math.max(0, fireNumber - currentSavings)
   const fireProgress = fireNumber > 0 ? (currentSavings / fireNumber) * 100 : 0
 
-  // Time to FIRE calculation with compound growth
-  const monthlyReturn = inputs.expectedReturn / 12 / 100
+  // Time to FIRE calculation with compound growth (using accumulation phase returns)
+  const monthlyReturn = inputs.accumulationReturn / 12 / 100
   const yearsToFIRE = (() => {
+    if (fireNumber <= 0) return 'N/A'
     if (gap <= 0) return 0
-    if (inputs.monthlyContribution <= 0) return 'Never (no contributions)'
+    if (inputs.monthlyContribution <= 0) {
+      // Only existing savings growing
+      if (inputs.accumulationReturn <= 0) return 'Never'
+      const years = Math.log(fireNumber / Math.max(1, currentSavings)) / Math.log(1 + inputs.accumulationReturn / 100)
+      return years > 100 ? 'Never (100+ years)' : years.toFixed(1)
+    }
     
     // FV = PV(1+r)^n + PMT * [((1+r)^n - 1) / r]
-    // Solve for n when FV = fireNumber
     let months = 0
     let balance = currentSavings
-    const maxMonths = 600 // 50 years max
+    const maxMonths = 100 * 12 // 100 years max
     
     while (balance < fireNumber && months < maxMonths) {
       balance = balance * (1 + monthlyReturn) + inputs.monthlyContribution
       months++
     }
     
-    return months >= maxMonths ? 'Never (insufficient rate)' : (months / 12).toFixed(1)
+    return months >= maxMonths ? 'Never (100+ years)' : (months / 12).toFixed(1)
   })()
 
   const targetAgeReached = typeof yearsToFIRE === 'number' ? inputs.currentAge + parseFloat(yearsToFIRE) : 'N/A'
@@ -78,15 +86,23 @@ export default function FIRECalculator({ currentPortfolioValue, expenses }) {
   const baristaFIRE = inputs.annualExpenses * 0.5 * (100 / inputs.safeWithdrawalRate)
 
   // Inflation adjusted
-  const yearsUntilTarget = inputs.targetAge - inputs.currentAge
+  const yearsUntilTarget = Math.max(0, inputs.targetAge - inputs.currentAge)
   const inflationMultiplier = Math.pow(1 + inputs.inflationRate / 100, yearsUntilTarget)
   const inflationAdjustedFIRE = fireNumber * inflationMultiplier
 
-  // Monthly income at FIRE
-  const monthlyFIREIncome = (fireNumber * (inputs.safeWithdrawalRate / 100)) / 12
+  // Present Value - what FIRE number means in today's money
+  const presentValueFIRE = yearsUntilTarget > 0 
+    ? inflationAdjustedFIRE / inflationMultiplier
+    : fireNumber
+  const futureValueNeeded = inflationAdjustedFIRE
+
+  // Monthly income at FIRE (using withdrawal phase returns)
+  const monthlyFIREIncome = fireNumber > 0 ? (fireNumber * (inputs.safeWithdrawalRate / 100)) / 12 : 0
 
   // Coast FIRE - amount needed now to reach FIRE by target age with no more contributions
-  const coastFIRENumber = fireNumber / Math.pow(1 + inputs.expectedReturn / 100, yearsUntilTarget)
+  const coastFIRENumber = yearsUntilTarget > 0 && inputs.accumulationReturn > 0
+    ? fireNumber / Math.pow(1 + inputs.accumulationReturn / 100, yearsUntilTarget)
+    : fireNumber
   const coastFIREAchieved = currentSavings >= coastFIRENumber
 
   // Simple coverage if you stopped working today (no growth, brute run-down)
@@ -178,15 +194,27 @@ export default function FIRECalculator({ currentPortfolioValue, expenses }) {
           </div>
 
           <div>
-            <label style={{ display: 'block', fontSize: 12, color: '#94a3b8', marginBottom: 6, fontWeight: 600 }}>📊 Expected Annual Return (%)</label>
+            <label style={{ display: 'block', fontSize: 12, color: '#94a3b8', marginBottom: 6, fontWeight: 600 }}>📈 Accumulation Return (%)</label>
             <input 
               type="number" 
-              step="0.1"
-              value={inputs.expectedReturn}
-              onChange={e => handleInputChange('expectedReturn', e.target.value)}
+              step="0.5"
+              value={inputs.accumulationReturn}
+              onChange={e => handleInputChange('accumulationReturn', e.target.value)}
               style={{ width: '100%', padding: 10, background: '#0a1018', color: '#e6e9ef', border: '2px solid #2d3f5f', borderRadius: 8, fontSize: 14 }}
             />
-            <div style={{ fontSize: 11, color: '#64748b', marginTop: 4 }}>Long-term average returns on your portfolio. Stock market ~10%, conservative ~6-8%.</div>
+            <div style={{ fontSize: 11, color: '#64748b', marginTop: 4 }}>Expected returns BEFORE retirement (equity-heavy, 80-90%). India equity historical: 11-12%</div>
+          </div>
+
+          <div>
+            <label style={{ display: 'block', fontSize: 12, color: '#94a3b8', marginBottom: 6, fontWeight: 600 }}>📉 Post-Retirement Return (%)</label>
+            <input 
+              type="number" 
+              step="0.5"
+              value={inputs.withdrawalReturn}
+              onChange={e => handleInputChange('withdrawalReturn', e.target.value)}
+              style={{ width: '100%', padding: 10, background: '#0a1018', color: '#e6e9ef', border: '2px solid #2d3f5f', borderRadius: 8, fontSize: 14 }}
+            />
+            <div style={{ fontSize: 11, color: '#64748b', marginTop: 4 }}>Expected returns AFTER retirement (balanced 60/40). Conservative: 7-8%</div>
           </div>
 
           <div>
@@ -319,6 +347,15 @@ export default function FIRECalculator({ currentPortfolioValue, expenses }) {
             At {inputs.inflationRate}% inflation, your expenses will increase. Today's ₹{inputs.annualExpenses.toLocaleString()} = ₹{Math.round(inputs.annualExpenses * inflationMultiplier).toLocaleString()} by age {inputs.targetAge}.
           </div>
         </div>
+
+        <div style={{ background: 'linear-gradient(135deg, rgba(168,85,247,0.15), rgba(168,85,247,0.05)), #0f1724', padding: 20, borderRadius: 12, border: '2px solid rgba(168,85,247,0.3)' }}>
+          <div style={{ fontSize: 11, color: '#d8b4fe', marginBottom: 8, fontWeight: 700, textTransform: 'uppercase' }}>💎 In Today's Money</div>
+          <div style={{ fontSize: 28, fontWeight: 900, color: '#a855f7' }}>₹{presentValueFIRE.toLocaleString()}</div>
+          <div style={{ fontSize: 13, color: '#d8b4fe', marginTop: 6 }}>Present value of FIRE number</div>
+          <div style={{ fontSize: 11, color: '#94a3b8', marginTop: 8, lineHeight: 1.5 }}>
+            Future ₹{futureValueNeeded.toLocaleString()} = Today's ₹{presentValueFIRE.toLocaleString()} in purchasing power. This is your real goal in current terms.
+          </div>
+        </div>
       </div>
 
       {/* FIRE Types */}
@@ -365,19 +402,19 @@ export default function FIRECalculator({ currentPortfolioValue, expenses }) {
             <div style={{ fontSize: 13, color: '#cbd5e1', lineHeight: 1.7 }}>
               <strong style={{ color: '#22c55e' }}>📊 The Balance:</strong><br />
               • You withdraw <strong>{inputs.safeWithdrawalRate}%</strong> per year = ₹{Math.round(fireNumber * inputs.safeWithdrawalRate / 100).toLocaleString()}/year<br />
-              • Your corpus earns <strong>{inputs.expectedReturn}%</strong> per year = ₹{Math.round(fireNumber * inputs.expectedReturn / 100).toLocaleString()}/year<br />
-              • Net gain after withdrawal: ₹{Math.round(fireNumber * (inputs.expectedReturn - inputs.safeWithdrawalRate) / 100).toLocaleString()}/year
+              • Your corpus earns <strong>{inputs.withdrawalReturn}%</strong> per year = ₹{Math.round(fireNumber * inputs.withdrawalReturn / 100).toLocaleString()}/year (post-retirement conservative portfolio)<br />
+              • Net gain after withdrawal: ₹{Math.round(fireNumber * (inputs.withdrawalReturn - inputs.safeWithdrawalRate) / 100).toLocaleString()}/year
             </div>
           </div>
 
           <div style={{ padding: 14, background: 'rgba(255,255,255,0.03)', borderRadius: 10, border: '1px solid rgba(34,197,94,0.2)' }}>
             <div style={{ fontSize: 13, color: '#cbd5e1', lineHeight: 1.7 }}>
               <strong style={{ color: '#22c55e' }}>🔄 Compound Growth:</strong><br />
-              Even after withdrawing for expenses, your corpus continues growing. At {inputs.expectedReturn}% returns and {inputs.safeWithdrawalRate}% withdrawal:
+              Even after withdrawing for expenses, your corpus continues growing. At {inputs.withdrawalReturn}% returns and {inputs.safeWithdrawalRate}% withdrawal:
               <br /><br />
-              <strong>Year 1:</strong> ₹{fireNumber.toLocaleString()} → Earn ₹{Math.round(fireNumber * inputs.expectedReturn / 100).toLocaleString()} → Withdraw ₹{Math.round(fireNumber * inputs.safeWithdrawalRate / 100).toLocaleString()} → Left with ₹{Math.round(fireNumber * (1 + (inputs.expectedReturn - inputs.safeWithdrawalRate) / 100)).toLocaleString()}<br />
-              <strong>Year 10:</strong> Corpus grows to ~₹{Math.round(fireNumber * Math.pow(1 + (inputs.expectedReturn - inputs.safeWithdrawalRate - inputs.inflationRate) / 100, 10)).toLocaleString()} (after inflation)<br />
-              <strong>Year 30:</strong> Still have ~₹{Math.round(fireNumber * Math.pow(1 + (inputs.expectedReturn - inputs.safeWithdrawalRate - inputs.inflationRate) / 100, 30)).toLocaleString()} (after inflation)
+              <strong>Year 1:</strong> ₹{fireNumber.toLocaleString()} → Earn ₹{Math.round(fireNumber * inputs.withdrawalReturn / 100).toLocaleString()} → Withdraw ₹{Math.round(fireNumber * inputs.safeWithdrawalRate / 100).toLocaleString()} → Left with ₹{Math.round(fireNumber * (1 + (inputs.withdrawalReturn - inputs.safeWithdrawalRate) / 100)).toLocaleString()}<br />
+              <strong>Year 10:</strong> Corpus grows to ~₹{Math.round(fireNumber * Math.pow(1 + (inputs.withdrawalReturn - inputs.safeWithdrawalRate - inputs.inflationRate) / 100, 10)).toLocaleString()} (after inflation)<br />
+              <strong>Year 30:</strong> Still have ~₹{Math.round(fireNumber * Math.pow(1 + (inputs.withdrawalReturn - inputs.safeWithdrawalRate - inputs.inflationRate) / 100, 30)).toLocaleString()} (after inflation)
             </div>
           </div>
 
@@ -419,19 +456,76 @@ export default function FIRECalculator({ currentPortfolioValue, expenses }) {
         <h3 style={{ fontSize: 18, fontWeight: 700, marginBottom: 16, color: '#e6e9ef' }}>💡 Key Insights & Assumptions Check</h3>
         
         <div style={{ display: 'grid', gap: 12 }}>
-          {/* Assumptions Validation */}
-          {inputs.expectedReturn > 12 && (
-            <div style={{ padding: 12, background: 'rgba(245,158,11,0.12)', borderRadius: 8, borderLeft: '4px solid #f59e0b' }}>
-              <div style={{ fontSize: 13, color: '#fcd34d', lineHeight: 1.6 }}>
-                <strong style={{ color: '#f59e0b' }}>⚠️ Return Assumption Too High:</strong> {inputs.expectedReturn}% annual returns are very optimistic. Historical Indian equity index (Nifty 50) averages ~12% including dividends. Consider using 10-11% for safer planning.
+          {/* Critical Edge Cases */}
+          {inputs.annualExpenses <= 0 && (
+            <div style={{ padding: 12, background: 'rgba(239,68,68,0.15)', borderRadius: 8, borderLeft: '4px solid #ef4444' }}>
+              <div style={{ fontSize: 13, color: '#fca5a5', lineHeight: 1.6 }}>
+                <strong style={{ color: '#ef4444' }}>❌ Invalid Input:</strong> Annual expenses must be greater than 0. Enter your expected yearly spending in retirement.
               </div>
             </div>
           )}
 
-          {inputs.expectedReturn < inputs.inflationRate + 3 && (
-            <div style={{ padding: 12, background: 'rgba(239,68,68,0.12)', borderRadius: 8, borderLeft: '4px solid #ef4444' }}>
+          {inputs.monthlyContribution < 0 && (
+            <div style={{ padding: 12, background: 'rgba(239,68,68,0.15)', borderRadius: 8, borderLeft: '4px solid #ef4444' }}>
               <div style={{ fontSize: 13, color: '#fca5a5', lineHeight: 1.6 }}>
-                <strong style={{ color: '#ef4444' }}>⚠️ Real Returns Too Low:</strong> Expected return ({inputs.expectedReturn}%) minus inflation ({inputs.inflationRate}%) = {(inputs.expectedReturn - inputs.inflationRate).toFixed(1)}% real return. For long-term wealth building, aim for at least 6-7% real returns.
+                <strong style={{ color: '#ef4444' }}>❌ Invalid Input:</strong> Monthly contribution cannot be negative. Enter 0 if not contributing.
+              </div>
+            </div>
+          )}
+
+          {inputs.withdrawalReturn < inputs.safeWithdrawalRate && (
+            <div style={{ padding: 12, background: 'rgba(239,68,68,0.15)', borderRadius: 8, borderLeft: '4px solid #ef4444' }}>
+              <div style={{ fontSize: 13, color: '#fca5a5', lineHeight: 1.6 }}>
+                <strong style={{ color: '#ef4444' }}>🚨 CRITICAL: Corpus Will Deplete!</strong> Post-retirement return ({inputs.withdrawalReturn}%) is LESS than withdrawal rate ({inputs.safeWithdrawalRate}%). Your money will run out! Either increase returns or reduce withdrawal rate.
+              </div>
+            </div>
+          )}
+
+          {inputs.accumulationReturn <= inputs.inflationRate && (
+            <div style={{ padding: 12, background: 'rgba(239,68,68,0.15)', borderRadius: 8, borderLeft: '4px solid #ef4444' }}>
+              <div style={{ fontSize: 13, color: '#fca5a5', lineHeight: 1.6 }}>
+                <strong style={{ color: '#ef4444' }}>🚨 CRITICAL: Negative Real Returns!</strong> Accumulation return ({inputs.accumulationReturn}%) ≤ inflation ({inputs.inflationRate}%). You're losing purchasing power. Increase investment returns or you'll never reach FIRE.
+              </div>
+            </div>
+          )}
+
+          {inputs.withdrawalReturn <= inputs.inflationRate && (
+            <div style={{ padding: 12, background: 'rgba(239,68,68,0.15)', borderRadius: 8, borderLeft: '4px solid #ef4444' }}>
+              <div style={{ fontSize: 13, color: '#fca5a5', lineHeight: 1.6 }}>
+                <strong style={{ color: '#ef4444' }}>🚨 CRITICAL: Post-Retirement Negative Real Returns!</strong> Withdrawal return ({inputs.withdrawalReturn}%) ≤ inflation ({inputs.inflationRate}%). In retirement, inflation will erode your corpus even without withdrawals.
+              </div>
+            </div>
+          )}
+
+          {currentSavings === 0 && inputs.monthlyContribution === 0 && (
+            <div style={{ padding: 12, background: 'rgba(239,68,68,0.15)', borderRadius: 8, borderLeft: '4px solid #ef4444' }}>
+              <div style={{ fontSize: 13, color: '#fca5a5', lineHeight: 1.6 }}>
+                <strong style={{ color: '#ef4444' }}>❌ Cannot Calculate:</strong> Both current savings and monthly contribution are 0. You need to either start saving monthly or have existing savings to reach FIRE.
+              </div>
+            </div>
+          )}
+
+          {/* Assumptions Validation */}
+          {inputs.accumulationReturn > 13 && (
+            <div style={{ padding: 12, background: 'rgba(245,158,11,0.12)', borderRadius: 8, borderLeft: '4px solid #f59e0b' }}>
+              <div style={{ fontSize: 13, color: '#fcd34d', lineHeight: 1.6 }}>
+                <strong style={{ color: '#f59e0b' }}>⚠️ Accumulation Return Too High:</strong> {inputs.accumulationReturn}% is very aggressive. Historical Indian equity (Nifty 50 TRI) averages ~12-13%. Consider using 11% for realistic planning.
+              </div>
+            </div>
+          )}
+
+          {inputs.withdrawalReturn > 10 && (
+            <div style={{ padding: 12, background: 'rgba(245,158,11,0.12)', borderRadius: 8, borderLeft: '4px solid #f59e0b' }}>
+              <div style={{ fontSize: 13, color: '#fcd34d', lineHeight: 1.6 }}>
+                <strong style={{ color: '#f59e0b' }}>⚠️ Post-Retirement Return Too High:</strong> {inputs.withdrawalReturn}% in retirement is aggressive. Most use 60/40 balanced portfolios earning 7-8%. High equity increases sequence-of-returns risk.
+              </div>
+            </div>
+          )}
+
+          {inputs.accumulationReturn < inputs.inflationRate + 3 && inputs.accumulationReturn > inputs.inflationRate && (
+            <div style={{ padding: 12, background: 'rgba(245,158,11,0.12)', borderRadius: 8, borderLeft: '4px solid #f59e0b' }}>
+              <div style={{ fontSize: 13, color: '#fcd34d', lineHeight: 1.6 }}>
+                <strong style={{ color: '#f59e0b' }}>⚠️ Low Real Returns:</strong> Accumulation ({inputs.accumulationReturn}%) - inflation ({inputs.inflationRate}%) = {(inputs.accumulationReturn - inputs.inflationRate).toFixed(1)}% real. Aim for 5-6% real returns.
               </div>
             </div>
           )}
@@ -500,7 +594,7 @@ export default function FIRECalculator({ currentPortfolioValue, expenses }) {
               {(() => {
                 if (gap <= 0) return '✅ Already achieved! You can retire now.'
                 if (yearsUntilTarget <= 0) return '⚠️ Target age is now/past. Update target age for accurate projections.'
-                const neededPerMonth = gap / yearsUntilTarget / 12
+                const neededPerMonth = calculateNeededContribution(fireNumber, currentSavings, yearsUntilTarget, inputs.accumulationReturn)
                 if (neededPerMonth <= inputs.monthlyContribution + 1) return `✅ On track to hit FIRE by age ${inputs.targetAge}!`
                 return `To reach FIRE by age ${inputs.targetAge}, need ₹${Math.round(neededPerMonth).toLocaleString()}/month (₹${Math.round(neededPerMonth - inputs.monthlyContribution).toLocaleString()}/month more)`
               })()}
