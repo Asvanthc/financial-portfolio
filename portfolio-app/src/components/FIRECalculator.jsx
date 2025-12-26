@@ -101,16 +101,29 @@ export default function FIRECalculator({ currentPortfolioValue, expenses }) {
         <h2 style={{ fontSize: 28, fontWeight: 900, color: '#22d3ee', marginBottom: 8 }}>
           🔥 FIRE Calculator
         </h2>
-        <p style={{ color: '#94a3b8', fontSize: 14, lineHeight: 1.6 }}>
+        <p style={{ color: '#94a3b8', fontSize: 14, lineHeight: 1.6, marginBottom: 16 }}>
           Financial Independence, Retire Early - Calculate your path to financial freedom
         </p>
+        
+        {/* What is FIRE - Educational Block */}
+        <div style={{ background: 'linear-gradient(135deg, rgba(34,197,94,0.08), rgba(34,197,94,0.02))', padding: 20, borderRadius: 12, border: '2px solid rgba(34,197,94,0.2)', marginBottom: 16 }}>
+          <div style={{ fontSize: 16, fontWeight: 700, color: '#22c55e', marginBottom: 12 }}>💡 What is FIRE?</div>
+          <div style={{ fontSize: 13, color: '#cbd5e1', lineHeight: 1.8 }}>
+            <strong style={{ color: '#e6e9ef' }}>Financial Independence</strong> means you have enough money invested that the returns cover all your expenses - you don't <em>need</em> to work anymore.
+            <br /><br />
+            <strong style={{ color: '#e6e9ef' }}>The 4% Rule:</strong> If you save <strong>25 times your annual expenses</strong>, you can safely withdraw 4% per year (adjusted for inflation) and your money will last 30+ years - likely forever. 
+            <br /><br />
+            <strong style={{ color: '#e6e9ef' }}>Example:</strong> If you spend ₹5,00,000/year → FIRE Number = ₹5,00,000 × 25 = ₹1.25 crore. At 4% withdrawal, you get ₹5,00,000/year while your corpus keeps growing at ~8-10%.
+          </div>
+        </div>
+
         <div style={{ marginTop: 12, padding: 12, background: 'rgba(59,130,246,0.08)', border: '1px solid rgba(59,130,246,0.2)', borderRadius: 10, color: '#cbd5e1', fontSize: 12, lineHeight: 1.6 }}>
-          <strong style={{ color: '#22d3ee' }}>How to read this:</strong>
+          <strong style={{ color: '#22d3ee' }}>How this calculator works:</strong>
           <ul style={{ margin: '6px 0 0 16px', padding: 0, lineHeight: 1.6 }}>
-            <li>FIRE Number = Annual expenses ÷ Safe withdrawal rate (25x expenses at 4%).</li>
-            <li>Time to FIRE = When current savings + monthly investing grows to FIRE number.</li>
-            <li>Monthly FIRE Income = What you can safely withdraw each month at your rate.</li>
-            <li>If current age + Time to FIRE &gt; target age, increase contributions or lower expenses.</li>
+            <li><strong>FIRE Number</strong> = Annual expenses ÷ Safe withdrawal rate (25x expenses at 4%).</li>
+            <li><strong>Time to FIRE</strong> = Years until your current savings + monthly investments (with compound growth) reaches the FIRE number.</li>
+            <li><strong>Monthly FIRE Income</strong> = What you can safely withdraw each month forever.</li>
+            <li><strong>If stopped today</strong> = How many years your current savings covers expenses (with no growth).</li>
           </ul>
         </div>
       </div>
@@ -261,14 +274,26 @@ export default function FIRECalculator({ currentPortfolioValue, expenses }) {
           <div style={{ fontSize: 11, color: '#7dd3fc', marginBottom: 8, fontWeight: 700, textTransform: 'uppercase' }}>⏱️ Time to FIRE</div>
           <div style={{ fontSize: 32, fontWeight: 900, color: '#22d3ee' }}>{typeof yearsToFIRE === 'string' ? yearsToFIRE : `${yearsToFIRE} yrs`}</div>
           {typeof yearsToFIRE === 'number' && (
-            <div style={{ fontSize: 13, color: '#7dd3fc', marginTop: 6 }}>Age at FIRE: {targetAgeReached}</div>
+            <>
+              <div style={{ fontSize: 13, color: '#7dd3fc', marginTop: 6 }}>You'll reach FIRE at age {targetAgeReached}</div>
+              <div style={{ fontSize: 11, color: '#94a3b8', marginTop: 8, lineHeight: 1.5 }}>
+                {targetAgeReached < inputs.targetAge ? 
+                  `🎉 Excellent! You'll hit FIRE ${inputs.targetAge - targetAgeReached} years before your target!` :
+                  targetAgeReached == inputs.targetAge ?
+                  `Perfect! On track to hit your target age.` :
+                  `⚠️ Will take ${targetAgeReached - inputs.targetAge} years longer than target. Increase savings or reduce target age.`}
+              </div>
+            </>
           )}
         </div>
 
         <div style={{ background: 'linear-gradient(135deg, rgba(34,197,94,0.15), rgba(34,197,94,0.05)), #0f1724', padding: 20, borderRadius: 12, border: '2px solid rgba(34,197,94,0.3)' }}>
           <div style={{ fontSize: 11, color: '#86efac', marginBottom: 8, fontWeight: 700, textTransform: 'uppercase' }}>💰 Monthly FIRE Income</div>
           <div style={{ fontSize: 32, fontWeight: 900, color: '#22c55e' }}>₹{monthlyFIREIncome.toLocaleString()}</div>
-          <div style={{ fontSize: 13, color: '#86efac', marginTop: 6 }}>At {inputs.safeWithdrawalRate}% withdrawal</div>
+          <div style={{ fontSize: 13, color: '#86efac', marginTop: 6 }}>You can withdraw this every month</div>
+          <div style={{ fontSize: 11, color: '#94a3b8', marginTop: 8, lineHeight: 1.5 }}>
+            At {inputs.safeWithdrawalRate}% annual withdrawal, your corpus keeps growing with market returns while covering expenses.
+          </div>
         </div>
 
         <div style={{ background: `linear-gradient(135deg, ${coastFIREAchieved ? 'rgba(34,197,94,0.15)' : 'rgba(139,92,246,0.15)'}, ${coastFIREAchieved ? 'rgba(34,197,94,0.05)' : 'rgba(139,92,246,0.05)'}), #0f1724`, padding: 20, borderRadius: 12, border: `2px solid ${coastFIREAchieved ? 'rgba(34,197,94,0.3)' : 'rgba(139,92,246,0.3)'}` }}>
@@ -277,7 +302,12 @@ export default function FIRECalculator({ currentPortfolioValue, expenses }) {
             {coastFIREAchieved ? '✅ Achieved!' : `₹${coastFIRENumber.toLocaleString()}`}
           </div>
           <div style={{ fontSize: 13, color: coastFIREAchieved ? '#86efac' : '#c4b5fd', marginTop: 6 }}>
-            {coastFIREAchieved ? 'Can stop contributing now' : 'Needed for coast FIRE'}
+            {coastFIREAchieved ? 'You can stop saving now' : 'Needed to stop contributing'}
+          </div>
+          <div style={{ fontSize: 11, color: '#94a3b8', marginTop: 8, lineHeight: 1.5 }}>
+            {coastFIREAchieved ? 
+              `Your current savings will grow to FIRE number by age ${inputs.targetAge} with zero additional contributions.` :
+              `Save this much, then let compound growth do the rest until age ${inputs.targetAge}.`}
           </div>
         </div>
 
@@ -285,6 +315,9 @@ export default function FIRECalculator({ currentPortfolioValue, expenses }) {
           <div style={{ fontSize: 11, color: '#fcd34d', marginBottom: 8, fontWeight: 700, textTransform: 'uppercase' }}>📈 Inflation Adjusted</div>
           <div style={{ fontSize: 28, fontWeight: 900, color: '#f59e0b' }}>₹{inflationAdjustedFIRE.toLocaleString()}</div>
           <div style={{ fontSize: 13, color: '#fcd34d', marginTop: 6 }}>FIRE number in {yearsUntilTarget} years</div>
+          <div style={{ fontSize: 11, color: '#94a3b8', marginTop: 8, lineHeight: 1.5 }}>
+            At {inputs.inflationRate}% inflation, your expenses will increase. Today's ₹{inputs.annualExpenses.toLocaleString()} = ₹{Math.round(inputs.annualExpenses * inflationMultiplier).toLocaleString()} by age {inputs.targetAge}.
+          </div>
         </div>
       </div>
 
