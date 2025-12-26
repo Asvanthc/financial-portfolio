@@ -352,32 +352,157 @@ export default function FIRECalculator({ currentPortfolioValue, expenses }) {
         </div>
       </div>
 
+      {/* Will the Money Last? - Critical Question */}
+      <div style={{ background: 'linear-gradient(135deg, rgba(34,197,94,0.08), rgba(34,197,94,0.02))', padding: 24, borderRadius: 14, border: '2px solid rgba(34,197,94,0.3)', marginBottom: 32 }}>
+        <h3 style={{ fontSize: 18, fontWeight: 700, marginBottom: 16, color: '#22c55e' }}>⏳ Will the Money Last Forever?</h3>
+        
+        <div style={{ fontSize: 13, color: '#cbd5e1', lineHeight: 1.8, marginBottom: 16 }}>
+          <strong style={{ color: '#e6e9ef', fontSize: 14 }}>Yes, if you follow the 4% rule.</strong> Here's how the math works:
+        </div>
+
+        <div style={{ display: 'grid', gap: 14 }}>
+          <div style={{ padding: 14, background: 'rgba(255,255,255,0.03)', borderRadius: 10, border: '1px solid rgba(34,197,94,0.2)' }}>
+            <div style={{ fontSize: 13, color: '#cbd5e1', lineHeight: 1.7 }}>
+              <strong style={{ color: '#22c55e' }}>📊 The Balance:</strong><br />
+              • You withdraw <strong>{inputs.safeWithdrawalRate}%</strong> per year = ₹{Math.round(fireNumber * inputs.safeWithdrawalRate / 100).toLocaleString()}/year<br />
+              • Your corpus earns <strong>{inputs.expectedReturn}%</strong> per year = ₹{Math.round(fireNumber * inputs.expectedReturn / 100).toLocaleString()}/year<br />
+              • Net gain after withdrawal: ₹{Math.round(fireNumber * (inputs.expectedReturn - inputs.safeWithdrawalRate) / 100).toLocaleString()}/year
+            </div>
+          </div>
+
+          <div style={{ padding: 14, background: 'rgba(255,255,255,0.03)', borderRadius: 10, border: '1px solid rgba(34,197,94,0.2)' }}>
+            <div style={{ fontSize: 13, color: '#cbd5e1', lineHeight: 1.7 }}>
+              <strong style={{ color: '#22c55e' }}>🔄 Compound Growth:</strong><br />
+              Even after withdrawing for expenses, your corpus continues growing. At {inputs.expectedReturn}% returns and {inputs.safeWithdrawalRate}% withdrawal:
+              <br /><br />
+              <strong>Year 1:</strong> ₹{fireNumber.toLocaleString()} → Earn ₹{Math.round(fireNumber * inputs.expectedReturn / 100).toLocaleString()} → Withdraw ₹{Math.round(fireNumber * inputs.safeWithdrawalRate / 100).toLocaleString()} → Left with ₹{Math.round(fireNumber * (1 + (inputs.expectedReturn - inputs.safeWithdrawalRate) / 100)).toLocaleString()}<br />
+              <strong>Year 10:</strong> Corpus grows to ~₹{Math.round(fireNumber * Math.pow(1 + (inputs.expectedReturn - inputs.safeWithdrawalRate - inputs.inflationRate) / 100, 10)).toLocaleString()} (after inflation)<br />
+              <strong>Year 30:</strong> Still have ~₹{Math.round(fireNumber * Math.pow(1 + (inputs.expectedReturn - inputs.safeWithdrawalRate - inputs.inflationRate) / 100, 30)).toLocaleString()} (after inflation)
+            </div>
+          </div>
+
+          <div style={{ padding: 14, background: 'rgba(255,255,255,0.03)', borderRadius: 10, border: '1px solid rgba(34,197,94,0.2)' }}>
+            <div style={{ fontSize: 13, color: '#cbd5e1', lineHeight: 1.7 }}>
+              <strong style={{ color: '#22c55e' }}>✅ Historical Safety:</strong><br />
+              The 4% rule has survived every 30-year retirement period in U.S. stock market history since 1926 - including the Great Depression, 2008 crash, and COVID-19.
+              <br /><br />
+              At {inputs.safeWithdrawalRate}% withdrawal:
+              {inputs.safeWithdrawalRate <= 4 && (
+                <span style={{ color: '#22c55e' }}><br />✓ <strong>Very safe</strong> - Conservative approach with high success probability</span>
+              )}
+              {inputs.safeWithdrawalRate > 4 && inputs.safeWithdrawalRate <= 5 && (
+                <span style={{ color: '#f59e0b' }}><br />⚠️ <strong>Moderate risk</strong> - May need to adjust spending in market downturns</span>
+              )}
+              {inputs.safeWithdrawalRate > 5 && (
+                <span style={{ color: '#ef4444' }}><br />⚠️ <strong>High risk</strong> - Consider reducing withdrawal rate to 4% for safety</span>
+              )}
+            </div>
+          </div>
+
+          <div style={{ padding: 14, background: 'rgba(255,255,255,0.03)', borderRadius: 10, border: '1px solid rgba(59,130,246,0.2)' }}>
+            <div style={{ fontSize: 13, color: '#cbd5e1', lineHeight: 1.7 }}>
+              <strong style={{ color: '#3b82f6' }}>🎯 Your Situation:</strong><br />
+              With ₹{fireNumber.toLocaleString()} at FIRE, you can withdraw ₹{Math.round(monthlyFIREIncome).toLocaleString()}/month forever.
+              <br /><br />
+              {currentSavings >= fireNumber ? (
+                <span style={{ color: '#22c55e' }}>✅ You're already FIRE! Your money will last indefinitely at the safe withdrawal rate.</span>
+              ) : (
+                <span>In <strong>{typeof yearsToFIRE === 'number' ? yearsToFIRE : '?'} years</strong>, you'll have this corpus and can retire with confidence knowing your money will never run out.</span>
+              )}
+            </div>
+          </div>
+        </div>
+      </div>
+
       {/* Additional Insights */}
       <div style={{ background: 'linear-gradient(135deg, #0a1018 0%, #0f1724 100%)', padding: 24, borderRadius: 14, border: '2px solid #1e293b' }}>
-        <h3 style={{ fontSize: 18, fontWeight: 700, marginBottom: 16, color: '#e6e9ef' }}>💡 Key Insights</h3>
+        <h3 style={{ fontSize: 18, fontWeight: 700, marginBottom: 16, color: '#e6e9ef' }}>💡 Key Insights & Assumptions Check</h3>
         
         <div style={{ display: 'grid', gap: 12 }}>
+          {/* Assumptions Validation */}
+          {inputs.expectedReturn > 12 && (
+            <div style={{ padding: 12, background: 'rgba(245,158,11,0.12)', borderRadius: 8, borderLeft: '4px solid #f59e0b' }}>
+              <div style={{ fontSize: 13, color: '#fcd34d', lineHeight: 1.6 }}>
+                <strong style={{ color: '#f59e0b' }}>⚠️ Return Assumption Too High:</strong> {inputs.expectedReturn}% annual returns are very optimistic. Historical Indian equity index (Nifty 50) averages ~12% including dividends. Consider using 10-11% for safer planning.
+              </div>
+            </div>
+          )}
+
+          {inputs.expectedReturn < inputs.inflationRate + 3 && (
+            <div style={{ padding: 12, background: 'rgba(239,68,68,0.12)', borderRadius: 8, borderLeft: '4px solid #ef4444' }}>
+              <div style={{ fontSize: 13, color: '#fca5a5', lineHeight: 1.6 }}>
+                <strong style={{ color: '#ef4444' }}>⚠️ Real Returns Too Low:</strong> Expected return ({inputs.expectedReturn}%) minus inflation ({inputs.inflationRate}%) = {(inputs.expectedReturn - inputs.inflationRate).toFixed(1)}% real return. For long-term wealth building, aim for at least 6-7% real returns.
+              </div>
+            </div>
+          )}
+
+          {inputs.safeWithdrawalRate > 5 && (
+            <div style={{ padding: 12, background: 'rgba(239,68,68,0.12)', borderRadius: 8, borderLeft: '4px solid #ef4444' }}>
+              <div style={{ fontSize: 13, color: '#fca5a5', lineHeight: 1.6 }}>
+                <strong style={{ color: '#ef4444' }}>⚠️ Withdrawal Rate Too High:</strong> {inputs.safeWithdrawalRate}% withdrawal rate significantly increases risk of running out of money. 4% rule is considered safe for 30+ year retirements. Consider reducing to 4%.
+              </div>
+            </div>
+          )}
+
+          {(() => {
+            const monthlySavingsRate = (inputs.monthlyContribution / ((inputs.annualExpenses / 12) + inputs.monthlyContribution)) * 100
+            return monthlySavingsRate > 0 && monthlySavingsRate < 15 ? (
+              <div style={{ padding: 12, background: 'rgba(245,158,11,0.12)', borderRadius: 8, borderLeft: '4px solid #f59e0b' }}>
+                <div style={{ fontSize: 13, color: '#fcd34d', lineHeight: 1.6 }}>
+                  <strong style={{ color: '#f59e0b' }}>⚠️ Low Savings Rate:</strong> You're saving only {monthlySavingsRate.toFixed(0)}% of your income. Financial experts recommend saving at least 20-30% to reach FIRE within a reasonable timeframe. Try to increase monthly contributions.
+                </div>
+              </div>
+            ) : null
+          })()}
+
+          {inputs.targetAge - inputs.currentAge < 5 && fireProgress < 100 && (
+            <div style={{ padding: 12, background: 'rgba(239,68,68,0.12)', borderRadius: 8, borderLeft: '4px solid #ef4444' }}>
+              <div style={{ fontSize: 13, color: '#fca5a5', lineHeight: 1.6 }}>
+                <strong style={{ color: '#ef4444' }}>⚠️ Unrealistic Timeline:</strong> Only {inputs.targetAge - inputs.currentAge} years until target age, but you're only {fireProgress.toFixed(0)}% to FIRE. Either increase contributions significantly or push target age further.
+              </div>
+            </div>
+          )}
+
+          {/* Positive Reinforcements */}
+          {(() => {
+            const monthlySavingsRate = (inputs.monthlyContribution / ((inputs.annualExpenses / 12) + inputs.monthlyContribution)) * 100
+            return monthlySavingsRate >= 50 ? (
+              <div style={{ padding: 12, background: 'rgba(34,197,94,0.12)', borderRadius: 8, borderLeft: '4px solid #22c55e' }}>
+                <div style={{ fontSize: 13, color: '#86efac', lineHeight: 1.6 }}>
+                  <strong style={{ color: '#22c55e' }}>🔥 Excellent Savings Rate:</strong> {monthlySavingsRate.toFixed(0)}% savings rate! At this pace, you'll reach FIRE much faster than average. Keep it up!
+                </div>
+              </div>
+            ) : monthlySavingsRate >= 30 ? (
+              <div style={{ padding: 12, background: 'rgba(34,197,94,0.12)', borderRadius: 8, borderLeft: '4px solid #22c55e' }}>
+                <div style={{ fontSize: 13, color: '#86efac', lineHeight: 1.6 }}>
+                  <strong style={{ color: '#22c55e' }}>👍 Good Savings Rate:</strong> {monthlySavingsRate.toFixed(0)}% is a sustainable pace. You're making solid progress toward FIRE.
+                </div>
+              </div>
+            ) : null
+          })()}
+
+          {/* Standard Insights */}
           <div style={{ padding: 12, background: 'rgba(59,130,246,0.08)', borderRadius: 8, borderLeft: '4px solid #3b82f6' }}>
             <div style={{ fontSize: 13, color: '#cbd5e1', lineHeight: 1.6 }}>
-              <strong style={{ color: '#3b82f6' }}>4% Rule:</strong> Withdraw 4% annually from your FIRE corpus. Historically safe for 30+ year retirements.
+              <strong style={{ color: '#3b82f6' }}>4% Rule Foundation:</strong> Withdraw 4% annually from FIRE corpus. Based on Trinity Study analyzing US stock market 1926-2009. Historically safe for 30+ year retirements with 95%+ success rate.
             </div>
           </div>
 
           <div style={{ padding: 12, background: 'rgba(34,197,94,0.08)', borderRadius: 8, borderLeft: '4px solid #22c55e' }}>
             <div style={{ fontSize: 13, color: '#cbd5e1', lineHeight: 1.6 }}>
-              <strong style={{ color: '#22c55e' }}>Your monthly savings rate:</strong> ₹{inputs.monthlyContribution.toLocaleString()} × 12 = ₹{(inputs.monthlyContribution * 12).toLocaleString()}/year
+              <strong style={{ color: '#22c55e' }}>Your Current Progress:</strong> Saving ₹{inputs.monthlyContribution.toLocaleString()}/month = ₹{(inputs.monthlyContribution * 12).toLocaleString()}/year towards FIRE number of ₹{fireNumber.toLocaleString()}
             </div>
           </div>
 
           <div style={{ padding: 12, background: 'rgba(245,158,11,0.08)', borderRadius: 8, borderLeft: '4px solid #f59e0b' }}>
             <div style={{ fontSize: 13, color: '#cbd5e1', lineHeight: 1.6 }}>
-              <strong style={{ color: '#f59e0b' }}>To reach FIRE by age {inputs.targetAge}:</strong>{' '}
+              <strong style={{ color: '#f59e0b' }}>Target Achievement:</strong>{' '}
               {(() => {
-                if (gap <= 0) return 'Already on track!'
-                if (yearsUntilTarget <= 0) return 'Target age is now or past; increase contributions or push target age.'
+                if (gap <= 0) return '✅ Already achieved! You can retire now.'
+                if (yearsUntilTarget <= 0) return '⚠️ Target age is now/past. Update target age for accurate projections.'
                 const neededPerMonth = gap / yearsUntilTarget / 12
-                if (neededPerMonth <= inputs.monthlyContribution + 1) return 'Already on track!'
-                return `Need to save ₹${Math.round(neededPerMonth).toLocaleString()}/month`
+                if (neededPerMonth <= inputs.monthlyContribution + 1) return `✅ On track to hit FIRE by age ${inputs.targetAge}!`
+                return `To reach FIRE by age ${inputs.targetAge}, need ₹${Math.round(neededPerMonth).toLocaleString()}/month (₹${Math.round(neededPerMonth - inputs.monthlyContribution).toLocaleString()}/month more)`
               })()}
             </div>
           </div>
