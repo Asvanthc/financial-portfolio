@@ -112,8 +112,11 @@ export default function FIRECalculator({ currentPortfolioValue, expenses }) {
     : 0
   const currentSavings = currentPortfolioValue + inputs.additionalSavings
   
-  // Pre-FIRE goals (marriage, home downpayment, kids education before retirement) inflated to their target years
-  const preFireGoalsFV = (() => {
+  // Real (inflation-adjusted) accumulation return for "today's money" planning
+  const realAccumulationReturn = (((1 + inputs.accumulationReturn / 100) / (1 + inputs.inflationRate / 100)) - 1) * 100
+
+  // Pre-FIRE goals (marriage, home downpayment, kids education before retirement) in PRESENT VALUE (today's money)
+  const preFireGoalsPV = (() => {
     const infl = inputs.inflationRate / 100
     const yearsUntilTargetLocal = Math.max(0, inputs.targetAge - inputs.currentAge)
     let total = 0
@@ -121,17 +124,17 @@ export default function FIRECalculator({ currentPortfolioValue, expenses }) {
     if (indiaToggles.marriageCost?.enabled) {
       const ty = indiaToggles.marriageCost.targetYears || 0
       if (ty > 0 && ty <= yearsUntilTargetLocal) {
-        total += (indiaToggles.marriageCost.oneTimeAmount || 0) * Math.pow(1 + infl, ty)
+        total += (indiaToggles.marriageCost.oneTimeAmount || 0) / Math.pow(1 + infl, ty)
       }
     }
     // Home downpayment before retirement
     if (indiaToggles.homePurchase?.enabled) {
       const ty = indiaToggles.homePurchase.targetYears || 0
       if (ty > 0 && ty <= yearsUntilTargetLocal) {
-        total += (indiaToggles.homePurchase.downPayment || 0) * Math.pow(1 + infl, ty)
+        total += (indiaToggles.homePurchase.downPayment || 0) / Math.pow(1 + infl, ty)
       }
     }
-    // Kids education stream before retirement: inflate each year's cost
+    // Kids education stream before retirement: sum PV of each year's cost
     if (indiaToggles.kidsEducation?.enabled) {
       const startYear = indiaToggles.kidsEducation.startYear || 0
       const duration = indiaToggles.kidsEducation.duration || 0
@@ -140,26 +143,26 @@ export default function FIRECalculator({ currentPortfolioValue, expenses }) {
         const yearsToSum = Math.min(duration, Math.max(0, yearsUntilTargetLocal - startYear))
         for (let i = 0; i < yearsToSum; i++) {
           const y = startYear + i
-          total += annualCost * Math.pow(1 + infl, y)
+          total += annualCost / Math.pow(1 + infl, y)
         }
       }
     }
     return total
   })()
 
-  const totalTargetIncludingIndiaGoals = fireNumber + preFireGoalsFV
+  const totalTargetIncludingIndiaGoals = fireNumber + preFireGoalsPV
   const gap = Math.max(0, totalTargetIncludingIndiaGoals - currentSavings)
   const fireProgress = fireNumber > 0 ? (currentSavings / fireNumber) * 100 : 0
 
   // Time to FIRE calculation with compound growth (using accumulation phase returns)
-  const monthlyReturn = inputs.accumulationReturn / 12 / 100
+  const monthlyReturn = realAccumulationReturn / 12 / 100
   const yearsToFIRE = (() => {
     if (totalTargetIncludingIndiaGoals <= 0) return 'N/A'
     if (gap <= 0) return 0
     if (inputs.monthlyContribution <= 0) {
       // Only existing savings growing
-      if (inputs.accumulationReturn <= 0) return 'Never'
-      const years = Math.log(totalTargetIncludingIndiaGoals / Math.max(1, currentSavings)) / Math.log(1 + inputs.accumulationReturn / 100)
+      if (realAccumulationReturn <= 0) return 'Never'
+      const years = Math.log(totalTargetIncludingIndiaGoals / Math.max(1, currentSavings)) / Math.log(1 + realAccumulationReturn / 100)
       return years > 100 ? 'Never (100+ years)' : years.toFixed(1)
     }
     
@@ -183,7 +186,7 @@ export default function FIRECalculator({ currentPortfolioValue, expenses }) {
   const fatFIRE = retirementAnnualExpenses * 2 * (100 / inputs.safeWithdrawalRate)
   const baristaFIRE = retirementAnnualExpenses * 0.5 * (100 / inputs.safeWithdrawalRate)
 
-  // Inflation adjusted (for retirement corpus)
+  // Inflation adjusted (translation only, not used as target)
   const yearsUntilTarget = Math.max(0, inputs.targetAge - inputs.currentAge)
   const inflationMultiplier = Math.pow(1 + inputs.inflationRate / 100, yearsUntilTarget)
   const inflationAdjustedFIRE = fireNumber * inflationMultiplier
@@ -197,10 +200,10 @@ export default function FIRECalculator({ currentPortfolioValue, expenses }) {
   // Monthly income at FIRE (using withdrawal phase returns)
   const monthlyFIREIncome = fireNumber > 0 ? (fireNumber * (inputs.safeWithdrawalRate / 100)) / 12 : 0
 
-  // Coast FIRE - amount needed NOW (today's money) to reach FUTURE FIRE corpus (inflation-adjusted) by target age
-  // We discount the future FIRE corpus by expected accumulation returns
-  const coastFIRENumber = yearsUntilTarget > 0 && inputs.accumulationReturn > 0
-    ? inflationAdjustedFIRE / Math.pow(1 + inputs.accumulationReturn / 100, yearsUntilTarget)
+  // Coast FIRE - measured in today's money
+  // PV needed now so that, with zero contributions, real compounding reaches FIRE corpus (today's money) by target age
+  const coastFIRENumber = yearsUntilTarget > 0 && realAccumulationReturn > 0
+    ? fireNumber / Math.pow(1 + realAccumulationReturn / 100, yearsUntilTarget)
     : fireNumber
   const coastFIREAchieved = currentSavings >= coastFIRENumber
 
@@ -229,7 +232,7 @@ export default function FIRECalculator({ currentPortfolioValue, expenses }) {
   }
 
   const modeFireNumber = retirementAnnualExpenses * getModeMultiplier(fireMode) * (100 / inputs.safeWithdrawalRate)
-  const modeTargetIncludingGoals = preFireGoalsFV + modeFireNumber
+  const modeTargetIncludingGoals = preFireGoalsPV + modeFireNumber
   const modeGap = Math.max(0, modeTargetIncludingGoals - currentSavings)
   
   const modeYearsToFIRE = (() => {
@@ -550,9 +553,9 @@ export default function FIRECalculator({ currentPortfolioValue, expenses }) {
           </div>
           <div>
             <div style={{ fontSize: 11, color: '#94a3b8', textTransform: 'uppercase', marginBottom: 4 }}>FIRE Number</div>
-            <div style={{ fontSize: 24, fontWeight: 900, color: '#a78bfa' }}>₹{totalTargetIncludingIndiaGoals.toLocaleString()}</div>
+            <div style={{ fontSize: 24, fontWeight: 900, color: '#a78bfa' }}>₹{fireNumber.toLocaleString()}</div>
             {indiaGoalsEnabled && (
-              <div style={{ fontSize: 11, color: '#64748b', marginTop: 2 }}>Includes India goals; Retirement corpus: ₹{fireNumber.toLocaleString()}</div>
+              <div style={{ fontSize: 11, color: '#64748b', marginTop: 2 }}>Total incl. pre-FIRE goals (today): ₹{totalTargetIncludingIndiaGoals.toLocaleString()}</div>
             )}
           </div>
           <div>
@@ -618,7 +621,7 @@ export default function FIRECalculator({ currentPortfolioValue, expenses }) {
           <div style={{ fontSize: 28, fontWeight: 900, color: '#f59e0b' }}>₹{inflationAdjustedFIRE.toLocaleString()}</div>
           <div style={{ fontSize: 13, color: '#fcd34d', marginTop: 6 }}>FIRE number in {yearsUntilTarget} years</div>
           <div style={{ fontSize: 11, color: '#94a3b8', marginTop: 8, lineHeight: 1.5 }}>
-            At {inputs.inflationRate}% inflation, your expenses will increase. Today's ₹{inputs.annualExpenses.toLocaleString()} = ₹{Math.round(inputs.annualExpenses * inflationMultiplier).toLocaleString()} by age {inputs.targetAge}.
+            Translation only (not target). At {inputs.inflationRate}% inflation, today's ₹{inputs.annualExpenses.toLocaleString()} feels like ₹{Math.round(inputs.annualExpenses * inflationMultiplier).toLocaleString()} by age {inputs.targetAge}.
           </div>
         </div>
 
@@ -627,7 +630,7 @@ export default function FIRECalculator({ currentPortfolioValue, expenses }) {
           <div style={{ fontSize: 28, fontWeight: 900, color: '#a855f7' }}>₹{presentValueFIRE.toLocaleString()}</div>
           <div style={{ fontSize: 13, color: '#d8b4fe', marginTop: 6 }}>Present value of FIRE number</div>
           <div style={{ fontSize: 11, color: '#94a3b8', marginTop: 8, lineHeight: 1.5 }}>
-            Future ₹{futureValueNeeded.toLocaleString()} = Today's ₹{presentValueFIRE.toLocaleString()} in purchasing power. This is your real goal in current terms.
+            Planning is done in today's money. Future ₹{futureValueNeeded.toLocaleString()} is just a translation of today's ₹{presentValueFIRE.toLocaleString()}.
           </div>
         </div>
       </div>
@@ -1129,7 +1132,7 @@ export default function FIRECalculator({ currentPortfolioValue, expenses }) {
               {(() => {
                 if (gap <= 0) return '✅ Already achieved! You can retire now.'
                 if (yearsUntilTarget <= 0) return '⚠️ Target age is now/past. Update target age for accurate projections.'
-                const neededPerMonth = calculateNeededContribution(totalTargetIncludingIndiaGoals, currentSavings, yearsUntilTarget, inputs.accumulationReturn)
+                const neededPerMonth = calculateNeededContribution(totalTargetIncludingIndiaGoals, currentSavings, yearsUntilTarget, realAccumulationReturn)
                 if (neededPerMonth <= inputs.monthlyContribution + 1) return `✅ On track to hit FIRE by age ${inputs.targetAge}!`
                 return `To reach FIRE by age ${inputs.targetAge}, need ₹${Math.round(neededPerMonth).toLocaleString()}/month (₹${Math.round(neededPerMonth - inputs.monthlyContribution).toLocaleString()}/month more)`
               })()}
