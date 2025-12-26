@@ -462,9 +462,9 @@ export default function FIRECalculator({ currentPortfolioValue, expenses }) {
                 onChange={e => handleInputChange('targetAge', e.target.value)}
                 style={{ width: '100%', padding: 10, background: '#0a1018', color: '#e6e9ef', border: '2px solid #2d3f5f', borderRadius: 8, fontSize: 14 }}
               />
-              <button onClick={() => handleInputChange('targetAge', inputs.targetAge - 1)} style={{ padding: '10px 12px', background: 'rgba(59,130,246,0.1)', border: '1px solid rgba(59,130,246,0.3)', color: '#93c5fd', borderRadius: 8, cursor: 'pointer' }}>-1y</button>
-              <button onClick={() => handleInputChange('targetAge', inputs.targetAge + 1)} style={{ padding: '10px 12px', background: 'rgba(34,197,94,0.1)', border: '1px solid rgba(34,197,94,0.3)', color: '#86efac', borderRadius: 8, cursor: 'pointer' }}>+1y</button>
-              <button onClick={() => handleInputChange('targetAge', inputs.currentAge + 20)} style={{ padding: '10px 12px', background: 'rgba(168,85,247,0.1)', border: '1px solid rgba(168,85,247,0.3)', color: '#d8b4fe', borderRadius: 8, cursor: 'pointer' }}>+20y</button>
+              <button type="button" onClick={() => handleInputChange('targetAge', inputs.targetAge - 1)} style={{ padding: '10px 12px', background: 'rgba(59,130,246,0.1)', border: '1px solid rgba(59,130,246,0.3)', color: '#93c5fd', borderRadius: 8, cursor: 'pointer' }}>-1y</button>
+              <button type="button" onClick={() => handleInputChange('targetAge', inputs.targetAge + 1)} style={{ padding: '10px 12px', background: 'rgba(34,197,94,0.1)', border: '1px solid rgba(34,197,94,0.3)', color: '#86efac', borderRadius: 8, cursor: 'pointer' }}>+1y</button>
+              <button type="button" onClick={() => handleInputChange('targetAge', inputs.currentAge + 20)} style={{ padding: '10px 12px', background: 'rgba(168,85,247,0.1)', border: '1px solid rgba(168,85,247,0.3)', color: '#d8b4fe', borderRadius: 8, cursor: 'pointer' }}>+20y</button>
             </div>
             <div style={{ fontSize: 11, color: '#64748b', marginTop: 4 }}>Age at which you want to retire. Adjust to see impact on savings needed.</div>
           </div>
@@ -489,10 +489,10 @@ export default function FIRECalculator({ currentPortfolioValue, expenses }) {
                 onChange={e => handleInputChange('monthlyContribution', e.target.value)}
                 style={{ width: '100%', padding: 10, background: '#0a1018', color: '#e6e9ef', border: '2px solid #2d3f5f', borderRadius: 8, fontSize: 14 }}
               />
-              <button onClick={() => suggestedSIP != null && handleInputChange('monthlyContribution', suggestedSIP)} style={{ padding: '10px 12px', background: 'rgba(34,197,94,0.1)', border: '1px solid rgba(34,197,94,0.3)', color: '#86efac', borderRadius: 8, cursor: 'pointer' }}>Use {suggestedSIP ? `₹${suggestedSIP.toLocaleString()}` : 'suggested'}</button>
-              <button onClick={() => handleInputChange('monthlyContribution', inputs.monthlyContribution + 5000)} style={{ padding: '10px 12px', background: 'rgba(59,130,246,0.1)', border: '1px solid rgba(59,130,246,0.3)', color: '#93c5fd', borderRadius: 8, cursor: 'pointer' }}>+₹5k</button>
-              <button onClick={() => handleInputChange('monthlyContribution', inputs.monthlyContribution + 10000)} style={{ padding: '10px 12px', background: 'rgba(59,130,246,0.1)', border: '1px solid rgba(59,130,246,0.3)', color: '#93c5fd', borderRadius: 8, cursor: 'pointer' }}>+₹10k</button>
-              <button onClick={() => handleInputChange('monthlyContribution', 0)} style={{ padding: '10px 12px', background: 'rgba(239,68,68,0.1)', border: '1px solid rgba(239,68,68,0.3)', color: '#fca5a5', borderRadius: 8, cursor: 'pointer' }}>Reset</button>
+              <button type="button" onClick={() => suggestedSIP != null && handleInputChange('monthlyContribution', suggestedSIP)} style={{ padding: '10px 12px', background: 'rgba(34,197,94,0.1)', border: '1px solid rgba(34,197,94,0.3)', color: '#86efac', borderRadius: 8, cursor: 'pointer' }}>Use {suggestedSIP ? `₹${suggestedSIP.toLocaleString()}` : 'suggested'}</button>
+              <button type="button" onClick={() => handleInputChange('monthlyContribution', inputs.monthlyContribution + 5000)} style={{ padding: '10px 12px', background: 'rgba(59,130,246,0.1)', border: '1px solid rgba(59,130,246,0.3)', color: '#93c5fd', borderRadius: 8, cursor: 'pointer' }}>+₹5k</button>
+              <button type="button" onClick={() => handleInputChange('monthlyContribution', inputs.monthlyContribution + 10000)} style={{ padding: '10px 12px', background: 'rgba(59,130,246,0.1)', border: '1px solid rgba(59,130,246,0.3)', color: '#93c5fd', borderRadius: 8, cursor: 'pointer' }}>+₹10k</button>
+              <button type="button" onClick={() => handleInputChange('monthlyContribution', 0)} style={{ padding: '10px 12px', background: 'rgba(239,68,68,0.1)', border: '1px solid rgba(239,68,68,0.3)', color: '#fca5a5', borderRadius: 8, cursor: 'pointer' }}>Reset</button>
             </div>
             <div style={{ fontSize: 11, color: '#64748b', marginTop: 4 }}>
               Amount you save & invest each month. {suggestedSIP != null ? `Suggested from tracker: ₹${suggestedSIP.toLocaleString()}.` : ''}
