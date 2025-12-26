@@ -1,9 +1,22 @@
 import React, { useState, useEffect } from 'react'
 
 export default function FIRECalculator({ currentPortfolioValue, expenses }) {
+  // Calculate current age from DOB (13/04/2002)
+  const calculateAge = () => {
+    const dob = new Date(2002, 3, 13) // April 13, 2002 (0-indexed month)
+    const today = new Date()
+    let age = today.getFullYear() - dob.getFullYear()
+    const monthDiff = today.getMonth() - dob.getMonth()
+    if (monthDiff < 0 || (monthDiff === 0 && today.getDate() < dob.getDate())) {
+      age--
+    }
+    return age
+  }
+
+  const currentAge = calculateAge()
   const [inputs, setInputs] = useState({
-    currentAge: 30,
-    targetAge: 50,
+    currentAge: currentAge,
+    targetAge: currentAge + 20,
     annualExpenses: 0,
     expectedReturn: 8,
     inflationRate: 6,
@@ -94,48 +107,51 @@ export default function FIRECalculator({ currentPortfolioValue, expenses }) {
         
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(250px, 1fr))', gap: 16 }}>
           <div>
-            <label style={{ display: 'block', fontSize: 12, color: '#94a3b8', marginBottom: 6, fontWeight: 600 }}>Current Age</label>
+            <label style={{ display: 'block', fontSize: 12, color: '#94a3b8', marginBottom: 6, fontWeight: 600 }}>📅 Current Age (Auto-calculated)</label>
             <input 
               type="number" 
               value={inputs.currentAge}
-              onChange={e => handleInputChange('currentAge', e.target.value)}
-              style={{ width: '100%', padding: 10, background: '#0a1018', color: '#e6e9ef', border: '2px solid #2d3f5f', borderRadius: 8, fontSize: 14 }}
+              disabled
+              style={{ width: '100%', padding: 10, background: '#0a1018', color: '#7dd3fc', border: '2px solid #2d3f5f', borderRadius: 8, fontSize: 14, opacity: 0.7 }}
             />
+            <div style={{ fontSize: 11, color: '#64748b', marginTop: 4 }}>Calculated from DOB: 13/04/2002</div>
           </div>
 
           <div>
-            <label style={{ display: 'block', fontSize: 12, color: '#94a3b8', marginBottom: 6, fontWeight: 600 }}>Target FIRE Age</label>
+            <label style={{ display: 'block', fontSize: 12, color: '#94a3b8', marginBottom: 6, fontWeight: 600 }}>🎯 Target FIRE Age</label>
             <input 
               type="number" 
               value={inputs.targetAge}
               onChange={e => handleInputChange('targetAge', e.target.value)}
               style={{ width: '100%', padding: 10, background: '#0a1018', color: '#e6e9ef', border: '2px solid #2d3f5f', borderRadius: 8, fontSize: 14 }}
             />
+            <div style={{ fontSize: 11, color: '#64748b', marginTop: 4 }}>Age at which you want to retire. Adjust to see impact on savings needed.</div>
           </div>
 
           <div>
-            <label style={{ display: 'block', fontSize: 12, color: '#94a3b8', marginBottom: 6, fontWeight: 600 }}>Annual Expenses (₹)</label>
+            <label style={{ display: 'block', fontSize: 12, color: '#94a3b8', marginBottom: 6, fontWeight: 600 }}>💰 Annual Expenses (₹)</label>
             <input 
               type="number" 
               value={inputs.annualExpenses}
               onChange={e => handleInputChange('annualExpenses', e.target.value)}
               style={{ width: '100%', padding: 10, background: '#0a1018', color: '#e6e9ef', border: '2px solid #2d3f5f', borderRadius: 8, fontSize: 14 }}
             />
-            <div style={{ fontSize: 11, color: '#64748b', marginTop: 4 }}>Auto-calculated from expense tracker</div>
+            <div style={{ fontSize: 11, color: '#64748b', marginTop: 4 }}>Auto-calculated from your expense tracker. Adjust if you plan to spend differently in retirement.</div>
           </div>
 
           <div>
-            <label style={{ display: 'block', fontSize: 12, color: '#94a3b8', marginBottom: 6, fontWeight: 600 }}>Monthly Contribution (₹)</label>
+            <label style={{ display: 'block', fontSize: 12, color: '#94a3b8', marginBottom: 6, fontWeight: 600 }}>📈 Monthly Contribution (₹)</label>
             <input 
               type="number" 
               value={inputs.monthlyContribution}
               onChange={e => handleInputChange('monthlyContribution', e.target.value)}
               style={{ width: '100%', padding: 10, background: '#0a1018', color: '#e6e9ef', border: '2px solid #2d3f5f', borderRadius: 8, fontSize: 14 }}
             />
+            <div style={{ fontSize: 11, color: '#64748b', marginTop: 4 }}>Amount you save & invest each month. Higher = faster path to FIRE.</div>
           </div>
 
           <div>
-            <label style={{ display: 'block', fontSize: 12, color: '#94a3b8', marginBottom: 6, fontWeight: 600 }}>Expected Return (%)</label>
+            <label style={{ display: 'block', fontSize: 12, color: '#94a3b8', marginBottom: 6, fontWeight: 600 }}>📊 Expected Annual Return (%)</label>
             <input 
               type="number" 
               step="0.1"
@@ -143,10 +159,11 @@ export default function FIRECalculator({ currentPortfolioValue, expenses }) {
               onChange={e => handleInputChange('expectedReturn', e.target.value)}
               style={{ width: '100%', padding: 10, background: '#0a1018', color: '#e6e9ef', border: '2px solid #2d3f5f', borderRadius: 8, fontSize: 14 }}
             />
+            <div style={{ fontSize: 11, color: '#64748b', marginTop: 4 }}>Long-term average returns on your portfolio. Stock market ~10%, conservative ~6-8%.</div>
           </div>
 
           <div>
-            <label style={{ display: 'block', fontSize: 12, color: '#94a3b8', marginBottom: 6, fontWeight: 600 }}>Inflation Rate (%)</label>
+            <label style={{ display: 'block', fontSize: 12, color: '#94a3b8', marginBottom: 6, fontWeight: 600 }}>📉 Inflation Rate (%)</label>
             <input 
               type="number" 
               step="0.1"
@@ -154,10 +171,11 @@ export default function FIRECalculator({ currentPortfolioValue, expenses }) {
               onChange={e => handleInputChange('inflationRate', e.target.value)}
               style={{ width: '100%', padding: 10, background: '#0a1018', color: '#e6e9ef', border: '2px solid #2d3f5f', borderRadius: 8, fontSize: 14 }}
             />
+            <div style={{ fontSize: 11, color: '#64748b', marginTop: 4 }}>Estimated annual inflation. India ~5-6%. Higher inflation = higher FIRE number needed.</div>
           </div>
 
           <div>
-            <label style={{ display: 'block', fontSize: 12, color: '#94a3b8', marginBottom: 6, fontWeight: 600 }}>Safe Withdrawal Rate (%)</label>
+            <label style={{ display: 'block', fontSize: 12, color: '#94a3b8', marginBottom: 6, fontWeight: 600 }}>💎 Safe Withdrawal Rate (%)</label>
             <input 
               type="number" 
               step="0.1"
@@ -165,18 +183,18 @@ export default function FIRECalculator({ currentPortfolioValue, expenses }) {
               onChange={e => handleInputChange('safeWithdrawalRate', e.target.value)}
               style={{ width: '100%', padding: 10, background: '#0a1018', color: '#e6e9ef', border: '2px solid #2d3f5f', borderRadius: 8, fontSize: 14 }}
             />
-            <div style={{ fontSize: 11, color: '#64748b', marginTop: 4 }}>4% rule: 25x expenses</div>
+            <div style={{ fontSize: 11, color: '#64748b', marginTop: 4 }}>% of corpus you withdraw annually. 4% rule (25x expenses) is historically safe for 30+ years.</div>
           </div>
 
           <div>
-            <label style={{ display: 'block', fontSize: 12, color: '#94a3b8', marginBottom: 6, fontWeight: 600 }}>Additional Savings (₹)</label>
+            <label style={{ display: 'block', fontSize: 12, color: '#94a3b8', marginBottom: 6, fontWeight: 600 }}>🏦 Additional Savings (₹)</label>
             <input 
               type="number" 
               value={inputs.additionalSavings}
               onChange={e => handleInputChange('additionalSavings', e.target.value)}
               style={{ width: '100%', padding: 10, background: '#0a1018', color: '#e6e9ef', border: '2px solid #2d3f5f', borderRadius: 8, fontSize: 14 }}
             />
-            <div style={{ fontSize: 11, color: '#64748b', marginTop: 4 }}>Cash, FD, etc not in portfolio</div>
+            <div style={{ fontSize: 11, color: '#64748b', marginTop: 4 }}>Liquid savings outside portfolio (emergency fund, bank FD, cash). Adds to FIRE corpus.</div>
           </div>
         </div>
       </div>

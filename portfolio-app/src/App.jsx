@@ -93,7 +93,7 @@ export default function App() {
                   }
                 }}
               >
-                {tab === 'overview' ? '📊 Overview' : tab === 'analytics' ? '📈 Analytics' : tab === 'planner' ? '📅 Monthly Plan' : '💸 Expenses'}
+                {tab === 'overview' ? '📊 Overview' : tab === 'analytics' ? '📈 Analytics' : tab === 'planner' ? '📅 Monthly Plan' : tab === 'expenses' ? '💸 Expenses' : '🔥 FIRE'}
               </button>
             ))}
           </div>
