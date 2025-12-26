@@ -89,6 +89,11 @@ export default function FIRECalculator({ currentPortfolioValue, expenses }) {
   const coastFIRENumber = fireNumber / Math.pow(1 + inputs.expectedReturn / 100, yearsUntilTarget)
   const coastFIREAchieved = currentSavings >= coastFIRENumber
 
+  // Simple coverage if you stopped working today (no growth, brute run-down)
+  const yearsCoverageNoGrowth = inputs.annualExpenses > 0
+    ? (currentSavings / inputs.annualExpenses).toFixed(1)
+    : '∞'
+
   return (
     <div style={{ color: '#e6e9ef' }}>
       {/* Header */}
@@ -99,6 +104,15 @@ export default function FIRECalculator({ currentPortfolioValue, expenses }) {
         <p style={{ color: '#94a3b8', fontSize: 14, lineHeight: 1.6 }}>
           Financial Independence, Retire Early - Calculate your path to financial freedom
         </p>
+        <div style={{ marginTop: 12, padding: 12, background: 'rgba(59,130,246,0.08)', border: '1px solid rgba(59,130,246,0.2)', borderRadius: 10, color: '#cbd5e1', fontSize: 12, lineHeight: 1.6 }}>
+          <strong style={{ color: '#22d3ee' }}>How to read this:</strong>
+          <ul style={{ margin: '6px 0 0 16px', padding: 0, lineHeight: 1.6 }}>
+            <li>FIRE Number = Annual expenses ÷ Safe withdrawal rate (25x expenses at 4%).</li>
+            <li>Time to FIRE = When current savings + monthly investing grows to FIRE number.</li>
+            <li>Monthly FIRE Income = What you can safely withdraw each month at your rate.</li>
+            <li>If current age + Time to FIRE &gt; target age, increase contributions or lower expenses.</li>
+          </ul>
+        </div>
       </div>
 
       {/* Input Section */}
@@ -232,6 +246,11 @@ export default function FIRECalculator({ currentPortfolioValue, expenses }) {
           <div>
             <div style={{ fontSize: 11, color: '#94a3b8', textTransform: 'uppercase', marginBottom: 4 }}>Gap to FIRE</div>
             <div style={{ fontSize: 24, fontWeight: 900, color: gap > 0 ? '#ef4444' : '#22c55e' }}>₹{gap.toLocaleString()}</div>
+          </div>
+          <div>
+            <div style={{ fontSize: 11, color: '#94a3b8', textTransform: 'uppercase', marginBottom: 4 }}>If you stopped today</div>
+            <div style={{ fontSize: 20, fontWeight: 900, color: '#f59e0b' }}>{yearsCoverageNoGrowth} yrs</div>
+            <div style={{ fontSize: 11, color: '#cbd5e1', marginTop: 2 }}>Coverage with no growth, spending today’s annual expenses.</div>
           </div>
         </div>
       </div>
