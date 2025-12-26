@@ -258,8 +258,12 @@ export default function FIRECalculator({ currentPortfolioValue, expenses }) {
     }
     
     const newYears = months >= maxMonths ? 'Never' : (months / 12)
-    const timeSaved = typeof yearsToFIRE === 'number' && typeof newYears === 'number' 
-      ? (yearsToFIRE - newYears).toFixed(1) 
+    // Parse current yearsToFIRE which is a string (e.g., '16.3') or special 'Never'
+    const currentYears = typeof yearsToFIRE === 'number' 
+      ? yearsToFIRE 
+      : (typeof yearsToFIRE === 'string' ? parseFloat(yearsToFIRE) : NaN)
+    const timeSaved = (typeof newYears === 'number' && !isNaN(currentYears)) 
+      ? (currentYears - newYears).toFixed(1) 
       : 0
 
     const reducedExpenses = inputs.annualExpenses * 0.9
