@@ -330,7 +330,7 @@ export default function FIRECalculator({ currentPortfolioValue, expenses }) {
 
     const reducedExpenses = inputs.annualExpenses * 0.9
     const reducedFireNumber = (reducedExpenses + (retirementAnnualExpenses - inputs.annualExpenses)) * (100 / inputs.safeWithdrawalRate)
-    const corpusReduction = totalTargetIncludingIndiaGoals - (reducedFireNumber + preFireGoalsFV)
+    const corpusReduction = totalTargetIncludingIndiaGoals - (reducedFireNumber + preFireGoalsPV)
 
     return { timeSaved, corpusReduction }
   }
