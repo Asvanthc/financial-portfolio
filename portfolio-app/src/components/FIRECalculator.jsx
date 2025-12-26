@@ -482,17 +482,21 @@ export default function FIRECalculator({ currentPortfolioValue, expenses }) {
 
           <div>
             <label style={{ display: 'block', fontSize: 12, color: '#94a3b8', marginBottom: 6, fontWeight: 600 }}>📈 Monthly Contribution (₹)</label>
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr auto auto auto auto', gap: 8 }}>
-              <input 
-                type="number" 
-                value={inputs.monthlyContribution}
-                onChange={e => handleInputChange('monthlyContribution', e.target.value)}
-                style={{ width: '100%', padding: 10, background: '#0a1018', color: '#e6e9ef', border: '2px solid #2d3f5f', borderRadius: 8, fontSize: 14 }}
-              />
-              <button type="button" onClick={() => suggestedSIP != null && handleInputChange('monthlyContribution', suggestedSIP)} style={{ padding: '10px 12px', background: 'rgba(34,197,94,0.1)', border: '1px solid rgba(34,197,94,0.3)', color: '#86efac', borderRadius: 8, cursor: 'pointer' }}>Use {suggestedSIP ? `₹${suggestedSIP.toLocaleString()}` : 'suggested'}</button>
-              <button type="button" onClick={() => handleInputChange('monthlyContribution', inputs.monthlyContribution + 5000)} style={{ padding: '10px 12px', background: 'rgba(59,130,246,0.1)', border: '1px solid rgba(59,130,246,0.3)', color: '#93c5fd', borderRadius: 8, cursor: 'pointer' }}>+₹5k</button>
-              <button type="button" onClick={() => handleInputChange('monthlyContribution', inputs.monthlyContribution + 10000)} style={{ padding: '10px 12px', background: 'rgba(59,130,246,0.1)', border: '1px solid rgba(59,130,246,0.3)', color: '#93c5fd', borderRadius: 8, cursor: 'pointer' }}>+₹10k</button>
-              <button type="button" onClick={() => handleInputChange('monthlyContribution', 0)} style={{ padding: '10px 12px', background: 'rgba(239,68,68,0.1)', border: '1px solid rgba(239,68,68,0.3)', color: '#fca5a5', borderRadius: 8, cursor: 'pointer' }}>Reset</button>
+            <div>
+              <div style={{ display: 'flex', gap: 8 }}>
+                <input 
+                  type="number" 
+                  value={inputs.monthlyContribution}
+                  onChange={e => handleInputChange('monthlyContribution', e.target.value)}
+                  style={{ width: '100%', padding: 12, background: '#0a1018', color: '#e6e9ef', border: '2px solid #2d3f5f', borderRadius: 8, fontSize: 18, fontWeight: 800 }}
+                />
+              </div>
+              <div style={{ marginTop: 8, display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                <button type="button" onClick={() => suggestedSIP != null && handleInputChange('monthlyContribution', suggestedSIP)} style={{ padding: '10px 12px', background: 'rgba(34,197,94,0.1)', border: '1px solid rgba(34,197,94,0.3)', color: '#86efac', borderRadius: 8, cursor: 'pointer' }}>Use {suggestedSIP ? `₹${suggestedSIP.toLocaleString()}` : 'suggested'}</button>
+                <button type="button" onClick={() => handleInputChange('monthlyContribution', inputs.monthlyContribution + 5000)} style={{ padding: '10px 12px', background: 'rgba(59,130,246,0.1)', border: '1px solid rgba(59,130,246,0.3)', color: '#93c5fd', borderRadius: 8, cursor: 'pointer' }}>+₹5k</button>
+                <button type="button" onClick={() => handleInputChange('monthlyContribution', inputs.monthlyContribution + 10000)} style={{ padding: '10px 12px', background: 'rgba(59,130,246,0.1)', border: '1px solid rgba(59,130,246,0.3)', color: '#93c5fd', borderRadius: 8, cursor: 'pointer' }}>+₹10k</button>
+                <button type="button" onClick={() => handleInputChange('monthlyContribution', 0)} style={{ padding: '10px 12px', background: 'rgba(239,68,68,0.1)', border: '1px solid rgba(239,68,68,0.3)', color: '#fca5a5', borderRadius: 8, cursor: 'pointer' }}>Reset</button>
+              </div>
             </div>
             <div style={{ fontSize: 11, color: '#64748b', marginTop: 4 }}>
               Amount you save & invest each month. {suggestedSIP != null ? `Suggested from tracker: ₹${suggestedSIP.toLocaleString()}.` : ''}
