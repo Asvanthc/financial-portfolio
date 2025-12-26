@@ -6,6 +6,7 @@ import AddDivisionForm from './components/AddDivisionForm'
 import MonthlyPlanner from './components/MonthlyPlanner'
 import DeepAnalytics from './components/DeepAnalytics'
 import ExpenseTracker from './components/ExpenseTracker'
+import FIRECalculator from './components/FIRECalculator'
 
 export default function App() {
   const [portfolio, setPortfolio] = useState({ divisions: [] })
@@ -59,7 +60,7 @@ export default function App() {
             📊 Financial Portfolio
           </h1>
           <div style={{ display: 'flex', gap: 'clamp(6px, 1.5vw, 10px)', background: 'linear-gradient(135deg, #0a1018 0%, #0f1724 100%)', padding: 'clamp(6px, 1.2vw, 8px)', borderRadius: 14, border: '2px solid #1e293b', boxShadow: '0 4px 16px rgba(0,0,0,0.3), inset 0 1px 0 rgba(255,255,255,0.05)', flexShrink: 0 }}>
-            {['overview', 'analytics', 'planner', 'expenses'].map(tab => (
+            {['overview', 'analytics', 'planner', 'expenses', 'fire'].map(tab => (
               <button
                 key={tab}
                 onClick={() => setActiveTab(tab)}
@@ -354,6 +355,13 @@ export default function App() {
 
       {activeTab === 'expenses' && (
         <ExpenseTracker expenses={expenses} onUpdate={refreshAll} />
+      )}
+
+      {activeTab === 'fire' && (
+        <FIRECalculator 
+          currentPortfolioValue={totalCurrent} 
+          expenses={expenses}
+        />
       )}
 
       {/* Add division button */}
