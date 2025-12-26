@@ -219,17 +219,49 @@ export default function ExpenseTracker({ expenses = [], onUpdate }) {
   }
 
   const deleteCategory = async (type, name) => {
-    if (!confirm(`Delete category "${name}"?`)) return
+    // Find all expenses in this category
+    const affectedExpenses = expenses.filter(e => e.type === type && e.category === name)
+    
+    if (affectedExpenses.length === 0) {
+      if (!confirm(`Delete category "${name}"? No expenses use this category.`)) return
+    } else {
+      // Build detailed warning message
+      const expenseList = affectedExpenses.slice(0, 10).map(e => 
+        `• ${e.month}/${e.year}: ₹${Number(e.amount).toLocaleString()} - ${e.description || 'No description'}`
+      ).join('\n')
+      
+      const remaining = affectedExpenses.length > 10 ? `\n... and ${affectedExpenses.length - 10} more` : ''
+      const totalAmount = affectedExpenses.reduce((sum, e) => sum + Number(e.amount || 0), 0)
+      
+      const message = `⚠️ WARNING: "${name}" has ${affectedExpenses.length} expense(s) totaling ₹${totalAmount.toLocaleString()}\n\n${expenseList}${remaining}\n\nDeleting this category will PERMANENTLY DELETE all these expenses.\n\nAre you sure you want to continue?`
+      
+      if (!confirm(message)) return
+    }
+    
     try {
+      // Delete all expenses in this category first
+      for (const expense of affectedExpenses) {
+        await api.deleteExpense(expense.id)
+      }
+      
+      // Then delete the category
       await api.deleteCategory(type, name)
+      
+      // Update state
       if (type === 'income') {
         setIncomeCategories(incomeCategories.filter(c => c !== name))
       } else {
         setExpenseCategories(expenseCategories.filter(c => c !== name))
       }
+      
+      // Refresh expenses list
+      const updatedExpenses = await api.getExpenses()
+      setExpenses(updatedExpenses)
+      
+      alert(`Successfully deleted category "${name}" and ${affectedExpenses.length} associated expense(s)`)
     } catch (error) {
       console.error('Failed to delete category:', error)
-      alert('Failed to delete category')
+      alert('Failed to delete category: ' + error.message)
     }
   }
 
