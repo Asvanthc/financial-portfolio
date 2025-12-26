@@ -60,22 +60,76 @@ export default function FIRECalculator({ currentPortfolioValue, expenses }) {
   }
 
   // FIRE Calculations with edge case handling
-  const fireNumber = inputs.annualExpenses > 0 && inputs.safeWithdrawalRate > 0 
-    ? inputs.annualExpenses * (100 / inputs.safeWithdrawalRate)
+  // Retirement annual expenses adjusted for India-specific ongoing items
+  const retirementAnnualExpenses = (() => {
+    let adjusted = inputs.annualExpenses
+    if (indiaToggles.parentsSupport?.enabled) {
+      adjusted += (indiaToggles.parentsSupport.monthlyAmount || 0) * 12
+    }
+    // Include kids education in retirement expenses only if it starts in/after retirement
+    const yearsUntilTargetLocal = Math.max(0, inputs.targetAge - inputs.currentAge)
+    if (indiaToggles.kidsEducation?.enabled) {
+      const startYear = indiaToggles.kidsEducation.startYear || 0
+      if (startYear >= yearsUntilTargetLocal) {
+        adjusted += (indiaToggles.kidsEducation.annualCost || 0)
+      }
+    }
+    return adjusted
+  })()
+
+  const fireNumber = retirementAnnualExpenses > 0 && inputs.safeWithdrawalRate > 0 
+    ? retirementAnnualExpenses * (100 / inputs.safeWithdrawalRate)
     : 0
   const currentSavings = currentPortfolioValue + inputs.additionalSavings
-  const gap = Math.max(0, fireNumber - currentSavings)
+  
+  // Pre-FIRE goals (marriage, home downpayment, kids education before retirement) inflated to their target years
+  const preFireGoalsFV = (() => {
+    const infl = inputs.inflationRate / 100
+    const yearsUntilTargetLocal = Math.max(0, inputs.targetAge - inputs.currentAge)
+    let total = 0
+    // Marriage one-time cost before retirement
+    if (indiaToggles.marriageCost?.enabled) {
+      const ty = indiaToggles.marriageCost.targetYears || 0
+      if (ty > 0 && ty <= yearsUntilTargetLocal) {
+        total += (indiaToggles.marriageCost.oneTimeAmount || 0) * Math.pow(1 + infl, ty)
+      }
+    }
+    // Home downpayment before retirement
+    if (indiaToggles.homePurchase?.enabled) {
+      const ty = indiaToggles.homePurchase.targetYears || 0
+      if (ty > 0 && ty <= yearsUntilTargetLocal) {
+        total += (indiaToggles.homePurchase.downPayment || 0) * Math.pow(1 + infl, ty)
+      }
+    }
+    // Kids education stream before retirement: inflate each year's cost
+    if (indiaToggles.kidsEducation?.enabled) {
+      const startYear = indiaToggles.kidsEducation.startYear || 0
+      const duration = indiaToggles.kidsEducation.duration || 0
+      const annualCost = indiaToggles.kidsEducation.annualCost || 0
+      if (duration > 0 && startYear < yearsUntilTargetLocal) {
+        const yearsToSum = Math.min(duration, Math.max(0, yearsUntilTargetLocal - startYear))
+        for (let i = 0; i < yearsToSum; i++) {
+          const y = startYear + i
+          total += annualCost * Math.pow(1 + infl, y)
+        }
+      }
+    }
+    return total
+  })()
+
+  const totalTargetIncludingIndiaGoals = fireNumber + preFireGoalsFV
+  const gap = Math.max(0, totalTargetIncludingIndiaGoals - currentSavings)
   const fireProgress = fireNumber > 0 ? (currentSavings / fireNumber) * 100 : 0
 
   // Time to FIRE calculation with compound growth (using accumulation phase returns)
   const monthlyReturn = inputs.accumulationReturn / 12 / 100
   const yearsToFIRE = (() => {
-    if (fireNumber <= 0) return 'N/A'
+    if (totalTargetIncludingIndiaGoals <= 0) return 'N/A'
     if (gap <= 0) return 0
     if (inputs.monthlyContribution <= 0) {
       // Only existing savings growing
       if (inputs.accumulationReturn <= 0) return 'Never'
-      const years = Math.log(fireNumber / Math.max(1, currentSavings)) / Math.log(1 + inputs.accumulationReturn / 100)
+      const years = Math.log(totalTargetIncludingIndiaGoals / Math.max(1, currentSavings)) / Math.log(1 + inputs.accumulationReturn / 100)
       return years > 100 ? 'Never (100+ years)' : years.toFixed(1)
     }
     
@@ -84,7 +138,7 @@ export default function FIRECalculator({ currentPortfolioValue, expenses }) {
     let balance = currentSavings
     const maxMonths = 100 * 12 // 100 years max
     
-    while (balance < fireNumber && months < maxMonths) {
+    while (balance < totalTargetIncludingIndiaGoals && months < maxMonths) {
       balance = balance * (1 + monthlyReturn) + inputs.monthlyContribution
       months++
     }
@@ -94,12 +148,12 @@ export default function FIRECalculator({ currentPortfolioValue, expenses }) {
 
   const targetAgeReached = typeof yearsToFIRE === 'number' ? inputs.currentAge + parseFloat(yearsToFIRE) : 'N/A'
   
-  // Different FIRE levels
-  const leanFIRE = inputs.annualExpenses * 0.7 * (100 / inputs.safeWithdrawalRate)
-  const fatFIRE = inputs.annualExpenses * 2 * (100 / inputs.safeWithdrawalRate)
-  const baristaFIRE = inputs.annualExpenses * 0.5 * (100 / inputs.safeWithdrawalRate)
+  // Different FIRE levels (based on retirement expenses)
+  const leanFIRE = retirementAnnualExpenses * 0.7 * (100 / inputs.safeWithdrawalRate)
+  const fatFIRE = retirementAnnualExpenses * 2 * (100 / inputs.safeWithdrawalRate)
+  const baristaFIRE = retirementAnnualExpenses * 0.5 * (100 / inputs.safeWithdrawalRate)
 
-  // Inflation adjusted
+  // Inflation adjusted (for retirement corpus)
   const yearsUntilTarget = Math.max(0, inputs.targetAge - inputs.currentAge)
   const inflationMultiplier = Math.pow(1 + inputs.inflationRate / 100, yearsUntilTarget)
   const inflationAdjustedFIRE = fireNumber * inflationMultiplier
@@ -120,24 +174,18 @@ export default function FIRECalculator({ currentPortfolioValue, expenses }) {
     : fireNumber
   const coastFIREAchieved = currentSavings >= coastFIRENumber
 
-  // NEW: When will I reach Coast FIRE?
-  const yearsToCoastFIRE = (() => {
-    if (coastFIREAchieved) return 0
-    if (inputs.monthlyContribution <= 0) return 'Never'
-    
-    let months = 0
-    let balance = currentSavings
-    const maxMonths = 100 * 12
-    
-    while (balance < coastFIRENumber && months < maxMonths) {
-      balance = balance * (1 + monthlyReturn) + inputs.monthlyContribution
-      months++
-    }
-    
-    return months >= maxMonths ? 'Never' : (months / 12).toFixed(1)
-  })()
+  // NEW: When will I reach Coast FIRE? (with simulated corpus at milestone)
+  const coastSim = coastFIREAchieved 
+    ? { months: 0, reachedBalance: currentSavings } 
+    : simulateToTarget(coastFIRENumber, currentSavings, inputs.monthlyContribution, inputs.accumulationReturn)
+  const yearsToCoastFIRE = coastSim.months === null ? 'Never' : (coastSim.months / 12).toFixed(1)
+  const coastCorpusAtMilestone = coastSim.reachedBalance
 
-  const coastFIREAge = typeof yearsToCoastFIRE === 'number' ? inputs.currentAge + parseFloat(yearsToCoastFIRE) : 'N/A'
+  // Parse years to Coast for age computation
+  const coastYearsNum = typeof yearsToCoastFIRE === 'number' 
+    ? yearsToCoastFIRE 
+    : (typeof yearsToCoastFIRE === 'string' ? parseFloat(yearsToCoastFIRE) : NaN)
+  const coastFIREAge = Number.isFinite(coastYearsNum) ? inputs.currentAge + coastYearsNum : 'N/A'
 
   // FIRE Mode calculations
   const getModeMultiplier = (mode) => {
@@ -150,8 +198,9 @@ export default function FIRECalculator({ currentPortfolioValue, expenses }) {
     }
   }
 
-  const modeFireNumber = inputs.annualExpenses * getModeMultiplier(fireMode) * (100 / inputs.safeWithdrawalRate)
-  const modeGap = Math.max(0, modeFireNumber - currentSavings)
+  const modeFireNumber = retirementAnnualExpenses * getModeMultiplier(fireMode) * (100 / inputs.safeWithdrawalRate)
+  const modeTargetIncludingGoals = preFireGoalsFV + modeFireNumber
+  const modeGap = Math.max(0, modeTargetIncludingGoals - currentSavings)
   
   const modeYearsToFIRE = (() => {
     if (modeGap <= 0) return 0
@@ -161,7 +210,7 @@ export default function FIRECalculator({ currentPortfolioValue, expenses }) {
     let balance = currentSavings
     const maxMonths = 100 * 12
     
-    while (balance < modeFireNumber && months < maxMonths) {
+    while (balance < modeTargetIncludingGoals && months < maxMonths) {
       balance = balance * (1 + monthlyReturn) + inputs.monthlyContribution
       months++
     }
@@ -169,32 +218,8 @@ export default function FIRECalculator({ currentPortfolioValue, expenses }) {
     return months >= maxMonths ? 'Never' : (months / 12).toFixed(1)
   })()
 
-  // India-specific adjustments
-  const calculateIndiaAdjustedExpenses = () => {
-    let adjusted = inputs.annualExpenses
-    if (indiaToggles.parentsSupport.enabled) {
-      adjusted += indiaToggles.parentsSupport.monthlyAmount * 12
-    }
-    if (indiaToggles.kidsEducation.enabled) {
-      adjusted += indiaToggles.kidsEducation.annualCost
-    }
-    return adjusted
-  }
-
-  const calculateIndiaOneTimeCosts = () => {
-    let total = 0
-    if (indiaToggles.marriageCost.enabled) {
-      total += indiaToggles.marriageCost.oneTimeAmount
-    }
-    if (indiaToggles.homePurchase.enabled) {
-      total += indiaToggles.homePurchase.downPayment
-    }
-    return total
-  }
-
-  const indiaAdjustedExpenses = calculateIndiaAdjustedExpenses()
-  const indiaOneTimeCosts = calculateIndiaOneTimeCosts()
-  const indiaAdjustedFireNumber = indiaAdjustedExpenses * (100 / inputs.safeWithdrawalRate) + indiaOneTimeCosts
+  // India-specific notes
+  const indiaGoalsEnabled = !!(indiaToggles.parentsSupport?.enabled || indiaToggles.marriageCost?.enabled || indiaToggles.homePurchase?.enabled || indiaToggles.kidsEducation?.enabled)
 
   // Sensitivity Analysis
   const getSensitivityParams = (mode) => {
@@ -229,7 +254,8 @@ export default function FIRECalculator({ currentPortfolioValue, expenses }) {
     }
     
     const years = months >= maxMonths ? 'Never' : (months / 12).toFixed(1)
-    const age = typeof years === 'number' ? inputs.currentAge + parseFloat(years) : 'N/A'
+    const yearsNum = typeof years === 'number' ? years : (years !== 'Never' ? parseFloat(years) : NaN)
+    const age = Number.isFinite(yearsNum) ? (inputs.currentAge + yearsNum) : 'N/A'
     return { years, age }
   }
 
@@ -241,8 +267,11 @@ export default function FIRECalculator({ currentPortfolioValue, expenses }) {
     ? (inputs.monthlyContribution * 12 / (inputs.annualExpenses + inputs.monthlyContribution * 12)) * 100
     : 0
 
-  const scheduleAdvancement = typeof yearsToFIRE === 'number' && yearsUntilTarget > 0
-    ? yearsUntilTarget - yearsToFIRE
+  const yearsToFIRENum = typeof yearsToFIRE === 'number' 
+    ? yearsToFIRE 
+    : (typeof yearsToFIRE === 'string' ? parseFloat(yearsToFIRE) : NaN)
+  const scheduleAdvancement = Number.isFinite(yearsToFIRENum) && yearsUntilTarget > 0
+    ? (yearsUntilTarget - yearsToFIRENum)
     : 0
 
   // One Change Impact
@@ -252,7 +281,7 @@ export default function FIRECalculator({ currentPortfolioValue, expenses }) {
     let balance = currentSavings
     const maxMonths = 100 * 12
     
-    while (balance < fireNumber && months < maxMonths) {
+    while (balance < totalTargetIncludingIndiaGoals && months < maxMonths) {
       balance = balance * (1 + monthlyReturn) + increasedSIP
       months++
     }
@@ -267,8 +296,8 @@ export default function FIRECalculator({ currentPortfolioValue, expenses }) {
       : 0
 
     const reducedExpenses = inputs.annualExpenses * 0.9
-    const reducedFireNumber = reducedExpenses * (100 / inputs.safeWithdrawalRate)
-    const corpusReduction = fireNumber - reducedFireNumber
+    const reducedFireNumber = (reducedExpenses + (retirementAnnualExpenses - inputs.annualExpenses)) * (100 / inputs.safeWithdrawalRate)
+    const corpusReduction = totalTargetIncludingIndiaGoals - (reducedFireNumber + preFireGoalsFV)
 
     return { timeSaved, corpusReduction }
   }
@@ -313,6 +342,21 @@ export default function FIRECalculator({ currentPortfolioValue, expenses }) {
   }
 
   const stress = stressTest()
+
+  // Helper: simulate months to reach target corpus, returning months and balance when reached
+  const simulateToTarget = (target, startBalance, monthlyContrib, annualReturn) => {
+    if (annualReturn <= 0) return { months: null, reachedBalance: null }
+    const mRate = annualReturn / 12 / 100
+    let months = 0
+    let balance = startBalance
+    const maxMonths = 100 * 12
+    while (balance < target && months < maxMonths) {
+      balance = balance * (1 + mRate) + monthlyContrib
+      months++
+    }
+    if (months >= maxMonths) return { months: null, reachedBalance: null }
+    return { months, reachedBalance: balance }
+  }
 
   // Calculate needed monthly contribution to reach target in X years
   const calculateNeededContribution = (target, current, years, returnRate) => {
@@ -506,7 +550,10 @@ export default function FIRECalculator({ currentPortfolioValue, expenses }) {
           </div>
           <div>
             <div style={{ fontSize: 11, color: '#94a3b8', textTransform: 'uppercase', marginBottom: 4 }}>FIRE Number</div>
-            <div style={{ fontSize: 24, fontWeight: 900, color: '#a78bfa' }}>₹{fireNumber.toLocaleString()}</div>
+            <div style={{ fontSize: 24, fontWeight: 900, color: '#a78bfa' }}>₹{totalTargetIncludingIndiaGoals.toLocaleString()}</div>
+            {indiaGoalsEnabled && (
+              <div style={{ fontSize: 11, color: '#64748b', marginTop: 2 }}>Includes India goals; Retirement corpus: ₹{fireNumber.toLocaleString()}</div>
+            )}
           </div>
           <div>
             <div style={{ fontSize: 11, color: '#94a3b8', textTransform: 'uppercase', marginBottom: 4 }}>Gap to FIRE</div>
@@ -649,6 +696,9 @@ export default function FIRECalculator({ currentPortfolioValue, expenses }) {
                   </div>
                   <div style={{ fontSize: 12, color: '#94a3b8', marginTop: 2 }}>
                     {typeof coastFIREAge === 'number' ? `(age ${Math.round(coastFIREAge)})` : ''}
+                  </div>
+                  <div style={{ fontSize: 12, color: '#94a3b8', marginTop: 6 }}>
+                    Corpus at Coast time: ₹{coastCorpusAtMilestone ? Math.round(coastCorpusAtMilestone).toLocaleString() : coastFIRENumber.toLocaleString()}
                   </div>
                   <div style={{ fontSize: 11, color: '#64748b', marginTop: 6 }}>
                     Threshold today (PV): ₹{coastFIRENumber.toLocaleString()} | Future FIRE corpus: ₹{inflationAdjustedFIRE.toLocaleString()}
@@ -1069,7 +1119,7 @@ export default function FIRECalculator({ currentPortfolioValue, expenses }) {
 
           <div style={{ padding: 12, background: 'rgba(34,197,94,0.08)', borderRadius: 8, borderLeft: '4px solid #22c55e' }}>
             <div style={{ fontSize: 13, color: '#cbd5e1', lineHeight: 1.6 }}>
-              <strong style={{ color: '#22c55e' }}>Your Current Progress:</strong> Saving ₹{inputs.monthlyContribution.toLocaleString()}/month = ₹{(inputs.monthlyContribution * 12).toLocaleString()}/year towards FIRE number of ₹{fireNumber.toLocaleString()}
+              <strong style={{ color: '#22c55e' }}>Your Current Progress:</strong> Saving ₹{inputs.monthlyContribution.toLocaleString()}/month = ₹{(inputs.monthlyContribution * 12).toLocaleString()}/year towards total target of ₹{totalTargetIncludingIndiaGoals.toLocaleString()} {indiaGoalsEnabled ? `(incl. India goals; retirement corpus ₹${fireNumber.toLocaleString()})` : ''}
             </div>
           </div>
 
@@ -1079,7 +1129,7 @@ export default function FIRECalculator({ currentPortfolioValue, expenses }) {
               {(() => {
                 if (gap <= 0) return '✅ Already achieved! You can retire now.'
                 if (yearsUntilTarget <= 0) return '⚠️ Target age is now/past. Update target age for accurate projections.'
-                const neededPerMonth = calculateNeededContribution(fireNumber, currentSavings, yearsUntilTarget, inputs.accumulationReturn)
+                const neededPerMonth = calculateNeededContribution(totalTargetIncludingIndiaGoals, currentSavings, yearsUntilTarget, inputs.accumulationReturn)
                 if (neededPerMonth <= inputs.monthlyContribution + 1) return `✅ On track to hit FIRE by age ${inputs.targetAge}!`
                 return `To reach FIRE by age ${inputs.targetAge}, need ₹${Math.round(neededPerMonth).toLocaleString()}/month (₹${Math.round(neededPerMonth - inputs.monthlyContribution).toLocaleString()}/month more)`
               })()}
