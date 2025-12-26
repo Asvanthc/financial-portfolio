@@ -59,6 +59,36 @@ export default function FIRECalculator({ currentPortfolioValue, expenses }) {
     setInputs(prev => ({ ...prev, [field]: Number(value) }))
   }
 
+  // Helper: simulate months to reach target corpus, returning months and balance when reached
+  const simulateToTarget = (target, startBalance, monthlyContrib, annualReturn) => {
+    if (annualReturn <= 0) return { months: null, reachedBalance: null }
+    const mRate = annualReturn / 12 / 100
+    let months = 0
+    let balance = startBalance
+    const maxMonths = 100 * 12
+    while (balance < target && months < maxMonths) {
+      balance = balance * (1 + mRate) + monthlyContrib
+      months++
+    }
+    if (months >= maxMonths) return { months: null, reachedBalance: null }
+    return { months, reachedBalance: balance }
+  }
+
+  // Calculate needed monthly contribution to reach target in X years
+  const calculateNeededContribution = (target, current, years, returnRate) => {
+    if (years <= 0 || returnRate <= 0 || target <= current) return 0
+    const monthlyRate = returnRate / 12 / 100
+    const months = years * 12
+    const futureValueOfCurrent = current * Math.pow(1 + monthlyRate, months)
+    const gap = target - futureValueOfCurrent
+    
+    if (gap <= 0) return 0
+    
+    const numerator = gap * monthlyRate
+    const denominator = Math.pow(1 + monthlyRate, months) - 1
+    return denominator > 0 ? numerator / denominator : 0
+  }
+
   // FIRE Calculations with edge case handling
   // Retirement annual expenses adjusted for India-specific ongoing items
   const retirementAnnualExpenses = (() => {
@@ -342,36 +372,6 @@ export default function FIRECalculator({ currentPortfolioValue, expenses }) {
   }
 
   const stress = stressTest()
-
-  // Helper: simulate months to reach target corpus, returning months and balance when reached
-  const simulateToTarget = (target, startBalance, monthlyContrib, annualReturn) => {
-    if (annualReturn <= 0) return { months: null, reachedBalance: null }
-    const mRate = annualReturn / 12 / 100
-    let months = 0
-    let balance = startBalance
-    const maxMonths = 100 * 12
-    while (balance < target && months < maxMonths) {
-      balance = balance * (1 + mRate) + monthlyContrib
-      months++
-    }
-    if (months >= maxMonths) return { months: null, reachedBalance: null }
-    return { months, reachedBalance: balance }
-  }
-
-  // Calculate needed monthly contribution to reach target in X years
-  const calculateNeededContribution = (target, current, years, returnRate) => {
-    if (years <= 0 || returnRate <= 0 || target <= current) return 0
-    const monthlyRate = returnRate / 12 / 100
-    const months = years * 12
-    const futureValueOfCurrent = current * Math.pow(1 + monthlyRate, months)
-    const gap = target - futureValueOfCurrent
-    
-    if (gap <= 0) return 0
-    
-    const numerator = gap * monthlyRate
-    const denominator = Math.pow(1 + monthlyRate, months) - 1
-    return denominator > 0 ? numerator / denominator : 0
-  }
 
   // Simple coverage if you stopped working today (no growth, brute run-down)
   const yearsCoverageNoGrowth = inputs.annualExpenses > 0
