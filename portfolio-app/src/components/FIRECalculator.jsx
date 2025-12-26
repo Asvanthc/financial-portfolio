@@ -113,9 +113,10 @@ export default function FIRECalculator({ currentPortfolioValue, expenses }) {
   // Monthly income at FIRE (using withdrawal phase returns)
   const monthlyFIREIncome = fireNumber > 0 ? (fireNumber * (inputs.safeWithdrawalRate / 100)) / 12 : 0
 
-  // Coast FIRE - amount needed now to reach FIRE by target age with no more contributions
+  // Coast FIRE - amount needed NOW (today's money) to reach FUTURE FIRE corpus (inflation-adjusted) by target age
+  // We discount the future FIRE corpus by expected accumulation returns
   const coastFIRENumber = yearsUntilTarget > 0 && inputs.accumulationReturn > 0
-    ? fireNumber / Math.pow(1 + inputs.accumulationReturn / 100, yearsUntilTarget)
+    ? inflationAdjustedFIRE / Math.pow(1 + inputs.accumulationReturn / 100, yearsUntilTarget)
     : fireNumber
   const coastFIREAchieved = currentSavings >= coastFIRENumber
 
@@ -548,13 +549,16 @@ export default function FIRECalculator({ currentPortfolioValue, expenses }) {
           <div style={{ fontSize: 24, fontWeight: 900, color: coastFIREAchieved ? '#22c55e' : '#a78bfa' }}>
             {coastFIREAchieved ? '✅ Achieved!' : `₹${coastFIRENumber.toLocaleString()}`}
           </div>
-          <div style={{ fontSize: 13, color: coastFIREAchieved ? '#86efac' : '#c4b5fd', marginTop: 6 }}>
-            {coastFIREAchieved ? 'You can stop saving now' : 'Needed to stop contributing'}
+          <div style={{ fontSize: 12, color: '#94a3b8', marginTop: 4 }}>
+            {coastFIREAchieved ? 'Threshold (today’s money) reached' : 'Threshold needed today (PV)'}
           </div>
-          <div style={{ fontSize: 11, color: '#94a3b8', marginTop: 8, lineHeight: 1.5 }}>
+          <div style={{ fontSize: 11, color: '#94a3b8', marginTop: 8, lineHeight: 1.6 }}>
             {coastFIREAchieved ? 
-              `Your current savings will grow to FIRE number by age ${inputs.targetAge} with zero additional contributions.` :
-              `Save this much, then let compound growth do the rest until age ${inputs.targetAge}.`}
+              `Your current savings will grow to the future FIRE corpus (inflation-adjusted) by age ${inputs.targetAge} with zero additional contributions.` :
+              `Save this today, and compound growth will reach the future FIRE corpus (inflation-adjusted) by age ${inputs.targetAge}.`}
+          </div>
+          <div style={{ fontSize: 11, color: '#64748b', marginTop: 8 }}>
+            Future FIRE corpus at age {inputs.targetAge}: ₹{inflationAdjustedFIRE.toLocaleString()}
           </div>
         </div>
 
@@ -625,7 +629,7 @@ export default function FIRECalculator({ currentPortfolioValue, expenses }) {
             <>
               <strong style={{ color: '#22c55e', fontSize: 16 }}>✅ You've already reached Coast FIRE!</strong>
               <div style={{ marginTop: 8, fontSize: 13, color: '#94a3b8' }}>
-                You can stop saving now. Your current ₹{currentSavings.toLocaleString()} will grow to ₹{fireNumber.toLocaleString()} by age {inputs.targetAge}.
+                You can stop saving now. Your current ₹{currentSavings.toLocaleString()} will grow to the future FIRE corpus ₹{inflationAdjustedFIRE.toLocaleString()} by age {inputs.targetAge}.
               </div>
             </>
           ) : (
@@ -642,6 +646,9 @@ export default function FIRECalculator({ currentPortfolioValue, expenses }) {
                   <div style={{ fontSize: 12, color: '#94a3b8', marginTop: 2 }}>
                     {typeof coastFIREAge === 'number' ? `(age ${Math.round(coastFIREAge)})` : ''}
                   </div>
+                  <div style={{ fontSize: 11, color: '#64748b', marginTop: 6 }}>
+                    Threshold today (PV): ₹{coastFIRENumber.toLocaleString()} | Future FIRE corpus: ₹{inflationAdjustedFIRE.toLocaleString()}
+                  </div>
                 </div>
                 <div>
                   <div style={{ fontSize: 12, color: '#94a3b8', marginBottom: 4 }}>🔥 Full FIRE in:</div>
@@ -654,7 +661,7 @@ export default function FIRECalculator({ currentPortfolioValue, expenses }) {
                 </div>
               </div>
               <div style={{ marginTop: 12, fontSize: 12, color: '#a78bfa', fontStyle: 'italic' }}>
-                💡 This gives you milestones and hope! Coast FIRE = financial safety net unlocked.
+                💡 Coast FIRE is calculated against the inflation-adjusted FIRE number. We show the present value (today’s money) needed now, so you know exactly when you can stop contributing.
               </div>
             </>
           )}
