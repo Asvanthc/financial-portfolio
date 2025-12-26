@@ -26,6 +26,20 @@ export default function FIRECalculator({ currentPortfolioValue, expenses }) {
     additionalSavings: 0
   })
 
+  // FIRE Mode state
+  const [fireMode, setFireMode] = useState('regular') // lean, regular, fat, barista
+
+  // Sensitivity sliders state
+  const [sensitivityMode, setSensitivityMode] = useState('expected') // conservative, expected, optimistic
+
+  // India-specific toggles
+  const [indiaToggles, setIndiaToggles] = useState({
+    parentsSupport: { enabled: false, monthlyAmount: 10000 },
+    marriageCost: { enabled: false, oneTimeAmount: 500000, targetYears: 5 },
+    homePurchase: { enabled: false, downPayment: 2000000, targetYears: 10 },
+    kidsEducation: { enabled: false, annualCost: 100000, startYear: 10, duration: 15 }
+  })
+
   // Calculate annual expenses from expense tracker data
   useEffect(() => {
     if (expenses && expenses.length > 0) {
@@ -104,6 +118,196 @@ export default function FIRECalculator({ currentPortfolioValue, expenses }) {
     ? fireNumber / Math.pow(1 + inputs.accumulationReturn / 100, yearsUntilTarget)
     : fireNumber
   const coastFIREAchieved = currentSavings >= coastFIRENumber
+
+  // NEW: When will I reach Coast FIRE?
+  const yearsToCoastFIRE = (() => {
+    if (coastFIREAchieved) return 0
+    if (inputs.monthlyContribution <= 0) return 'Never'
+    
+    let months = 0
+    let balance = currentSavings
+    const maxMonths = 100 * 12
+    
+    while (balance < coastFIRENumber && months < maxMonths) {
+      balance = balance * (1 + monthlyReturn) + inputs.monthlyContribution
+      months++
+    }
+    
+    return months >= maxMonths ? 'Never' : (months / 12).toFixed(1)
+  })()
+
+  const coastFIREAge = typeof yearsToCoastFIRE === 'number' ? inputs.currentAge + parseFloat(yearsToCoastFIRE) : 'N/A'
+
+  // FIRE Mode calculations
+  const getModeMultiplier = (mode) => {
+    switch(mode) {
+      case 'lean': return 0.7
+      case 'regular': return 1.0
+      case 'fat': return 2.0
+      case 'barista': return 0.5
+      default: return 1.0
+    }
+  }
+
+  const modeFireNumber = inputs.annualExpenses * getModeMultiplier(fireMode) * (100 / inputs.safeWithdrawalRate)
+  const modeGap = Math.max(0, modeFireNumber - currentSavings)
+  
+  const modeYearsToFIRE = (() => {
+    if (modeGap <= 0) return 0
+    if (inputs.monthlyContribution <= 0) return 'Never'
+    
+    let months = 0
+    let balance = currentSavings
+    const maxMonths = 100 * 12
+    
+    while (balance < modeFireNumber && months < maxMonths) {
+      balance = balance * (1 + monthlyReturn) + inputs.monthlyContribution
+      months++
+    }
+    
+    return months >= maxMonths ? 'Never' : (months / 12).toFixed(1)
+  })()
+
+  // India-specific adjustments
+  const calculateIndiaAdjustedExpenses = () => {
+    let adjusted = inputs.annualExpenses
+    if (indiaToggles.parentsSupport.enabled) {
+      adjusted += indiaToggles.parentsSupport.monthlyAmount * 12
+    }
+    if (indiaToggles.kidsEducation.enabled) {
+      adjusted += indiaToggles.kidsEducation.annualCost
+    }
+    return adjusted
+  }
+
+  const calculateIndiaOneTimeCosts = () => {
+    let total = 0
+    if (indiaToggles.marriageCost.enabled) {
+      total += indiaToggles.marriageCost.oneTimeAmount
+    }
+    if (indiaToggles.homePurchase.enabled) {
+      total += indiaToggles.homePurchase.downPayment
+    }
+    return total
+  }
+
+  const indiaAdjustedExpenses = calculateIndiaAdjustedExpenses()
+  const indiaOneTimeCosts = calculateIndiaOneTimeCosts()
+  const indiaAdjustedFireNumber = indiaAdjustedExpenses * (100 / inputs.safeWithdrawalRate) + indiaOneTimeCosts
+
+  // Sensitivity Analysis
+  const getSensitivityParams = (mode) => {
+    switch(mode) {
+      case 'conservative':
+        return { return: 8, inflation: 7, withdrawal: 3 }
+      case 'expected':
+        return { return: inputs.accumulationReturn, inflation: inputs.inflationRate, withdrawal: inputs.safeWithdrawalRate }
+      case 'optimistic':
+        return { return: 12, inflation: 5, withdrawal: 4.5 }
+      default:
+        return { return: inputs.accumulationReturn, inflation: inputs.inflationRate, withdrawal: inputs.safeWithdrawalRate }
+    }
+  }
+
+  const calculateSensitivityFIRE = (mode) => {
+    const params = getSensitivityParams(mode)
+    const sensitivityFireNumber = inputs.annualExpenses * (100 / params.withdrawal)
+    const sensitivityGap = Math.max(0, sensitivityFireNumber - currentSavings)
+    
+    if (sensitivityGap <= 0) return { years: 0, age: inputs.currentAge }
+    if (inputs.monthlyContribution <= 0) return { years: 'Never', age: 'N/A' }
+    
+    const monthlyRet = params.return / 12 / 100
+    let months = 0
+    let balance = currentSavings
+    const maxMonths = 100 * 12
+    
+    while (balance < sensitivityFireNumber && months < maxMonths) {
+      balance = balance * (1 + monthlyRet) + inputs.monthlyContribution
+      months++
+    }
+    
+    const years = months >= maxMonths ? 'Never' : (months / 12).toFixed(1)
+    const age = typeof years === 'number' ? inputs.currentAge + parseFloat(years) : 'N/A'
+    return { years, age }
+  }
+
+  const conservativeFIRE = calculateSensitivityFIRE('conservative')
+  const optimisticFIRE = calculateSensitivityFIRE('optimistic')
+
+  // Smart Metrics
+  const savingsRate = inputs.monthlyContribution > 0 && inputs.annualExpenses > 0
+    ? (inputs.monthlyContribution * 12 / (inputs.annualExpenses + inputs.monthlyContribution * 12)) * 100
+    : 0
+
+  const scheduleAdvancement = typeof yearsToFIRE === 'number' && yearsUntilTarget > 0
+    ? yearsUntilTarget - yearsToFIRE
+    : 0
+
+  // One Change Impact
+  const calculateImpact = () => {
+    const increasedSIP = inputs.monthlyContribution + 5000
+    let months = 0
+    let balance = currentSavings
+    const maxMonths = 100 * 12
+    
+    while (balance < fireNumber && months < maxMonths) {
+      balance = balance * (1 + monthlyReturn) + increasedSIP
+      months++
+    }
+    
+    const newYears = months >= maxMonths ? 'Never' : (months / 12)
+    const timeSaved = typeof yearsToFIRE === 'number' && typeof newYears === 'number' 
+      ? (yearsToFIRE - newYears).toFixed(1) 
+      : 0
+
+    const reducedExpenses = inputs.annualExpenses * 0.9
+    const reducedFireNumber = reducedExpenses * (100 / inputs.safeWithdrawalRate)
+    const corpusReduction = fireNumber - reducedFireNumber
+
+    return { timeSaved, corpusReduction }
+  }
+
+  const impact = calculateImpact()
+
+  // Career Flexibility Score
+  const calculateCareerScore = () => {
+    let score = 0
+    
+    // Coast FIRE achievement (40 points)
+    if (coastFIREAchieved) {
+      score += 40
+    } else {
+      const coastProgress = (currentSavings / coastFIRENumber) * 40
+      score += Math.min(40, coastProgress)
+    }
+    
+    // Savings rate (30 points)
+    score += Math.min(30, savingsRate * 0.75)
+    
+    // FIRE progress (30 points)
+    score += Math.min(30, fireProgress * 0.3)
+    
+    return Math.round(score)
+  }
+
+  const careerScore = calculateCareerScore()
+
+  // Stress Test
+  const stressTest = () => {
+    // 30% crash test
+    const crashBalance = currentSavings * 0.7
+    const yearsAfterCrash = crashBalance / inputs.annualExpenses
+    const survivesCrash = yearsAfterCrash >= 2
+
+    // 2-year job break
+    const twoYearExpenses = inputs.annualExpenses * 2
+    const survivesJobBreak = currentSavings >= twoYearExpenses
+
+    return { survivesCrash, survivesJobBreak, yearsAfterCrash: yearsAfterCrash.toFixed(1) }
+  }
+
+  const stress = stressTest()
 
   // Calculate needed monthly contribution to reach target in X years
   const calculateNeededContribution = (target, current, years, returnRate) => {
@@ -373,9 +577,264 @@ export default function FIRECalculator({ currentPortfolioValue, expenses }) {
         </div>
       </div>
 
-      {/* FIRE Types */}
+      {/* Smart Metrics Row */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 16, marginBottom: 32 }}>
+        <div style={{ background: 'linear-gradient(135deg, rgba(34,197,94,0.1), rgba(34,197,94,0.02)), #0f1724', padding: 16, borderRadius: 10, border: '2px solid rgba(34,197,94,0.25)' }}>
+          <div style={{ fontSize: 11, color: '#86efac', fontWeight: 700, textTransform: 'uppercase', marginBottom: 6 }}>✔ Savings Rate</div>
+          <div style={{ fontSize: 28, fontWeight: 900, color: '#22c55e' }}>{savingsRate.toFixed(0)}%</div>
+          <div style={{ fontSize: 11, color: '#94a3b8', marginTop: 4 }}>
+            {savingsRate >= 50 ? '🔥 Extreme saver!' : savingsRate >= 30 ? '👍 Good pace' : savingsRate >= 15 ? '⚠️ Can improve' : '❌ Too low'}
+          </div>
+        </div>
+
+        <div style={{ background: 'linear-gradient(135deg, rgba(59,130,246,0.1), rgba(59,130,246,0.02)), #0f1724', padding: 16, borderRadius: 10, border: '2px solid rgba(59,130,246,0.25)' }}>
+          <div style={{ fontSize: 11, color: '#93c5fd', fontWeight: 700, textTransform: 'uppercase', marginBottom: 6 }}>✔ FI Progress</div>
+          <div style={{ fontSize: 24, fontWeight: 900, color: '#3b82f6' }}>
+            {scheduleAdvancement > 0 ? `+${scheduleAdvancement.toFixed(1)} yrs` : scheduleAdvancement < 0 ? `${scheduleAdvancement.toFixed(1)} yrs` : 'On Track'}
+          </div>
+          <div style={{ fontSize: 11, color: '#94a3b8', marginTop: 4 }}>
+            {scheduleAdvancement > 0 ? 'Ahead of schedule!' : scheduleAdvancement < 0 ? 'Behind target' : 'Right on schedule'}
+          </div>
+        </div>
+
+        <div style={{ background: 'linear-gradient(135deg, rgba(168,85,247,0.1), rgba(168,85,247,0.02)), #0f1724', padding: 16, borderRadius: 10, border: '2px solid rgba(168,85,247,0.25)' }}>
+          <div style={{ fontSize: 11, color: '#d8b4fe', fontWeight: 700, textTransform: 'uppercase', marginBottom: 6 }}>✔ Stress Test</div>
+          <div style={{ fontSize: 12, fontWeight: 700, color: '#a855f7', lineHeight: 1.5 }}>
+            {stress.survivesCrash ? '✓' : '✗'} 30% crash<br />
+            {stress.survivesJobBreak ? '✓' : '✗'} 2-yr break
+          </div>
+          <div style={{ fontSize: 11, color: '#94a3b8', marginTop: 4 }}>
+            {stress.survivesCrash && stress.survivesJobBreak ? 'Resilient' : stress.survivesCrash || stress.survivesJobBreak ? 'Moderate' : 'Vulnerable'}
+          </div>
+        </div>
+
+        <div style={{ background: 'linear-gradient(135deg, rgba(245,158,11,0.1), rgba(245,158,11,0.02)), #0f1724', padding: 16, borderRadius: 10, border: '2px solid rgba(245,158,11,0.25)' }}>
+          <div style={{ fontSize: 11, color: '#fcd34d', fontWeight: 700, textTransform: 'uppercase', marginBottom: 6 }}>🎯 Career Freedom</div>
+          <div style={{ fontSize: 28, fontWeight: 900, color: '#f59e0b' }}>{careerScore}/100</div>
+          <div style={{ fontSize: 11, color: '#94a3b8', marginTop: 4 }}>
+            {careerScore >= 70 ? '🔥 High freedom' : careerScore >= 40 ? '👍 Growing' : '⚠️ Build more'}
+          </div>
+        </div>
+      </div>
+
+      {/* Coast FIRE Timeline */}
+      <div style={{ background: 'linear-gradient(135deg, rgba(139,92,246,0.08), rgba(139,92,246,0.02))', padding: 20, borderRadius: 12, border: '2px solid rgba(139,92,246,0.25)', marginBottom: 32 }}>
+        <h3 style={{ fontSize: 16, fontWeight: 700, marginBottom: 16, color: '#a78bfa' }}>🧭 When Will I Reach Coast FIRE?</h3>
+        <div style={{ fontSize: 14, color: '#cbd5e1', lineHeight: 1.8 }}>
+          {coastFIREAchieved ? (
+            <>
+              <strong style={{ color: '#22c55e', fontSize: 16 }}>✅ You've already reached Coast FIRE!</strong>
+              <div style={{ marginTop: 8, fontSize: 13, color: '#94a3b8' }}>
+                You can stop saving now. Your current ₹{currentSavings.toLocaleString()} will grow to ₹{fireNumber.toLocaleString()} by age {inputs.targetAge}.
+              </div>
+            </>
+          ) : (
+            <>
+              <div style={{ marginBottom: 12 }}>
+                <strong style={{ color: '#a78bfa' }}>At your current SIP of ₹{inputs.monthlyContribution.toLocaleString()}/month:</strong>
+              </div>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16, padding: 16, background: 'rgba(255,255,255,0.02)', borderRadius: 8 }}>
+                <div>
+                  <div style={{ fontSize: 12, color: '#94a3b8', marginBottom: 4 }}>🏖️ Coast FIRE in:</div>
+                  <div style={{ fontSize: 24, fontWeight: 900, color: '#a78bfa' }}>
+                    {typeof yearsToCoastFIRE === 'number' ? `${yearsToCoastFIRE} yrs` : yearsToCoastFIRE}
+                  </div>
+                  <div style={{ fontSize: 12, color: '#94a3b8', marginTop: 2 }}>
+                    {typeof coastFIREAge === 'number' ? `(age ${Math.round(coastFIREAge)})` : ''}
+                  </div>
+                </div>
+                <div>
+                  <div style={{ fontSize: 12, color: '#94a3b8', marginBottom: 4 }}>🔥 Full FIRE in:</div>
+                  <div style={{ fontSize: 24, fontWeight: 900, color: '#22d3ee' }}>
+                    {typeof yearsToFIRE === 'number' ? `${yearsToFIRE} yrs` : yearsToFIRE}
+                  </div>
+                  <div style={{ fontSize: 12, color: '#94a3b8', marginTop: 2 }}>
+                    {typeof targetAgeReached === 'number' ? `(age ${Math.round(targetAgeReached)})` : ''}
+                  </div>
+                </div>
+              </div>
+              <div style={{ marginTop: 12, fontSize: 12, color: '#a78bfa', fontStyle: 'italic' }}>
+                💡 This gives you milestones and hope! Coast FIRE = financial safety net unlocked.
+              </div>
+            </>
+          )}
+        </div>
+      </div>
+
+      {/* Visual Timeline */}
       <div style={{ background: 'linear-gradient(135deg, #0a1018 0%, #0f1724 100%)', padding: 24, borderRadius: 14, border: '2px solid #1e293b', marginBottom: 32 }}>
-        <h3 style={{ fontSize: 18, fontWeight: 700, marginBottom: 20, color: '#e6e9ef' }}>🎨 FIRE Flavors</h3>
+        <h3 style={{ fontSize: 18, fontWeight: 700, marginBottom: 20, color: '#e6e9ef' }}>📍 Your FIRE Journey</h3>
+        <div style={{ position: 'relative', paddingTop: 40, paddingBottom: 20 }}>
+          {/* Timeline bar */}
+          <div style={{ position: 'relative', height: 4, background: '#1e293b', borderRadius: 2, marginBottom: 40 }}>
+            {/* Progress fill */}
+            <div style={{ position: 'absolute', left: 0, top: 0, height: '100%', width: `${Math.min(100, fireProgress)}%`, background: 'linear-gradient(90deg, #3b82f6, #22d3ee)', borderRadius: 2 }} />
+            
+            {/* Markers */}
+            {[
+              { label: 'Now', position: 0, age: inputs.currentAge, color: '#22d3ee', active: true },
+              { label: 'Coast', position: coastFIREAchieved ? 0 : typeof yearsToCoastFIRE === 'number' ? (yearsToCoastFIRE / (typeof yearsToFIRE === 'number' ? yearsToFIRE : 20)) * 100 : 25, age: coastFIREAge, color: '#a78bfa', active: !coastFIREAchieved },
+              { label: 'Barista', position: 60, age: inputs.currentAge + (typeof yearsToFIRE === 'number' ? yearsToFIRE * 0.6 : 10), color: '#f59e0b', active: false },
+              { label: 'FIRE', position: 100, age: targetAgeReached, color: '#22c55e', active: true }
+            ].map((marker, idx) => marker.active && (
+              <div key={idx} style={{ position: 'absolute', left: `${Math.min(100, Math.max(0, marker.position))}%`, top: -8, transform: 'translateX(-50%)' }}>
+                <div style={{ width: 20, height: 20, borderRadius: '50%', background: marker.color, border: '3px solid #0f1724', marginBottom: 8 }} />
+                <div style={{ position: 'absolute', top: 28, left: '50%', transform: 'translateX(-50%)', whiteSpace: 'nowrap', textAlign: 'center' }}>
+                  <div style={{ fontSize: 12, fontWeight: 700, color: marker.color }}>{marker.label}</div>
+                  <div style={{ fontSize: 10, color: '#64748b', marginTop: 2 }}>Age {typeof marker.age === 'number' ? Math.round(marker.age) : marker.age}</div>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+        <div style={{ fontSize: 11, color: '#64748b', textAlign: 'center', marginTop: 8 }}>
+          Much more intuitive than paragraphs! Your journey visualized.
+        </div>
+      </div>
+
+      {/* One Change = Big Impact */}
+      <div style={{ background: 'linear-gradient(135deg, rgba(34,197,94,0.08), rgba(34,197,94,0.02))', padding: 20, borderRadius: 12, border: '2px solid rgba(34,197,94,0.25)', marginBottom: 32 }}>
+        <h3 style={{ fontSize: 16, fontWeight: 700, marginBottom: 16, color: '#22c55e' }}>🧠 One Change = Big Impact</h3>
+        <div style={{ display: 'grid', gap: 12 }}>
+          <div style={{ padding: 14, background: 'rgba(34,197,94,0.05)', borderRadius: 8, borderLeft: '4px solid #22c55e' }}>
+            <div style={{ fontSize: 13, color: '#cbd5e1', lineHeight: 1.6 }}>
+              💰 <strong style={{ color: '#22c55e' }}>Increasing SIP by ₹5,000/month</strong> brings FIRE <strong style={{ fontSize: 16, color: '#22c55e' }}>{impact.timeSaved} years earlier</strong>
+            </div>
+          </div>
+          <div style={{ padding: 14, background: 'rgba(34,197,94,0.05)', borderRadius: 8, borderLeft: '4px solid #22c55e' }}>
+            <div style={{ fontSize: 13, color: '#cbd5e1', lineHeight: 1.6 }}>
+              📉 <strong style={{ color: '#22c55e' }}>Reducing expenses by 10%</strong> reduces FIRE corpus by <strong style={{ fontSize: 16, color: '#22c55e' }}>₹{(impact.corpusReduction / 100000).toFixed(1)}L</strong>
+            </div>
+          </div>
+        </div>
+        <div style={{ marginTop: 12, fontSize: 11, color: '#86efac', fontStyle: 'italic' }}>
+          💡 Small changes compound into massive differences. This makes the calculator actionable!
+        </div>
+      </div>
+
+      {/* FIRE Sensitivity Slider */}
+      <div style={{ background: 'linear-gradient(135deg, #0a1018 0%, #0f1724 100%)', padding: 24, borderRadius: 14, border: '2px solid #1e293b', marginBottom: 32 }}>
+        <h3 style={{ fontSize: 18, fontWeight: 700, marginBottom: 16, color: '#e6e9ef' }}>📊 FIRE Sensitivity Analysis</h3>
+        <div style={{ fontSize: 13, color: '#94a3b8', marginBottom: 20 }}>
+          See how different market scenarios affect your FIRE timeline. This teaches risk awareness without text!
+        </div>
+        
+        <div style={{ display: 'grid', gap: 16 }}>
+          <div style={{ padding: 16, background: 'rgba(239,68,68,0.08)', borderRadius: 10, border: '2px solid rgba(239,68,68,0.2)' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+              <div>
+                <div style={{ fontSize: 14, fontWeight: 700, color: '#f87171' }}>Conservative Case</div>
+                <div style={{ fontSize: 11, color: '#94a3b8', marginTop: 2 }}>Returns 8% | Inflation 7% | Withdrawal 3%</div>
+              </div>
+              <div style={{ textAlign: 'right' }}>
+                <div style={{ fontSize: 24, fontWeight: 900, color: '#ef4444' }}>
+                  Age {typeof conservativeFIRE.age === 'number' ? Math.round(conservativeFIRE.age) : conservativeFIRE.age}
+                </div>
+                <div style={{ fontSize: 11, color: '#f87171' }}>{typeof conservativeFIRE.years === 'number' ? `${conservativeFIRE.years} years` : conservativeFIRE.years}</div>
+              </div>
+            </div>
+          </div>
+
+          <div style={{ padding: 16, background: 'rgba(59,130,246,0.08)', borderRadius: 10, border: '2px solid rgba(59,130,246,0.2)' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+              <div>
+                <div style={{ fontSize: 14, fontWeight: 700, color: '#60a5fa' }}>Expected Case</div>
+                <div style={{ fontSize: 11, color: '#94a3b8', marginTop: 2 }}>Returns {inputs.accumulationReturn}% | Inflation {inputs.inflationRate}% | Withdrawal {inputs.safeWithdrawalRate}%</div>
+              </div>
+              <div style={{ textAlign: 'right' }}>
+                <div style={{ fontSize: 24, fontWeight: 900, color: '#3b82f6' }}>
+                  Age {typeof targetAgeReached === 'number' ? Math.round(targetAgeReached) : targetAgeReached}
+                </div>
+                <div style={{ fontSize: 11, color: '#60a5fa' }}>{typeof yearsToFIRE === 'number' ? `${yearsToFIRE} years` : yearsToFIRE}</div>
+              </div>
+            </div>
+          </div>
+
+          <div style={{ padding: 16, background: 'rgba(34,197,94,0.08)', borderRadius: 10, border: '2px solid rgba(34,197,94,0.2)' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+              <div>
+                <div style={{ fontSize: 14, fontWeight: 700, color: '#4ade80' }}>Optimistic Case</div>
+                <div style={{ fontSize: 11, color: '#94a3b8', marginTop: 2 }}>Returns 12% | Inflation 5% | Withdrawal 4.5%</div>
+              </div>
+              <div style={{ textAlign: 'right' }}>
+                <div style={{ fontSize: 24, fontWeight: 900, color: '#22c55e' }}>
+                  Age {typeof optimisticFIRE.age === 'number' ? Math.round(optimisticFIRE.age) : optimisticFIRE.age}
+                </div>
+                <div style={{ fontSize: 11, color: '#4ade80' }}>{typeof optimisticFIRE.years === 'number' ? `${optimisticFIRE.years} years` : optimisticFIRE.years}</div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* Interactive FIRE Modes */}
+      <div style={{ background: 'linear-gradient(135deg, #0a1018 0%, #0f1724 100%)', padding: 24, borderRadius: 14, border: '2px solid #1e293b', marginBottom: 32 }}>
+        <h3 style={{ fontSize: 18, fontWeight: 700, marginBottom: 20, color: '#e6e9ef' }}>🎯 FIRE Modes (Interactive)</h3>
+        
+        <div style={{ display: 'grid', gap: 16, marginBottom: 20 }}>
+          {[
+            { mode: 'lean', label: 'Lean FIRE', desc: 'Minimalist lifestyle (70% expenses)', color: '#22c55e', multiplier: 0.7 },
+            { mode: 'regular', label: 'Regular FIRE', desc: 'Maintain current lifestyle', color: '#3b82f6', multiplier: 1.0 },
+            { mode: 'fat', label: 'Fat FIRE', desc: 'Luxury lifestyle (2x expenses)', color: '#8b5cf6', multiplier: 2.0 },
+            { mode: 'barista', label: 'Barista FIRE', desc: 'Part-time work (50% expenses)', color: '#f59e0b', multiplier: 0.5 }
+          ].map(({ mode, label, desc, color, multiplier }) => (
+            <div 
+              key={mode}
+              onClick={() => setFireMode(mode)}
+              style={{ 
+                padding: 16, 
+                background: fireMode === mode ? `linear-gradient(135deg, ${color}15, ${color}05)` : 'rgba(255,255,255,0.02)', 
+                borderRadius: 10, 
+                border: fireMode === mode ? `2px solid ${color}` : '2px solid #1e293b',
+                cursor: 'pointer',
+                transition: 'all 0.3s ease'
+              }}
+            >
+              <div style={{ display: 'grid', gridTemplateColumns: '30px 1fr auto', gap: 12, alignItems: 'center' }}>
+                <div style={{ 
+                  width: 20, 
+                  height: 20, 
+                  borderRadius: '50%', 
+                  border: `3px solid ${fireMode === mode ? color : '#64748b'}`,
+                  background: fireMode === mode ? color : 'transparent',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center'
+                }}>
+                  {fireMode === mode && <div style={{ width: 8, height: 8, borderRadius: '50%', background: '#0f1724' }} />}
+                </div>
+                <div>
+                  <div style={{ fontSize: 14, fontWeight: 700, color: fireMode === mode ? color : '#cbd5e1' }}>{label}</div>
+                  <div style={{ fontSize: 12, color: '#94a3b8', marginTop: 2 }}>{desc}</div>
+                </div>
+                <div style={{ textAlign: 'right' }}>
+                  <div style={{ fontSize: 16, fontWeight: 900, color: fireMode === mode ? color : '#64748b' }}>
+                    ₹{(inputs.annualExpenses * multiplier * (100 / inputs.safeWithdrawalRate)).toLocaleString()}
+                  </div>
+                  <div style={{ fontSize: 11, color: '#64748b', marginTop: 2 }}>
+                    {typeof modeYearsToFIRE === 'number' && fireMode === mode ? `${modeYearsToFIRE} years` : ''}
+                  </div>
+                </div>
+              </div>
+            </div>
+          ))}
+        </div>
+        
+        {fireMode && (
+          <div style={{ padding: 16, background: 'rgba(34,197,94,0.08)', borderRadius: 10, border: '2px solid rgba(34,197,94,0.2)' }}>
+            <div style={{ fontSize: 13, color: '#cbd5e1', lineHeight: 1.6 }}>
+              📊 <strong style={{ color: '#22c55e' }}>Selected: {fireMode.charAt(0).toUpperCase() + fireMode.slice(1)} FIRE</strong><br />
+              • FIRE Number: ₹{modeFireNumber.toLocaleString()}<br />
+              • Time to achieve: {typeof modeYearsToFIRE === 'number' ? `${modeYearsToFIRE} years` : modeYearsToFIRE}<br />
+              • Monthly income: ₹{(modeFireNumber * inputs.safeWithdrawalRate / 100 / 12).toLocaleString()}
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* FIRE Types - Original (keep for reference) */}
+      <div style={{ background: 'linear-gradient(135deg, #0a1018 0%, #0f1724 100%)', padding: 24, borderRadius: 14, border: '2px solid #1e293b', marginBottom: 32 }}>
+        <h3 style={{ fontSize: 18, fontWeight: 700, marginBottom: 20, color: '#e6e9ef' }}>🎨 FIRE Flavors (Reference)</h3>
         
         <div style={{ display: 'grid', gap: 16 }}>
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 2fr 1fr', gap: 12, padding: 16, background: 'rgba(34,197,94,0.08)', borderRadius: 10, border: '1px solid rgba(34,197,94,0.2)' }}>
