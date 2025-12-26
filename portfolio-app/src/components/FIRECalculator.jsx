@@ -105,6 +105,21 @@ export default function FIRECalculator({ currentPortfolioValue, expenses }) {
     : fireNumber
   const coastFIREAchieved = currentSavings >= coastFIRENumber
 
+  // Calculate needed monthly contribution to reach target in X years
+  const calculateNeededContribution = (target, current, years, returnRate) => {
+    if (years <= 0 || returnRate <= 0 || target <= current) return 0
+    const monthlyRate = returnRate / 12 / 100
+    const months = years * 12
+    const futureValueOfCurrent = current * Math.pow(1 + monthlyRate, months)
+    const gap = target - futureValueOfCurrent
+    
+    if (gap <= 0) return 0
+    
+    const numerator = gap * monthlyRate
+    const denominator = Math.pow(1 + monthlyRate, months) - 1
+    return denominator > 0 ? numerator / denominator : 0
+  }
+
   // Simple coverage if you stopped working today (no growth, brute run-down)
   const yearsCoverageNoGrowth = inputs.annualExpenses > 0
     ? (currentSavings / inputs.annualExpenses).toFixed(1)
