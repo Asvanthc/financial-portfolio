@@ -464,7 +464,7 @@ export default function FIRECalculator({ currentPortfolioValue, expenses }) {
               />
               <button type="button" onClick={() => handleInputChange('targetAge', inputs.targetAge - 1)} style={{ padding: '10px 12px', background: 'rgba(59,130,246,0.1)', border: '1px solid rgba(59,130,246,0.3)', color: '#93c5fd', borderRadius: 8, cursor: 'pointer' }}>-1y</button>
               <button type="button" onClick={() => handleInputChange('targetAge', inputs.targetAge + 1)} style={{ padding: '10px 12px', background: 'rgba(34,197,94,0.1)', border: '1px solid rgba(34,197,94,0.3)', color: '#86efac', borderRadius: 8, cursor: 'pointer' }}>+1y</button>
-              <button type="button" onClick={() => handleInputChange('targetAge', inputs.currentAge + 20)} style={{ padding: '10px 12px', background: 'rgba(168,85,247,0.1)', border: '1px solid rgba(168,85,247,0.3)', color: '#d8b4fe', borderRadius: 8, cursor: 'pointer' }}>+20y</button>
+              {/* Removed +20y quick button as requested */}
             </div>
             <div style={{ fontSize: 11, color: '#64748b', marginTop: 4 }}>Age at which you want to retire. Adjust to see impact on savings needed.</div>
           </div>
