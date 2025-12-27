@@ -21,13 +21,15 @@ export default function HoldingsEditor({ divId, subdivId, holdings = [], onUpdat
     try {
       await api.updateHolding(hid, data)
       console.log('Holding update saved successfully')
-      onUpdate?.()
-      // Clear editing value after successful save
-      setEditingValues(prev => {
-        const updated = { ...prev }
-        delete updated[hid]
-        return updated
-      })
+      await onUpdate?.()
+      // Clear editing value after parent updates
+      setTimeout(() => {
+        setEditingValues(prev => {
+          const updated = { ...prev }
+          delete updated[hid]
+          return updated
+        })
+      }, 100)
     } catch (e) {
       console.error('Failed to update holding:', e)
       alert('Failed to save changes: ' + e.message)
@@ -156,9 +158,13 @@ export default function HoldingsEditor({ divId, subdivId, holdings = [], onUpdat
                     onChange={e => debouncedUpdate(h.id, 'name', e.target.value)}
                     onBlur={() => {
                       // Save immediately on blur if there's a pending change
-                      if (debounceTimers.current[`${h.id}-name`]) {
-                        clearTimeout(debounceTimers.current[`${h.id}-name`])
-                        updateHolding(h.id, { name: editingValues[h.id]?.name ?? h.name })
+                      const timer = debounceTimers.current[`${h.id}-name`]
+                      if (timer) {
+                        clearTimeout(timer)
+                        const currentValue = editingValues[h.id]?.name
+                        if (currentValue !== undefined && currentValue !== h.name) {
+                          updateHolding(h.id, { name: currentValue })
+                        }
                       }
                     }}
                     style={{ 
@@ -217,9 +223,13 @@ export default function HoldingsEditor({ divId, subdivId, holdings = [], onUpdat
                       value={editingValues[h.id]?.invested ?? h.invested}
                       onChange={e => debouncedUpdate(h.id, 'invested', Number(e.target.value) || 0)}
                       onBlur={() => {
-                        if (debounceTimers.current[`${h.id}-invested`]) {
-                          clearTimeout(debounceTimers.current[`${h.id}-invested`])
-                          updateHolding(h.id, { invested: editingValues[h.id]?.invested ?? h.invested })
+                        const timer = debounceTimers.current[`${h.id}-invested`]
+                        if (timer) {
+                          clearTimeout(timer)
+                          const currentValue = editingValues[h.id]?.invested
+                          if (currentValue !== undefined && currentValue !== h.invested) {
+                            updateHolding(h.id, { invested: currentValue })
+                          }
                         }
                       }}
                       style={{ 
@@ -306,9 +316,13 @@ export default function HoldingsEditor({ divId, subdivId, holdings = [], onUpdat
                       value={editingValues[h.id]?.current ?? h.current}
                       onChange={e => debouncedUpdate(h.id, 'current', Number(e.target.value) || 0)}
                       onBlur={() => {
-                        if (debounceTimers.current[`${h.id}-current`]) {
-                          clearTimeout(debounceTimers.current[`${h.id}-current`])
-                          updateHolding(h.id, { current: editingValues[h.id]?.current ?? h.current })
+                        const timer = debounceTimers.current[`${h.id}-current`]
+                        if (timer) {
+                          clearTimeout(timer)
+                          const currentValue = editingValues[h.id]?.current
+                          if (currentValue !== undefined && currentValue !== h.current) {
+                            updateHolding(h.id, { current: currentValue })
+                          }
                         }
                       }}
                       style={{ 
@@ -356,9 +370,13 @@ export default function HoldingsEditor({ divId, subdivId, holdings = [], onUpdat
                     value={editingValues[h.id]?.targetPercent ?? h.targetPercent ?? ''}
                     onChange={e => debouncedUpdate(h.id, 'targetPercent', Number(e.target.value) || 0)}
                     onBlur={() => {
-                      if (debounceTimers.current[`${h.id}-targetPercent`]) {
-                        clearTimeout(debounceTimers.current[`${h.id}-targetPercent`])
-                        updateHolding(h.id, { targetPercent: (editingValues[h.id]?.targetPercent ?? h.targetPercent) || 0 })
+                      const timer = debounceTimers.current[`${h.id}-targetPercent`]
+                      if (timer) {
+                        clearTimeout(timer)
+                        const currentValue = editingValues[h.id]?.targetPercent
+                        if (currentValue !== undefined && currentValue !== h.targetPercent) {
+                          updateHolding(h.id, { targetPercent: currentValue })
+                        }
                       }
                     }}
                     style={{ 
