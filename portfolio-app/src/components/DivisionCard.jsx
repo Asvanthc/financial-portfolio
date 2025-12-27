@@ -369,7 +369,7 @@ export default function DivisionCard({ division, analytics, subdivisionGoalSeek,
                       </div>
                     </div>
 
-                    <HoldingsEditor subdivId={sub.id} holdings={sub.holdings || []} onUpdate={onUpdate} subdivisionName={sub.name} />
+                    <HoldingsEditor divId={division.id} subdivId={sub.id} holdings={sub.holdings || []} onUpdate={onUpdate} subdivisionName={sub.name} />
                   </div>
                 )
               })}

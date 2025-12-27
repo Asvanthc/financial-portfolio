@@ -9,6 +9,8 @@ export default function HoldingsEditor({ divId, subdivId, holdings = [], onUpdat
   const [adjustHolding, setAdjustHolding] = useState(null)
   const [adjustAmount, setAdjustAmount] = useState('')
   const [adjustMode, setAdjustMode] = useState('add')
+  const [loading, setLoading] = useState(false)
+  const [successMessage, setSuccessMessage] = useState('')
 
   const updateHolding = async (hid, data) => {
     console.log('Saving holding update:', hid, data)
@@ -30,9 +32,23 @@ export default function HoldingsEditor({ divId, subdivId, holdings = [], onUpdat
   }
 
   async function addNew(data) {
-    await api.addHolding(divId || subdivId, data)
-    setShowAddForm(false)
-    onUpdate?.()
+    if (!divId) {
+      alert('Error: Division ID is required to add holdings')
+      return
+    }
+    setLoading(true)
+    try {
+      const payload = subdivId ? { ...data, subdivisionId: subdivId } : data
+      await api.addHolding(divId, payload)
+      setShowAddForm(false)
+      setSuccessMessage('✅ Holding added successfully!')
+      setTimeout(() => setSuccessMessage(''), 3000)
+      onUpdate?.()
+    } catch (e) {
+      alert('Failed to add holding: ' + e.message)
+    } finally {
+      setLoading(false)
+    }
   }
 
   function openAdjustModal(h) {
@@ -60,7 +76,25 @@ export default function HoldingsEditor({ divId, subdivId, holdings = [], onUpdat
   }
 
   return (
-    <div style={{ marginTop: 8, overflowX: 'auto' }}>
+    <div style={{ marginTop: 8, overflowX: 'auto', position: 'relative' }}>
+      {successMessage && (
+        <div style={{
+          position: 'fixed',
+          top: 20,
+          right: 20,
+          background: 'linear-gradient(135deg, #22c55e, #16a34a)',
+          color: 'white',
+          padding: '12px 20px',
+          borderRadius: 8,
+          boxShadow: '0 4px 20px rgba(34, 197, 94, 0.4)',
+          zIndex: 1000,
+          fontWeight: 600,
+          fontSize: 14,
+          animation: 'slideIn 0.3s ease-out'
+        }}>
+          {successMessage}
+        </div>
+      )}
       <table style={{ width: '100%', fontSize: 'clamp(10px, 1.5vw, 12px)', borderCollapse: 'collapse', minWidth: 700 }}>
         <thead>
           <tr style={{ borderBottom: '2px solid #2d3f5f' }}>
@@ -186,21 +220,23 @@ export default function HoldingsEditor({ divId, subdivId, holdings = [], onUpdat
             <td colSpan="6" style={{ padding: '12px', textAlign: 'center' }}>
               <button
                 onClick={() => setShowAddForm(true)}
+                disabled={loading}
                 style={{
-                  background: '#22c55e',
+                  background: loading ? '#6b7280' : '#22c55e',
                   color: 'white',
                   border: 'none',
                   borderRadius: 6,
                   padding: '8px 16px',
                   fontSize: 12,
                   fontWeight: 700,
-                  cursor: 'pointer',
+                  cursor: loading ? 'not-allowed' : 'pointer',
                   transition: 'all 0.2s ease',
+                  opacity: loading ? 0.6 : 1,
                 }}
-                onMouseEnter={(e) => e.target.style.background = '#16a34a'}
-                onMouseLeave={(e) => e.target.style.background = '#22c55e'}
+                onMouseEnter={(e) => !loading && (e.target.style.background = '#16a34a')}
+                onMouseLeave={(e) => !loading && (e.target.style.background = '#22c55e')}
               >
-                ➕ Add Holding
+                {loading ? '⏳ Adding...' : '➕ Add Holding'}
               </button>
             </td>
           </tr>
