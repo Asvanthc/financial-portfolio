@@ -165,6 +165,11 @@ export default function DivisionCard({ division, analytics, subdivisionGoalSeek,
           </div>
 
             <div style={{ textAlign: 'right', minWidth: 'clamp(80px, 12vw, 95px)' }}>
+              <div style={{ fontSize: 'clamp(9px, 1.5vw, 10px)', color: '#94a3b8', marginBottom: 5, textTransform: 'uppercase', fontWeight: 800, letterSpacing: '0.8px' }}>📥 Invested</div>
+              <div style={{ fontSize: 'clamp(14px, 2.2vw, 16px)', fontWeight: 900, color: '#fbbf24' }}>₹{invested.toLocaleString()}</div>
+            </div>
+
+            <div style={{ textAlign: 'right', minWidth: 'clamp(80px, 12vw, 95px)' }}>
             <div style={{ fontSize: 'clamp(9px, 1.5vw, 10px)', color: '#94a3b8', marginBottom: 5, textTransform: 'uppercase', fontWeight: 800, letterSpacing: '0.8px' }}>💼 Current</div>
             <div style={{ fontSize: 'clamp(14px, 2.2vw, 16px)', fontWeight: 900, color: '#22d3ee' }}>₹{current.toLocaleString()}</div>
           </div>
@@ -312,6 +317,10 @@ export default function DivisionCard({ division, analytics, subdivisionGoalSeek,
                       </div>
                       <div style={{ display: 'flex', gap: 16, alignItems: 'center' }}>
                         <div style={{ textAlign: 'right', minWidth: 'clamp(65px, 10vw, 75px)' }}>
+                          <div style={{ fontSize: 'clamp(8px, 1.4vw, 9px)', color: '#94a3b8', marginBottom: 4, textTransform: 'uppercase', fontWeight: 800, letterSpacing: '0.6px' }}>📥 Invested</div>
+                          <div style={{ fontSize: 'clamp(12px, 2vw, 14px)', fontWeight: 900, color: '#fbbf24' }}>₹{subInvested.toLocaleString()}</div>
+                        </div>
+                        <div style={{ textAlign: 'right', minWidth: 'clamp(65px, 10vw, 75px)' }}>
                           <div style={{ fontSize: 'clamp(8px, 1.4vw, 9px)', color: '#94a3b8', marginBottom: 4, textTransform: 'uppercase', fontWeight: 800, letterSpacing: '0.6px' }}>💰 Current</div>
                           <div style={{ fontSize: 'clamp(12px, 2vw, 14px)', fontWeight: 900, color: '#22d3ee' }}>₹{subCurrent.toLocaleString()}</div>
                         </div>
@@ -361,8 +370,12 @@ export default function DivisionCard({ division, analytics, subdivisionGoalSeek,
                       </div>
                     </div>
 
-                    {/* Holdings actions moved to Edit Subdivision modal for cleaner UX */}
-                    {/* Removed per-holding inline controls here to avoid duplication */}
+                    {/* Show subdivision holdings read-only for quick overview */}
+                    {(sub.holdings || []).length > 0 && (
+                      <div style={{ marginTop: 10 }}>
+                        <HoldingsEditor divId={division.id} subdivId={sub.id} holdings={sub.holdings || []} onUpdate={onUpdate} subdivisionName={sub.name} readOnly />
+                      </div>
+                    )}
                   </div>
                 )
               })}

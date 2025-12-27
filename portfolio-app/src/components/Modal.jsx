@@ -22,7 +22,8 @@ export default function Modal({ isOpen, title, children, onClose, size = 'md' })
       alignItems: 'center',
       justifyContent: 'center',
       zIndex: 1000,
-      padding: '16px',
+      padding: '24px',
+      overflowY: 'auto',
     }}>
       <div style={{
         background: 'linear-gradient(135deg, #1a2332 0%, #131a2a 100%)',
@@ -32,11 +33,12 @@ export default function Modal({ isOpen, title, children, onClose, size = 'md' })
         // size control
         maxWidth: size === 'sm' ? 420 : size === 'md' ? 560 : size === 'lg' ? 720 : 900,
         width: '95%',
-        maxHeight: '85vh',
+        maxHeight: 'calc(100vh - 96px)',
         overflowY: 'auto',
         overscrollBehavior: 'contain',
         boxShadow: '0 20px 60px rgba(0,0,0,0.5)',
         transform: 'translate3d(0,0,0)',
+        boxSizing: 'border-box',
       }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
           <h2 style={{ margin: 0, fontSize: 'clamp(18px, 3.5vw, 22px)', fontWeight: 800, color: '#e6e9ef' }}>{title}</h2>
