@@ -1,6 +1,6 @@
 import React from 'react'
 
-export default function Modal({ isOpen, title, children, onClose }) {
+export default function Modal({ isOpen, title, children, onClose, size = 'md' }) {
   if (!isOpen) return null
 
   return (
@@ -21,10 +21,12 @@ export default function Modal({ isOpen, title, children, onClose }) {
         border: '1px solid #2d3f5f',
         borderRadius: 'clamp(10px, 2vw, 14px)',
         padding: 'clamp(16px, 3vw, 24px)',
-        maxWidth: 500,
-        width: '90%',
-        maxHeight: '90vh',
+        // size control
+        maxWidth: size === 'sm' ? 420 : size === 'md' ? 560 : size === 'lg' ? 720 : 900,
+        width: '95%',
+        maxHeight: '85vh',
         overflowY: 'auto',
+        overscrollBehavior: 'contain',
         boxShadow: '0 20px 60px rgba(0,0,0,0.5)',
       }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>

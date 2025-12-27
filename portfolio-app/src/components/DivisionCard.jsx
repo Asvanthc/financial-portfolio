@@ -2,6 +2,8 @@ import React, { useState, useRef, useCallback } from 'react'
 import { api } from '../api'
 import HoldingsEditor from './HoldingsEditor'
 
+import EditSubdivisionForm from './EditSubdivisionForm'
+
 export default function DivisionCard({ division, analytics, subdivisionGoalSeek, onUpdate }) {
   const [expanded, setExpanded] = useState(true)
   const [newSubDiv, setNewSubDiv] = useState({ name: '', targetPercent: '' })
@@ -65,6 +67,8 @@ export default function DivisionCard({ division, analytics, subdivisionGoalSeek,
       onUpdate?.()
     }
   }
+
+  const [editingSubdivision, setEditingSubdivision] = useState(null)
 
   async function addSubdivision() {
     if (!newSubDiv.name) return
@@ -284,41 +288,20 @@ export default function DivisionCard({ division, analytics, subdivisionGoalSeek,
                     onMouseLeave={() => setHoveredSub(null)}
                   >
                     <div style={{ display: 'flex', alignItems: 'center', gap: 16, marginBottom: 12 }}>
-                      <input
-                        type="text"
-                        value={sub.name}
-                        onChange={e => updateSubdivision(sub.id, { name: e.target.value })}
-                        style={{
-                          flex: 1,
-                          background: 'transparent',
-                          border: 'none',
-                          color: '#e6e9ef',
-                          fontSize: 16,
-                          fontWeight: 600,
-                          outline: 'none',
-                        }}
-                      />
+                      <div style={{ flex: 1, display: 'flex', alignItems: 'center', gap: 10 }}>
+                        <span style={{ color: '#e6e9ef', fontSize: 16, fontWeight: 700 }}>{sub.name}</span>
+                        <span style={{ color: '#a78bfa', fontSize: 12, fontWeight: 700 }}>🎯 {subTargetPct.toFixed(2)}%</span>
+                        <button
+                          type="button"
+                          onClick={() => setEditingSubdivision({ ...sub })}
+                          style={{ background: 'linear-gradient(135deg, #0ea5e9, #0284c7)', color: '#ffffff', border: 'none', borderRadius: 6, padding: '6px 10px', fontSize: 12, fontWeight: 700, cursor: 'pointer', boxShadow: '0 2px 6px rgba(14,165,233,0.3)' }}
+                          onMouseEnter={(e) => e.target.style.transform = 'translateY(-1px)'}
+                          onMouseLeave={(e) => e.target.style.transform = 'translateY(0)'}
+                        >
+                          ✏️ Edit Subdivision
+                        </button>
+                      </div>
                       <div style={{ display: 'flex', gap: 16, alignItems: 'center' }}>
-                        <div style={{ textAlign: 'center' }}>
-                          <div style={{ fontSize: 9, color: '#7c92ab', marginBottom: 3, textTransform: 'uppercase', fontWeight: 600 }}>Target %</div>
-                          <input
-                            type="number"
-                            step="0.01"
-                            value={subTargetPct}
-                            onChange={e => updateSubdivision(sub.id, { targetPercent: Number(e.target.value) || 0 })}
-                            style={{
-                              width: 55,
-                              padding: '4px 6px',
-                              background: '#0a1018',
-                              color: '#e6e9ef',
-                              border: '1px solid #2d3f5f',
-                              borderRadius: 5,
-                              textAlign: 'center',
-                              fontSize: 12,
-                              fontWeight: 600,
-                            }}
-                          />
-                        </div>
                         <div style={{ textAlign: 'right', minWidth: 'clamp(65px, 10vw, 75px)' }}>
                           <div style={{ fontSize: 'clamp(8px, 1.4vw, 9px)', color: '#94a3b8', marginBottom: 4, textTransform: 'uppercase', fontWeight: 800, letterSpacing: '0.6px' }}>💰 Current</div>
                           <div style={{ fontSize: 'clamp(12px, 2vw, 14px)', fontWeight: 900, color: '#22d3ee' }}>₹{subCurrent.toLocaleString()}</div>
@@ -429,6 +412,17 @@ export default function DivisionCard({ division, analytics, subdivisionGoalSeek,
               Add
             </button>
           </div>
+
+          {/* Edit Subdivision Modal */}
+          {editingSubdivision && (
+            <EditSubdivisionForm
+              isOpen={!!editingSubdivision}
+              onClose={() => setEditingSubdivision(null)}
+              subdivision={editingSubdivision}
+              holdings={editingSubdivision.holdings || []}
+              onSaved={onUpdate}
+            />
+          )}
         </div>
       )}
     </div>
