@@ -2,12 +2,13 @@ import React, { useEffect, useState } from 'react'
 import Modal from './Modal'
 import { api } from '../api'
 
-export default function EditSubdivisionForm({ isOpen, onClose, subdivision, holdings = [], onSaved }) {
+export default function EditSubdivisionForm({ isOpen, onClose, subdivision, holdings = [], onSaved, divisionId }) {
   const [name, setName] = useState(subdivision?.name || '')
   const [targetPercent, setTargetPercent] = useState(Number(subdivision?.targetPercent) || 0)
   const [rows, setRows] = useState([])
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
+  const [deletedIds, setDeletedIds] = useState([])
 
   useEffect(() => {
     if (subdivision) {
@@ -22,12 +23,39 @@ export default function EditSubdivisionForm({ isOpen, onClose, subdivision, hold
         _original: { name: h.name || '', invested: Number(h.invested)||0, current: Number(h.current)||0, targetPercent: Number(h.targetPercent)||0 }
       })))
       setError('')
+      setDeletedIds([])
     }
   }, [subdivision, holdings])
 
   const updateRow = (id, patch) => {
     setRows(prev => prev.map(r => r.id === id ? { ...r, ...patch } : r))
   }
+
+  const addRow = () => {
+    const newId = `new-${Date.now()}-${Math.floor(Math.random()*100000)}`
+    setRows(prev => [...prev, {
+      id: newId,
+      name: '',
+      invested: 0,
+      current: 0,
+      targetPercent: 0,
+      _isNew: true,
+      _original: { name: '', invested: 0, current: 0, targetPercent: 0 }
+    }])
+  }
+
+  const removeRow = (id) => {
+    const row = rows.find(r => r.id === id)
+    if (!row) return
+    if (!row._isNew) setDeletedIds(prev => [...prev, id])
+    setRows(prev => prev.filter(r => r.id !== id))
+  }
+
+  // Live summary for better visualization
+  const totalInvested = rows.reduce((sum, r) => sum + (Number(r.invested)||0), 0)
+  const totalCurrent = rows.reduce((sum, r) => sum + (Number(r.current)||0), 0)
+  const totalPL = totalCurrent - totalInvested
+  const plPercent = totalInvested > 0 ? (totalPL / totalInvested) * 100 : 0
 
   const handleSave = async (e) => {
     e.preventDefault()
@@ -37,8 +65,26 @@ export default function EditSubdivisionForm({ isOpen, onClose, subdivision, hold
       // Save subdivision first
       await api.updateSubdivision(subdivision.id, { name: name.trim(), targetPercent: Number(targetPercent) || 0 })
 
-      // Save changed holdings in parallel
-      const changes = rows.filter(r => (
+      // Delete removed holdings
+      if (deletedIds.length > 0) {
+        await Promise.all(deletedIds.map(id => api.deleteHolding(id)))
+      }
+
+      // Add new holdings
+      const newRows = rows.filter(r => r._isNew && r.name.trim())
+      if (newRows.length > 0) {
+        if (!divisionId) throw new Error('Missing divisionId for adding holdings')
+        await Promise.all(newRows.map(r => api.addHolding(divisionId, {
+          name: r.name.trim(),
+          invested: Number(r.invested)||0,
+          current: Number(r.current)||0,
+          targetPercent: Number(r.targetPercent)||0,
+          subdivisionId: subdivision.id,
+        })))
+      }
+
+      // Update modified existing holdings
+      const changes = rows.filter(r => !r._isNew && (
         r.name !== r._original.name ||
         r.invested !== r._original.invested ||
         r.current !== r._original.current ||
@@ -69,6 +115,26 @@ export default function EditSubdivisionForm({ isOpen, onClose, subdivision, hold
           <div style={{ padding: '10px 14px', border: '2px solid #ef4444', borderRadius: 10, color: '#fca5a5', background: 'rgba(239,68,68,0.08)', fontWeight: 600 }}>⚠️ {error}</div>
         )}
 
+        {/* Summary stats */}
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr 1fr', gap: 12 }}>
+          <div style={{ padding: 12, borderRadius: 10, border: '1px solid #1e293b', background: '#0a1018' }}>
+            <div style={{ fontSize: 11, color: '#7c92ab', fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.6px' }}>Invested</div>
+            <div style={{ fontSize: 16, fontWeight: 900, color: '#fbbf24' }}>₹{Math.ceil(totalInvested).toLocaleString()}</div>
+          </div>
+          <div style={{ padding: 12, borderRadius: 10, border: '1px solid #1e293b', background: '#0a1018' }}>
+            <div style={{ fontSize: 11, color: '#7c92ab', fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.6px' }}>Current</div>
+            <div style={{ fontSize: 16, fontWeight: 900, color: '#22d3ee' }}>₹{Math.ceil(totalCurrent).toLocaleString()}</div>
+          </div>
+          <div style={{ padding: 12, borderRadius: 10, border: '1px solid #1e293b', background: '#0a1018' }}>
+            <div style={{ fontSize: 11, color: '#7c92ab', fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.6px' }}>P/L</div>
+            <div style={{ fontSize: 16, fontWeight: 900, color: totalPL >= 0 ? '#22c55e' : '#ef4444' }}>{totalPL >= 0 ? '+' : ''}₹{Math.ceil(totalPL).toLocaleString()}</div>
+          </div>
+          <div style={{ padding: 12, borderRadius: 10, border: '1px solid #1e293b', background: '#0a1018' }}>
+            <div style={{ fontSize: 11, color: '#7c92ab', fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.6px' }}>% Change</div>
+            <div style={{ fontSize: 16, fontWeight: 900, color: totalPL >= 0 ? '#22c55e' : '#ef4444' }}>{isFinite(plPercent) ? plPercent.toFixed(2) + '%' : '—'}</div>
+          </div>
+        </div>
+
         <div style={{ display: 'flex', gap: 12 }}>
           <div style={{ flex: 2 }}>
             <label style={{ display: 'block', color: '#7dd3fc', fontSize: 12, fontWeight: 700, marginBottom: 6 }}>📂 Subdivision Name</label>
@@ -94,15 +160,16 @@ export default function EditSubdivisionForm({ isOpen, onClose, subdivision, hold
         </div>
 
         <div style={{ marginTop: 6, borderTop: '1px solid #1e293b', paddingTop: 10 }}>
-          <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr 1fr 1fr', gap: 8, alignItems: 'center', marginBottom: 8 }}>
+          <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr 1fr 1fr 60px', gap: 8, alignItems: 'center', marginBottom: 8 }}>
             <div style={{ color: '#7c92ab', fontSize: 11, textTransform: 'uppercase', fontWeight: 700 }}>Holding</div>
             <div style={{ color: '#7c92ab', fontSize: 11, textTransform: 'uppercase', fontWeight: 700, textAlign: 'right' }}>Invested (₹)</div>
             <div style={{ color: '#7c92ab', fontSize: 11, textTransform: 'uppercase', fontWeight: 700, textAlign: 'right' }}>Current (₹)</div>
             <div style={{ color: '#7c92ab', fontSize: 11, textTransform: 'uppercase', fontWeight: 700, textAlign: 'right' }}>Target %</div>
+            <div></div>
           </div>
 
           {rows.map(r => (
-            <div key={r.id} style={{ display: 'grid', gridTemplateColumns: '2fr 1fr 1fr 1fr', gap: 8, alignItems: 'center', marginBottom: 8 }}>
+            <div key={r.id} style={{ display: 'grid', gridTemplateColumns: '2fr 1fr 1fr 1fr 60px', gap: 8, alignItems: 'center', marginBottom: 8 }}>
               <input
                 type="text"
                 value={r.name}
@@ -128,8 +195,28 @@ export default function EditSubdivisionForm({ isOpen, onClose, subdivision, hold
                 onChange={e => updateRow(r.id, { targetPercent: Number(e.target.value) || 0 })}
                 style={{ width: '100%', padding: '8px 10px', borderRadius: 8, border: '1px solid #2d3f5f', background: '#0f1724', color: '#a78bfa', fontSize: 13, textAlign: 'right' }}
               />
+              <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
+                <button
+                  type="button"
+                  onClick={() => removeRow(r.id)}
+                  title="Delete holding"
+                  style={{ background: '#ef4444', color: 'white', border: 'none', padding: '6px 10px', borderRadius: 8, fontSize: 12, fontWeight: 700, cursor: 'pointer' }}
+                  onMouseEnter={(e) => e.target.style.background = '#dc2626'}
+                  onMouseLeave={(e) => e.target.style.background = '#ef4444'}
+                >🗑️</button>
+              </div>
             </div>
           ))}
+
+          <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 10 }}>
+            <button
+              type="button"
+              onClick={addRow}
+              style={{ background: 'linear-gradient(135deg, #22c55e, #16a34a)', color: '#ffffff', border: 'none', padding: '8px 14px', borderRadius: 10, fontSize: 13, fontWeight: 800, cursor: 'pointer', boxShadow: '0 3px 10px rgba(34,197,94,0.3)' }}
+              onMouseEnter={(e) => e.target.style.transform = 'translateY(-2px)'}
+              onMouseLeave={(e) => e.target.style.transform = 'translateY(0)'}
+            >➕ Add Holding</button>
+          </div>
         </div>
 
         <div style={{ display: 'flex', gap: 12, marginTop: 8 }}>

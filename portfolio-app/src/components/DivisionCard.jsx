@@ -253,7 +253,7 @@ export default function DivisionCard({ division, analytics, subdivisionGoalSeek,
           {(division.holdings || []).length > 0 && (
             <div style={{ marginBottom: 20 }}>
               <div style={{ fontSize: 11, color: '#7c92ab', marginBottom: 12, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.8px' }}>Holdings</div>
-              <HoldingsEditor divId={division.id} holdings={division.holdings} onUpdate={onUpdate} />
+              <HoldingsEditor divId={division.id} holdings={division.holdings} onUpdate={onUpdate} readOnly />
             </div>
           )}
 
@@ -261,7 +261,16 @@ export default function DivisionCard({ division, analytics, subdivisionGoalSeek,
           {(division.subdivisions || []).length > 0 && (
             <div style={{ marginTop: 20 }}>
               <div style={{ fontSize: 11, color: '#7c92ab', marginBottom: 12, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.8px' }}>Sub-divisions</div>
-              {division.subdivisions.map(sub => {
+              {[...(division.subdivisions || [])]
+                .sort((a, b) => {
+                  const aAnalytics = subdivisionAnalytics.find(sa => sa.id === a.id) || {}
+                  const bAnalytics = subdivisionAnalytics.find(sa => sa.id === b.id) || {}
+                  const aCurrent = Number(aAnalytics.current) || 0
+                  const bCurrent = Number(bAnalytics.current) || 0
+                  // Descending by current value
+                  return bCurrent - aCurrent
+                })
+                .map(sub => {
                 const subAnalytics = subdivisionAnalytics.find(sa => sa.id === sub.id) || {}
                 const subInvested = subAnalytics.invested || 0
                 const subCurrent = subAnalytics.current || 0
@@ -352,7 +361,8 @@ export default function DivisionCard({ division, analytics, subdivisionGoalSeek,
                       </div>
                     </div>
 
-                    <HoldingsEditor divId={division.id} subdivId={sub.id} holdings={sub.holdings || []} onUpdate={onUpdate} subdivisionName={sub.name} />
+                    {/* Holdings actions moved to Edit Subdivision modal for cleaner UX */}
+                    {/* Removed per-holding inline controls here to avoid duplication */}
                   </div>
                 )
               })}
@@ -421,6 +431,7 @@ export default function DivisionCard({ division, analytics, subdivisionGoalSeek,
               subdivision={editingSubdivision}
               holdings={editingSubdivision.holdings || []}
               onSaved={onUpdate}
+              divisionId={division.id}
             />
           )}
         </div>

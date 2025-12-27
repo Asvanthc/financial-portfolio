@@ -4,7 +4,7 @@ import AddHoldingForm from './AddHoldingForm'
 import EditHoldingForm from './EditHoldingForm'
 import Modal from './Modal'
 
-export default function HoldingsEditor({ divId, subdivId, holdings = [], onUpdate, subdivisionName = '' }) {
+export default function HoldingsEditor({ divId, subdivId, holdings = [], onUpdate, subdivisionName = '', readOnly = false }) {
   const [hoveredRow, setHoveredRow] = useState(null)
   const [showAddForm, setShowAddForm] = useState(false)
   const [editingHolding, setEditingHolding] = useState(null)
@@ -54,6 +54,7 @@ export default function HoldingsEditor({ divId, subdivId, holdings = [], onUpdat
   }
 
   function openAdjustModal(h) {
+    if (readOnly) return
     setAdjustHolding(h)
     setAdjustAmount('')
     setAdjustMode('add')
@@ -79,7 +80,7 @@ export default function HoldingsEditor({ divId, subdivId, holdings = [], onUpdat
 
   return (
     <div style={{ marginTop: 8, overflowX: 'auto', position: 'relative' }}>
-      {successMessage && (
+      {successMessage && !readOnly && (
         <div style={{
           position: 'fixed',
           top: 20,
@@ -105,7 +106,7 @@ export default function HoldingsEditor({ divId, subdivId, holdings = [], onUpdat
             <th style={{ textAlign: 'right', padding: '10px 8px', color: '#7c92ab', width: 'clamp(120px, 15vw, 180px)', fontSize: 'clamp(9px, 1.3vw, 10px)', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.5px' }}>Current</th>
             <th style={{ textAlign: 'right', padding: '10px 8px', color: '#7c92ab', width: 80, fontSize: 'clamp(9px, 1.3vw, 10px)', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.5px' }}>P/L</th>
             <th style={{ textAlign: 'right', padding: '10px 8px', color: '#7c92ab', width: 100, fontSize: 'clamp(9px, 1.3vw, 10px)', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.5px' }}>Target %</th>
-            <th style={{ textAlign: 'center', padding: '10px 8px', width: 80 }}></th>
+            {!readOnly && (<th style={{ textAlign: 'center', padding: '10px 8px', width: 80 }}></th>)}
           </tr>
         </thead>
         <tbody>
@@ -121,7 +122,7 @@ export default function HoldingsEditor({ divId, subdivId, holdings = [], onUpdat
                 <td style={{ padding: '10px 12px', color: '#e6e9ef' }}>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 8, justifyContent: 'space-between' }}>
                     <span style={{ fontSize: 13, fontWeight: 600 }}>{h.name}</span>
-                    {hoveredRow === h.id && (
+                    {!readOnly && hoveredRow === h.id && (
                       <button
                         type="button"
                         onClick={() => setEditingHolding(h)}
@@ -148,6 +149,7 @@ export default function HoldingsEditor({ divId, subdivId, holdings = [], onUpdat
                 </td>
                 <td style={{ padding: '8px 6px', textAlign: 'right' }}>
                   <div style={{ display: 'flex', gap: 4, alignItems: 'center', justifyContent: 'flex-end' }}>
+                    {!readOnly && (
                     <button
                       type="button"
                       onClick={() => {
@@ -170,7 +172,7 @@ export default function HoldingsEditor({ divId, subdivId, holdings = [], onUpdat
                       onMouseEnter={e => e.target.style.transform = 'scale(1.05)'}
                       onMouseLeave={e => e.target.style.transform = 'scale(1)'}
                       title="Decrease by ₹1000"
-                    >−</button>
+                    >−</button>)}
                     <span style={{ 
                       minWidth: 85, 
                       padding: '5px 6px',
@@ -180,6 +182,7 @@ export default function HoldingsEditor({ divId, subdivId, holdings = [], onUpdat
                     }}>
                       ₹{Number(h.invested).toLocaleString()}
                     </span>
+                    {!readOnly && (
                     <button
                       type="button"
                       onClick={() => {
@@ -202,7 +205,8 @@ export default function HoldingsEditor({ divId, subdivId, holdings = [], onUpdat
                       onMouseEnter={e => e.target.style.transform = 'scale(1.05)'}
                       onMouseLeave={e => e.target.style.transform = 'scale(1)'}
                       title="Increase by ₹1000"
-                    >+</button>
+                    >+</button>)}
+                    {!readOnly && (
                     <button
                       type="button"
                       onClick={() => openAdjustModal(h)}
@@ -221,11 +225,12 @@ export default function HoldingsEditor({ divId, subdivId, holdings = [], onUpdat
                       onMouseEnter={e => e.target.style.transform = 'scale(1.05)'}
                       onMouseLeave={e => e.target.style.transform = 'scale(1)'}
                       title="Custom adjust (applies to invested & current)"
-                    >⚡</button>
+                    >⚡</button>)}
                   </div>
                 </td>
                 <td style={{ padding: '8px 6px', textAlign: 'right' }}>
                   <div style={{ display: 'flex', gap: 4, alignItems: 'center', justifyContent: 'flex-end' }}>
+                    {!readOnly && (
                     <button
                       type="button"
                       onClick={() => updateHolding(h.id, { current: Math.max(0, Number(h.current) - 1000) })}
@@ -244,7 +249,7 @@ export default function HoldingsEditor({ divId, subdivId, holdings = [], onUpdat
                       onMouseEnter={e => e.target.style.transform = 'scale(1.05)'}
                       onMouseLeave={e => e.target.style.transform = 'scale(1)'}
                       title="Decrease by ₹1000"
-                    >−</button>
+                    >−</button>)}
                     <span style={{ 
                       minWidth: 85, 
                       padding: '5px 6px',
@@ -254,6 +259,7 @@ export default function HoldingsEditor({ divId, subdivId, holdings = [], onUpdat
                     }}>
                       ₹{Number(h.current).toLocaleString()}
                     </span>
+                    {!readOnly && (
                     <button
                       type="button"
                       onClick={() => updateHolding(h.id, { current: Number(h.current) + 1000 })}
@@ -272,7 +278,7 @@ export default function HoldingsEditor({ divId, subdivId, holdings = [], onUpdat
                       onMouseEnter={e => e.target.style.transform = 'scale(1.05)'}
                       onMouseLeave={e => e.target.style.transform = 'scale(1)'}
                       title="Increase by ₹1000"
-                    >+</button>
+                    >+</button>)}
                   </div>
                 </td>
                 <td style={{ padding: '10px 12px', textAlign: 'right', color: pl >= 0 ? '#22c55e' : '#ef4444', fontWeight: 600, fontSize: 13 }}>
@@ -283,6 +289,7 @@ export default function HoldingsEditor({ divId, subdivId, holdings = [], onUpdat
                     {h.targetPercent ? `${Number(h.targetPercent).toFixed(2)}%` : '-'}
                   </span>
                 </td>
+                {!readOnly && (
                 <td style={{ padding: '8px', textAlign: 'center' }}>
                   {hoveredRow === h.id && (
                     <button
@@ -296,9 +303,11 @@ export default function HoldingsEditor({ divId, subdivId, holdings = [], onUpdat
                     </button>
                   )}
                 </td>
+                )}
               </tr>
             )
           })}
+          {!readOnly && (
           <tr style={{ borderTop: '2px solid #2d3f5f', background: '#0f1724' }}>
             <td colSpan="6" style={{ padding: '12px', textAlign: 'center' }}>
               <button
@@ -324,137 +333,143 @@ export default function HoldingsEditor({ divId, subdivId, holdings = [], onUpdat
               </button>
             </td>
           </tr>
+          )}
         </tbody>
       </table>
-
-      <AddHoldingForm
-        isOpen={showAddForm}
-        onClose={() => setShowAddForm(false)}
-        onAdd={addNew}
-        subdivisionName={subdivisionName}
-      />
-
-      <EditHoldingForm
-        isOpen={!!editingHolding}
-        onClose={() => setEditingHolding(null)}
-        holding={editingHolding}
-        onSave={async (data) => {
-          await updateHolding(editingHolding.id, data)
-          setEditingHolding(null)
-        }}
-      />
-
-      <Modal
-        isOpen={!!adjustHolding}
-        onClose={closeAdjustModal}
-        title={`⚡ Adjust ${adjustHolding?.name || 'holding'}`}
-      >
-        <div style={{ display: 'flex', gap: 10, marginBottom: 16 }}>
-          <button
-            onClick={() => setAdjustMode('add')}
-            style={{
-              flex: 1,
-              padding: '12px',
-              borderRadius: 8,
-              border: '2px solid #1e293b',
-              background: adjustMode === 'add' ? 'linear-gradient(135deg, #22c55e, #16a34a)' : '#0f172a',
-              color: adjustMode === 'add' ? '#ffffff' : '#e6e9ef',
-              fontWeight: 700,
-              fontSize: 14,
-              cursor: 'pointer',
-              transition: 'all 0.2s'
-            }}
-          >
-            ➕ Add
-          </button>
-          <button
-            onClick={() => setAdjustMode('deduct')}
-            style={{
-              flex: 1,
-              padding: '12px',
-              borderRadius: 8,
-              border: '2px solid #1e293b',
-              background: adjustMode === 'deduct' ? 'linear-gradient(135deg, #ef4444, #dc2626)' : '#0f172a',
-              color: adjustMode === 'deduct' ? '#ffffff' : '#e6e9ef',
-              fontWeight: 700,
-              fontSize: 14,
-              cursor: 'pointer',
-              transition: 'all 0.2s'
-            }}
-          >
-            ➖ Deduct
-          </button>
-        </div>
-
-        <label style={{ display: 'block', color: '#9fb3c8', fontSize: 13, fontWeight: 600, marginBottom: 8 }}>Amount (₹)</label>
-        <input
-          type="number"
-          value={adjustAmount}
-          onChange={e => setAdjustAmount(e.target.value)}
-          autoFocus
-          style={{
-            width: '100%',
-            padding: '12px 14px',
-            borderRadius: 10,
-            border: '2px solid #2d3f5f',
-            background: '#0a1018',
-            color: '#e6e9ef',
-            fontSize: 16,
-            fontWeight: 600,
-            outline: 'none',
-            transition: 'all 0.2s'
-          }}
-          onFocus={(e) => e.target.style.borderColor = '#0ea5e9'}
-          onBlur={(e) => e.target.style.borderColor = '#2d3f5f'}
-          placeholder="Enter amount"
+      {!readOnly && (
+        <AddHoldingForm
+          isOpen={showAddForm}
+          onClose={() => setShowAddForm(false)}
+          onAdd={addNew}
+          subdivisionName={subdivisionName}
         />
+      )}
 
-        <p style={{ marginTop: 12, marginBottom: 18, color: '#7c92ab', fontSize: 12, fontStyle: 'italic' }}>
-          💡 This applies the same change to both Invested and Current values.
-        </p>
+      {!readOnly && (
+        <EditHoldingForm
+          isOpen={!!editingHolding}
+          onClose={() => setEditingHolding(null)}
+          holding={editingHolding}
+          onSave={async (data) => {
+            await updateHolding(editingHolding.id, data)
+            setEditingHolding(null)
+          }}
+        />
+      )}
 
-        <div style={{ display: 'flex', gap: 12 }}>
-          <button
-            onClick={closeAdjustModal}
-            style={{ 
-              flex: 1,
-              padding: '12px 16px', 
-              borderRadius: 10, 
-              border: '2px solid #2d3f5f', 
-              background: 'transparent', 
-              color: '#e6e9ef', 
-              fontWeight: 700,
-              fontSize: 14,
-              cursor: 'pointer',
+      {!readOnly && (
+        <Modal
+          isOpen={!!adjustHolding}
+          onClose={closeAdjustModal}
+          title={`⚡ Adjust ${adjustHolding?.name || 'holding'}`}
+        >
+          <div style={{ display: 'flex', gap: 10, marginBottom: 16 }}>
+            <button
+              onClick={() => setAdjustMode('add')}
+              style={{
+                flex: 1,
+                padding: '12px',
+                borderRadius: 8,
+                border: '2px solid #1e293b',
+                background: adjustMode === 'add' ? 'linear-gradient(135deg, #22c55e, #16a34a)' : '#0f172a',
+                color: adjustMode === 'add' ? '#ffffff' : '#e6e9ef',
+                fontWeight: 700,
+                fontSize: 14,
+                cursor: 'pointer',
+                transition: 'all 0.2s'
+              }}
+            >
+              ➕ Add
+            </button>
+            <button
+              onClick={() => setAdjustMode('deduct')}
+              style={{
+                flex: 1,
+                padding: '12px',
+                borderRadius: 8,
+                border: '2px solid #1e293b',
+                background: adjustMode === 'deduct' ? 'linear-gradient(135deg, #ef4444, #dc2626)' : '#0f172a',
+                color: adjustMode === 'deduct' ? '#ffffff' : '#e6e9ef',
+                fontWeight: 700,
+                fontSize: 14,
+                cursor: 'pointer',
+                transition: 'all 0.2s'
+              }}
+            >
+              ➖ Deduct
+            </button>
+          </div>
+
+          <label style={{ display: 'block', color: '#9fb3c8', fontSize: 13, fontWeight: 600, marginBottom: 8 }}>Amount (₹)</label>
+          <input
+            type="number"
+            value={adjustAmount}
+            onChange={e => setAdjustAmount(e.target.value)}
+            autoFocus
+            style={{
+              width: '100%',
+              padding: '12px 14px',
+              borderRadius: 10,
+              border: '2px solid #2d3f5f',
+              background: '#0a1018',
+              color: '#e6e9ef',
+              fontSize: 16,
+              fontWeight: 600,
+              outline: 'none',
               transition: 'all 0.2s'
             }}
-            onMouseEnter={(e) => e.target.style.borderColor = '#4f5d73'}
-            onMouseLeave={(e) => e.target.style.borderColor = '#2d3f5f'}
-          >
-            Cancel
-          </button>
-          <button
-            onClick={applyAdjust}
-            style={{ 
-              flex: 1,
-              padding: '12px 16px', 
-              borderRadius: 10, 
-              border: 'none', 
-              background: 'linear-gradient(135deg, #0ea5e9, #0284c7)', 
-              color: '#ffffff', 
-              fontWeight: 800,
-              fontSize: 14,
-              cursor: 'pointer',
-              boxShadow: '0 4px 12px rgba(14, 165, 233, 0.3)',
-              transition: 'all 0.2s'
-            }}
-            onMouseEnter={(e) => e.target.style.transform = 'translateY(-2px)'}
-            onMouseLeave={(e) => e.target.style.transform = 'translateY(0)'}
-          >
-            💾 Apply
-          </button>
-        </div>
-      </Modal>
+            onFocus={(e) => e.target.style.borderColor = '#0ea5e9'}
+            onBlur={(e) => e.target.style.borderColor = '#2d3f5f'}
+            placeholder="Enter amount"
+          />
+
+          <p style={{ marginTop: 12, marginBottom: 18, color: '#7c92ab', fontSize: 12, fontStyle: 'italic' }}>
+            💡 This applies the same change to both Invested and Current values.
+          </p>
+
+          <div style={{ display: 'flex', gap: 12 }}>
+            <button
+              onClick={closeAdjustModal}
+              style={{ 
+                flex: 1,
+                padding: '12px 16px', 
+                borderRadius: 10, 
+                border: '2px solid #2d3f5f', 
+                background: 'transparent', 
+                color: '#e6e9ef', 
+                fontWeight: 700,
+                fontSize: 14,
+                cursor: 'pointer',
+                transition: 'all 0.2s'
+              }}
+              onMouseEnter={(e) => e.target.style.borderColor = '#4f5d73'}
+              onMouseLeave={(e) => e.target.style.borderColor = '#2d3f5f'}
+            >
+              Cancel
+            </button>
+            <button
+              onClick={applyAdjust}
+              style={{ 
+                flex: 1,
+                padding: '12px 16px', 
+                borderRadius: 10, 
+                border: 'none', 
+                background: 'linear-gradient(135deg, #0ea5e9, #0284c7)', 
+                color: '#ffffff', 
+                fontWeight: 800,
+                fontSize: 14,
+                cursor: 'pointer',
+                boxShadow: '0 4px 12px rgba(14, 165, 233, 0.3)',
+                transition: 'all 0.2s'
+              }}
+              onMouseEnter={(e) => e.target.style.transform = 'translateY(-2px)'}
+              onMouseLeave={(e) => e.target.style.transform = 'translateY(0)'}
+            >
+              💾 Apply
+            </button>
+          </div>
+        </Modal>
+      )}
     </div>
   )
 }
