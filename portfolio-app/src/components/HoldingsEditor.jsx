@@ -11,17 +11,51 @@ export default function HoldingsEditor({ divId, subdivId, holdings = [], onUpdat
   const [adjustMode, setAdjustMode] = useState('add')
   const [loading, setLoading] = useState(false)
   const [successMessage, setSuccessMessage] = useState('')
+  const [editingValues, setEditingValues] = useState({})
+  const [savingIds, setSavingIds] = useState(new Set())
+  const debounceTimers = React.useRef({})
 
   const updateHolding = async (hid, data) => {
     console.log('Saving holding update:', hid, data)
+    setSavingIds(prev => new Set(prev).add(hid))
     try {
       await api.updateHolding(hid, data)
       console.log('Holding update saved successfully')
       onUpdate?.()
+      // Clear editing value after successful save
+      setEditingValues(prev => {
+        const updated = { ...prev }
+        delete updated[hid]
+        return updated
+      })
     } catch (e) {
       console.error('Failed to update holding:', e)
       alert('Failed to save changes: ' + e.message)
+    } finally {
+      setSavingIds(prev => {
+        const updated = new Set(prev)
+        updated.delete(hid)
+        return updated
+      })
     }
+  }
+
+  const debouncedUpdate = (hid, field, value) => {
+    // Store value locally for immediate UI update
+    setEditingValues(prev => ({
+      ...prev,
+      [hid]: { ...prev[hid], [field]: value }
+    }))
+
+    // Clear existing timer
+    if (debounceTimers.current[`${hid}-${field}`]) {
+      clearTimeout(debounceTimers.current[`${hid}-${field}`])
+    }
+
+    // Set new timer to save after 800ms of no typing
+    debounceTimers.current[`${hid}-${field}`] = setTimeout(() => {
+      updateHolding(hid, { [field]: value })
+    }, 800)
   }
 
   async function deleteHolding(hid) {
@@ -116,48 +150,132 @@ export default function HoldingsEditor({ divId, subdivId, holdings = [], onUpdat
                 onMouseEnter={() => setHoveredRow(h.id)}
                 onMouseLeave={() => setHoveredRow(null)}
               >
-                <td style={{ padding: '8px', color: '#e6e9ef' }}>
+                <td style={{ padding: '8px', color: '#e6e9ef', position: 'relative' }}>
                   <input
-                    value={h.name}
-                    onChange={e => updateHolding(h.id, { name: e.target.value })}
-                    style={{ width: '100%', padding: '5px 8px', background: '#0a1018', color: '#e6e9ef', border: '1px solid #2d3f5f', borderRadius: 5, fontSize: 12, fontWeight: 500 }}
+                    value={editingValues[h.id]?.name ?? h.name}
+                    onChange={e => debouncedUpdate(h.id, 'name', e.target.value)}
+                    onBlur={() => {
+                      // Save immediately on blur if there's a pending change
+                      if (debounceTimers.current[`${h.id}-name`]) {
+                        clearTimeout(debounceTimers.current[`${h.id}-name`])
+                        updateHolding(h.id, { name: editingValues[h.id]?.name ?? h.name })
+                      }
+                    }}
+                    style={{ 
+                      width: '100%', 
+                      padding: '8px 10px', 
+                      background: savingIds.has(h.id) ? '#1a2436' : '#0f1724', 
+                      color: '#e6e9ef', 
+                      border: `2px solid ${savingIds.has(h.id) ? '#0ea5e9' : hoveredRow === h.id ? '#4f5d73' : '#2d3f5f'}`, 
+                      borderRadius: 6, 
+                      fontSize: 13, 
+                      fontWeight: 500,
+                      transition: 'all 0.2s ease',
+                      outline: 'none'
+                    }}
+                    placeholder="Holding name"
                   />
+                  {savingIds.has(h.id) && (
+                    <span style={{ 
+                      position: 'absolute', 
+                      right: 16, 
+                      top: '50%', 
+                      transform: 'translateY(-50%)',
+                      color: '#0ea5e9',
+                      fontSize: 10,
+                      fontWeight: 700
+                    }}>💾 Saving...</span>
+                  )}
                 </td>
                 <td style={{ padding: '6px', textAlign: 'right' }}>
                   <div style={{ display: 'flex', gap: 4, alignItems: 'center', justifyContent: 'flex-end' }}>
                     <button
+                      type="button"
                       onClick={() => {
                         const newInvested = Math.max(0, Number(h.invested) - 1000)
                         const newCurrent = Math.max(0, Number(h.current) - 1000)
                         updateHolding(h.id, { invested: newInvested, current: newCurrent })
                       }}
-                      style={{ background: '#374151', color: '#9fb3c8', border: 'none', borderRadius: 4, padding: '4px 6px', fontSize: 10, cursor: 'pointer', transition: 'all 0.2s' }}
-                      onMouseEnter={e => { e.target.style.background = '#4b5563'; e.target.style.color = '#e6e9ef' }}
-                      onMouseLeave={e => { e.target.style.background = '#374151'; e.target.style.color = '#9fb3c8' }}
+                      style={{ 
+                        background: 'linear-gradient(135deg, #4b5563, #374151)', 
+                        color: '#e6e9ef', 
+                        border: 'none', 
+                        borderRadius: 5, 
+                        padding: '6px 9px', 
+                        fontSize: 12, 
+                        fontWeight: 700,
+                        cursor: 'pointer', 
+                        transition: 'all 0.2s',
+                        boxShadow: '0 2px 4px rgba(0,0,0,0.2)'
+                      }}
+                      onMouseEnter={e => { e.target.style.transform = 'scale(1.05)'; e.target.style.boxShadow = '0 3px 8px rgba(0,0,0,0.3)' }}
+                      onMouseLeave={e => { e.target.style.transform = 'scale(1)'; e.target.style.boxShadow = '0 2px 4px rgba(0,0,0,0.2)' }}
                       title="Decrease by ₹1000"
                     >−</button>
                     <input
                       type="number"
-                      value={h.invested}
-                      onChange={e => updateHolding(h.id, { invested: Number(e.target.value) || 0 })}
-                      style={{ width: 90, padding: '5px 6px', background: '#0a1018', color: '#e6e9ef', border: '1px solid #2d3f5f', borderRadius: 5, textAlign: 'right', fontSize: 11, fontWeight: 500 }}
+                      value={editingValues[h.id]?.invested ?? h.invested}
+                      onChange={e => debouncedUpdate(h.id, 'invested', Number(e.target.value) || 0)}
+                      onBlur={() => {
+                        if (debounceTimers.current[`${h.id}-invested`]) {
+                          clearTimeout(debounceTimers.current[`${h.id}-invested`])
+                          updateHolding(h.id, { invested: editingValues[h.id]?.invested ?? h.invested })
+                        }
+                      }}
+                      style={{ 
+                        width: 90, 
+                        padding: '6px 8px', 
+                        background: '#0f1724', 
+                        color: '#e6e9ef', 
+                        border: `2px solid ${savingIds.has(h.id) ? '#0ea5e9' : '#2d3f5f'}`, 
+                        borderRadius: 5, 
+                        textAlign: 'right', 
+                        fontSize: 12, 
+                        fontWeight: 600,
+                        transition: 'all 0.2s ease',
+                        outline: 'none'
+                      }}
                     />
                     <button
+                      type="button"
                       onClick={() => {
                         const newInvested = Number(h.invested) + 1000
                         const newCurrent = Number(h.current) + 1000
                         updateHolding(h.id, { invested: newInvested, current: newCurrent })
                       }}
-                      style={{ background: '#374151', color: '#9fb3c8', border: 'none', borderRadius: 4, padding: '4px 6px', fontSize: 10, cursor: 'pointer', transition: 'all 0.2s' }}
-                      onMouseEnter={e => { e.target.style.background = '#4b5563'; e.target.style.color = '#e6e9ef' }}
-                      onMouseLeave={e => { e.target.style.background = '#374151'; e.target.style.color = '#9fb3c8' }}
+                      style={{ 
+                        background: 'linear-gradient(135deg, #22c55e, #16a34a)', 
+                        color: '#ffffff', 
+                        border: 'none', 
+                        borderRadius: 5, 
+                        padding: '6px 9px', 
+                        fontSize: 12, 
+                        fontWeight: 700,
+                        cursor: 'pointer', 
+                        transition: 'all 0.2s',
+                        boxShadow: '0 2px 4px rgba(34, 197, 94, 0.3)'
+                      }}
+                      onMouseEnter={e => { e.target.style.transform = 'scale(1.05)'; e.target.style.boxShadow = '0 3px 8px rgba(34, 197, 94, 0.5)' }}
+                      onMouseLeave={e => { e.target.style.transform = 'scale(1)'; e.target.style.boxShadow = '0 2px 4px rgba(34, 197, 94, 0.3)' }}
                       title="Increase by ₹1000"
                     >+</button>
                     <button
+                      type="button"
                       onClick={() => openAdjustModal(h)}
-                      style={{ background: '#0ea5e9', color: '#e6f6ff', border: 'none', borderRadius: 4, padding: '4px 8px', fontSize: 10, cursor: 'pointer', transition: 'all 0.2s', fontWeight: 700 }}
-                      onMouseEnter={e => { e.target.style.background = '#0284c7'; e.target.style.color = '#ffffff' }}
-                      onMouseLeave={e => { e.target.style.background = '#0ea5e9'; e.target.style.color = '#e6f6ff' }}
+                      style={{ 
+                        background: 'linear-gradient(135deg, #0ea5e9, #0284c7)', 
+                        color: '#ffffff', 
+                        border: 'none', 
+                        borderRadius: 5, 
+                        padding: '6px 10px', 
+                        fontSize: 11, 
+                        cursor: 'pointer', 
+                        transition: 'all 0.2s', 
+                        fontWeight: 700,
+                        boxShadow: '0 2px 4px rgba(14, 165, 233, 0.3)'
+                      }}
+                      onMouseEnter={e => { e.target.style.transform = 'scale(1.05)'; e.target.style.boxShadow = '0 3px 8px rgba(14, 165, 233, 0.5)' }}
+                      onMouseLeave={e => { e.target.style.transform = 'scale(1)'; e.target.style.boxShadow = '0 2px 4px rgba(14, 165, 233, 0.3)' }}
                       title="Custom adjust (applies to invested & current)"
                     >⚡ Custom</button>
                   </div>
@@ -165,23 +283,65 @@ export default function HoldingsEditor({ divId, subdivId, holdings = [], onUpdat
                 <td style={{ padding: '6px', textAlign: 'right' }}>
                   <div style={{ display: 'flex', gap: 4, alignItems: 'center', justifyContent: 'flex-end' }}>
                     <button
+                      type="button"
                       onClick={() => updateHolding(h.id, { current: Math.max(0, Number(h.current) - 1000) })}
-                      style={{ background: '#374151', color: '#9fb3c8', border: 'none', borderRadius: 4, padding: '4px 6px', fontSize: 10, cursor: 'pointer', transition: 'all 0.2s' }}
-                      onMouseEnter={e => { e.target.style.background = '#4b5563'; e.target.style.color = '#e6e9ef' }}
-                      onMouseLeave={e => { e.target.style.background = '#374151'; e.target.style.color = '#9fb3c8' }}
+                      style={{ 
+                        background: 'linear-gradient(135deg, #4b5563, #374151)', 
+                        color: '#e6e9ef', 
+                        border: 'none', 
+                        borderRadius: 5, 
+                        padding: '6px 9px', 
+                        fontSize: 12, 
+                        fontWeight: 700,
+                        cursor: 'pointer', 
+                        transition: 'all 0.2s',
+                        boxShadow: '0 2px 4px rgba(0,0,0,0.2)'
+                      }}
+                      onMouseEnter={e => { e.target.style.transform = 'scale(1.05)'; e.target.style.boxShadow = '0 3px 8px rgba(0,0,0,0.3)' }}
+                      onMouseLeave={e => { e.target.style.transform = 'scale(1)'; e.target.style.boxShadow = '0 2px 4px rgba(0,0,0,0.2)' }}
                       title="Decrease by ₹1000"
                     >−</button>
                     <input
                       type="number"
-                      value={h.current}
-                      onChange={e => updateHolding(h.id, { current: Number(e.target.value) || 0 })}
-                      style={{ width: 90, padding: '5px 6px', background: '#0a1018', color: '#e6e9ef', border: '1px solid #2d3f5f', borderRadius: 5, textAlign: 'right', fontSize: 11, fontWeight: 500 }}
+                      value={editingValues[h.id]?.current ?? h.current}
+                      onChange={e => debouncedUpdate(h.id, 'current', Number(e.target.value) || 0)}
+                      onBlur={() => {
+                        if (debounceTimers.current[`${h.id}-current`]) {
+                          clearTimeout(debounceTimers.current[`${h.id}-current`])
+                          updateHolding(h.id, { current: editingValues[h.id]?.current ?? h.current })
+                        }
+                      }}
+                      style={{ 
+                        width: 90, 
+                        padding: '6px 8px', 
+                        background: '#0f1724', 
+                        color: '#e6e9ef', 
+                        border: `2px solid ${savingIds.has(h.id) ? '#0ea5e9' : '#2d3f5f'}`, 
+                        borderRadius: 5, 
+                        textAlign: 'right', 
+                        fontSize: 12, 
+                        fontWeight: 600,
+                        transition: 'all 0.2s ease',
+                        outline: 'none'
+                      }}
                     />
                     <button
+                      type="button"
                       onClick={() => updateHolding(h.id, { current: Number(h.current) + 1000 })}
-                      style={{ background: '#374151', color: '#9fb3c8', border: 'none', borderRadius: 4, padding: '4px 6px', fontSize: 10, cursor: 'pointer', transition: 'all 0.2s' }}
-                      onMouseEnter={e => { e.target.style.background = '#4b5563'; e.target.style.color = '#e6e9ef' }}
-                      onMouseLeave={e => { e.target.style.background = '#374151'; e.target.style.color = '#9fb3c8' }}
+                      style={{ 
+                        background: 'linear-gradient(135deg, #22c55e, #16a34a)', 
+                        color: '#ffffff', 
+                        border: 'none', 
+                        borderRadius: 5, 
+                        padding: '6px 9px', 
+                        fontSize: 12, 
+                        fontWeight: 700,
+                        cursor: 'pointer', 
+                        transition: 'all 0.2s',
+                        boxShadow: '0 2px 4px rgba(34, 197, 94, 0.3)'
+                      }}
+                      onMouseEnter={e => { e.target.style.transform = 'scale(1.05)'; e.target.style.boxShadow = '0 3px 8px rgba(34, 197, 94, 0.5)' }}
+                      onMouseLeave={e => { e.target.style.transform = 'scale(1)'; e.target.style.boxShadow = '0 2px 4px rgba(34, 197, 94, 0.3)' }}
                       title="Increase by ₹1000"
                     >+</button>
                   </div>
@@ -193,10 +353,28 @@ export default function HoldingsEditor({ divId, subdivId, holdings = [], onUpdat
                   <input
                     type="number"
                     step="0.01"
-                    value={h.targetPercent || ''}
-                    onChange={e => updateHolding(h.id, { targetPercent: Number(e.target.value) || 0 })}
-                    style={{ width: '100%', padding: '5px 8px', background: '#0a1018', color: '#e6e9ef', border: '1px solid #2d3f5f', borderRadius: 5, textAlign: 'right', fontSize: 12, fontWeight: 500 }}
-                    placeholder="-"
+                    value={editingValues[h.id]?.targetPercent ?? h.targetPercent ?? ''}
+                    onChange={e => debouncedUpdate(h.id, 'targetPercent', Number(e.target.value) || 0)}
+                    onBlur={() => {
+                      if (debounceTimers.current[`${h.id}-targetPercent`]) {
+                        clearTimeout(debounceTimers.current[`${h.id}-targetPercent`])
+                        updateHolding(h.id, { targetPercent: (editingValues[h.id]?.targetPercent ?? h.targetPercent) || 0 })
+                      }
+                    }}
+                    style={{ 
+                      width: '100%', 
+                      padding: '7px 10px', 
+                      background: '#0f1724', 
+                      color: '#e6e9ef', 
+                      border: `2px solid ${savingIds.has(h.id) ? '#0ea5e9' : '#2d3f5f'}`, 
+                      borderRadius: 5, 
+                      textAlign: 'right', 
+                      fontSize: 12, 
+                      fontWeight: 600,
+                      transition: 'all 0.2s ease',
+                      outline: 'none'
+                    }}
+                    placeholder="0.00"
                   />
                 </td>
                 <td style={{ padding: '8px', textAlign: 'center' }}>
