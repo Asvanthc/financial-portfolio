@@ -71,10 +71,11 @@ async function fetchQuotes(symbols) {
 
   if (cleaned.length === 0) return { quotes: {}, missing: [] }
 
-  // Add exchange suffix guesses for NSE/BSE if none present
+  // Try NSE first (.NS suffix) for all Indian stocks, then BSE (.BO) as fallback
   const candidates = Array.from(new Set(cleaned.flatMap(sym => {
     if (sym.includes('.')) return [sym]
-    return [sym, `${sym}.NS`, `${sym}.BO`]
+    // Prefer NSE for Indian markets
+    return [`${sym}.NS`, `${sym}.BO`, sym]
   })))
 
   const url = `https://query1.finance.yahoo.com/v7/finance/quote?symbols=${encodeURIComponent(candidates.join(','))}`
@@ -89,8 +90,13 @@ async function fetchQuotes(symbols) {
       const yahooSymbol = (r.symbol || '').toUpperCase()
       const base = yahooSymbol.replace(/\.(NS|BO)$/i, '')
       const price = Number(r.regularMarketPrice ?? r.bid ?? r.ask ?? r.previousClose)
-      if (!Number.isFinite(price)) return
-      if (!priceMap[base]) {
+      if (!Number.isFinite(price) || price <= 0) return
+      
+      // Prefer NSE quotes over BSE
+      const existingPriority = priceMap[base]?.sourceSymbol?.endsWith('.NS') ? 1 : 0
+      const newPriority = yahooSymbol.endsWith('.NS') ? 1 : 0
+      
+      if (!priceMap[base] || newPriority > existingPriority) {
         priceMap[base] = { price, currency: r.currency || 'INR', sourceSymbol: yahooSymbol }
       }
     })
@@ -98,12 +104,13 @@ async function fetchQuotes(symbols) {
     const quotes = {}
     const missing = []
     cleaned.forEach(sym => {
-      const key = sym.toUpperCase()
-      const q = priceMap[key] || priceMap[key.replace(/\.(NS|BO)$/i, '')]
+      const key = sym.replace(/\.(NS|BO)$/i, '').toUpperCase()
+      const q = priceMap[key]
       if (q) quotes[sym] = q
       else missing.push(sym)
     })
 
+    console.log('[QUOTES] Fetched', Object.keys(quotes).length, 'prices; missing:', missing.length)
     return { quotes, missing }
   } catch (e) {
     console.error('[QUOTES] fetch failed:', e.message)

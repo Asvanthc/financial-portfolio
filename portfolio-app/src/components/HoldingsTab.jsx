@@ -10,12 +10,20 @@ function parseTrades(rows, format) {
     const row = {}
     Object.keys(raw || {}).forEach(k => { row[k.toLowerCase()] = raw[k] })
 
+    // Groww: Symbol, Type, Quantity, Value (total), Execution date and time
+    // Kite: symbol, trade_type, quantity, price, trade_date
     const symbol = (row.symbol || row.ticker || row['stock'] || '').toString().trim()
     const typeRaw = (row.trade_type || row.type || row.side || row.transaction_type || '').toString().toLowerCase()
     const side = typeRaw.includes('sell') ? 'sell' : typeRaw.includes('buy') ? 'buy' : ''
     const qty = Number(row.quantity || row.qty || row['qty.'] || row['filled quantity'] || 0)
-    const price = Number(row.price || row.rate || row['avg. price'] || row['trade price'] || 0)
-    const dateStr = row.trade_date || row.date || row['trade date'] || row['order_execution_time'] || ''
+    
+    // Groww gives 'Value' (total), so divide by qty to get price; Kite gives price directly
+    let price = Number(row.price || row.rate || row['avg. price'] || row['trade price'] || 0)
+    if (!price && row.value && qty > 0) {
+      price = Number(row.value) / qty
+    }
+    
+    const dateStr = row.trade_date || row.date || row['trade date'] || row['order_execution_time'] || row['execution date and time'] || ''
     const date = dateStr ? new Date(dateStr) : null
 
     if (!symbol || !side || !qty || !price || !date || Number.isNaN(date.getTime())) return
@@ -147,7 +155,11 @@ export default function HoldingsTab() {
         const buf = await file.arrayBuffer()
         const wb = XLSX.read(buf, { type: 'array' })
         const sheet = wb.SheetNames[0]
-        rows = XLSX.utils.sheet_to_json(wb.Sheets[sheet], { defval: '' })
+        // Groww format: skip first rows and find header row
+        const rawRows = XLSX.utils.sheet_to_json(wb.Sheets[sheet], { defval: '', header: 1 })
+        let headerIdx = rawRows.findIndex(r => Array.isArray(r) && (r.includes('Symbol') || r.includes('symbol') || r.includes('Type') || r.includes('type')))
+        if (headerIdx === -1) headerIdx = 0
+        rows = XLSX.utils.sheet_to_json(wb.Sheets[sheet], { defval: '', range: headerIdx })
       } else {
         const text = await file.text()
         const parsed = Papa.parse(text, { header: true, skipEmptyLines: true })
@@ -209,38 +221,34 @@ export default function HoldingsTab() {
         <StatCard label="Total P/L" value={`${totals.totalPL >= 0 ? '+' : ''}${formatINR(totals.totalPL)}`} tone={totals.totalPL >= 0 ? '#22c55e' : '#ef4444'} />
       </div>
 
-      {positions.length > 0 && (
-        <div style={{ background: '#0a1018', border: '1px solid #1e293b', borderRadius: 12, padding: 12, boxShadow: '0 10px 30px rgba(0,0,0,0.35)' }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
-            <h3 style={{ margin: 0, color: '#e6e9ef' }}>Holdings</h3>
-            {loading && <span style={{ color: '#22d3ee', fontWeight: 700 }}>⏳ Updating prices…</span>}
-          </div>
-          <div style={{ overflowX: 'auto' }}>
-            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
-              <thead>
-                <tr style={{ borderBottom: '1px solid #1e293b', color: '#7c92ab', textTransform: 'uppercase', letterSpacing: '0.6px' }}>
-                  <th style={{ textAlign: 'left', padding: '8px 6px' }}>Symbol</th>
-                  <th style={{ textAlign: 'right', padding: '8px 6px' }}>Qty</th>
-                  <th style={{ textAlign: 'right', padding: '8px 6px' }}>Avg Cost</th>
-                  <th style={{ textAlign: 'right', padding: '8px 6px' }}>Invested</th>
-                  <th style={{ textAlign: 'right', padding: '8px 6px' }}>LTP</th>
-                  <th style={{ textAlign: 'right', padding: '8px 6px' }}>Current</th>
-                  <th style={{ textAlign: 'right', padding: '8px 6px' }}>Unrealized</th>
-                  <th style={{ textAlign: 'right', padding: '8px 6px' }}>Realized</th>
-                  <th style={{ textAlign: 'center', padding: '8px 6px' }}>ST/LT</th>
-                </tr>
-              </thead>
-              <tbody>
-                {positions.map(p => {
-                  const mixLabel = (() => {
-                    const hasLT = (p.unrealizedLong !== 0) || p.realizedLong !== 0
-                    const hasST = (p.unrealizedShort !== 0) || p.realizedShort !== 0
-                    if (hasLT && hasST) return 'Mixed'
-                    if (hasLT) return 'Long'
-                    if (hasST) return 'Short'
-                    return '—'
-                  })()
-                  return (
+      {positions.length > 0 && (() => {
+        const now = new Date()
+        const dayMs = 86400000
+        const longTerm = positions.filter(p => p.lots.some(lot => Math.floor((now - lot.date) / dayMs) >= 365))
+        const shortTerm = positions.filter(p => !longTerm.includes(p))
+        
+        const renderTable = (title, list, tone) => (
+          <div style={{ background: '#0a1018', border: `1px solid ${tone}33`, borderRadius: 12, padding: 12, boxShadow: '0 10px 30px rgba(0,0,0,0.35)', marginBottom: 16 }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
+              <h3 style={{ margin: 0, color: tone }}>{title} ({list.length})</h3>
+              {loading && <span style={{ color: '#22d3ee', fontWeight: 700 }}>⏳ Updating prices…</span>}
+            </div>
+            <div style={{ overflowX: 'auto' }}>
+              <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
+                <thead>
+                  <tr style={{ borderBottom: `1px solid ${tone}33`, color: '#7c92ab', textTransform: 'uppercase', letterSpacing: '0.6px' }}>
+                    <th style={{ textAlign: 'left', padding: '8px 6px' }}>Symbol</th>
+                    <th style={{ textAlign: 'right', padding: '8px 6px' }}>Qty</th>
+                    <th style={{ textAlign: 'right', padding: '8px 6px' }}>Avg Cost</th>
+                    <th style={{ textAlign: 'right', padding: '8px 6px' }}>Invested</th>
+                    <th style={{ textAlign: 'right', padding: '8px 6px' }}>LTP</th>
+                    <th style={{ textAlign: 'right', padding: '8px 6px' }}>Current</th>
+                    <th style={{ textAlign: 'right', padding: '8px 6px' }}>Unrealized</th>
+                    <th style={{ textAlign: 'right', padding: '8px 6px' }}>Realized</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {list.map(p => (
                     <tr key={p.symbol} style={{ borderBottom: '1px solid #0f172a' }}>
                       <td style={{ padding: '8px 6px', color: '#e6e9ef', fontWeight: 700 }}>{p.symbol}</td>
                       <td style={{ padding: '8px 6px', textAlign: 'right', color: '#e6e9ef' }}>{p.qty}</td>
@@ -250,17 +258,21 @@ export default function HoldingsTab() {
                       <td style={{ padding: '8px 6px', textAlign: 'right', color: '#22d3ee', fontWeight: 700 }}>{formatINR(p.current)}</td>
                       <td style={{ padding: '8px 6px', textAlign: 'right', color: p.unrealized >= 0 ? '#22c55e' : '#ef4444', fontWeight: 700 }}>{p.unrealized >= 0 ? '+' : ''}{formatINR(p.unrealized)}</td>
                       <td style={{ padding: '8px 6px', textAlign: 'right', color: p.realized >= 0 ? '#22c55e' : '#ef4444', fontWeight: 700 }}>{p.realized >= 0 ? '+' : ''}{formatINR(p.realized)}</td>
-                      <td style={{ padding: '8px 6px', textAlign: 'center' }}>
-                        <span style={{ padding: '4px 8px', borderRadius: 8, background: '#1e293b', color: '#cbd5e1', fontWeight: 700, fontSize: 11 }}>{mixLabel}</span>
-                      </td>
                     </tr>
-                  )
-                })}
-              </tbody>
-            </table>
+                  ))}
+                </tbody>
+              </table>
+            </div>
           </div>
-        </div>
-      )}
+        )
+        
+        return (
+          <>
+            {longTerm.length > 0 && renderTable('📈 Long Term Holdings (≥1 year)', longTerm, '#22c55e')}
+            {shortTerm.length > 0 && renderTable('⚡ Short Term Holdings (<1 year)', shortTerm, '#fb923c')}
+          </>
+        )
+      })()}
 
       {trades.length > 0 && (
         <div style={{ marginTop: 16, background: '#0a1018', border: '1px solid #1e293b', borderRadius: 12, padding: 12 }}>
