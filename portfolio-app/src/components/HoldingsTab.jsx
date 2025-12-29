@@ -24,7 +24,23 @@ function parseTrades(rows, format) {
     }
     
     const dateStr = row.trade_date || row.date || row['trade date'] || row['order_execution_time'] || row['execution date and time'] || ''
-    const date = dateStr ? new Date(dateStr) : null
+    let date = null
+    if (dateStr) {
+      // Groww format: dd-mm-yyyy or dd/mm/yyyy
+      // Kite format: yyyy-mm-dd or ISO timestamp
+      const str = dateStr.toString().trim()
+      if (str.match(/^\d{1,2}[/-]\d{1,2}[/-]\d{4}/)) {
+        // Groww: dd-mm-yyyy or dd/mm/yyyy
+        const parts = str.split(/[/-\s]/)
+        const day = parseInt(parts[0])
+        const month = parseInt(parts[1]) - 1
+        const year = parseInt(parts[2])
+        date = new Date(year, month, day)
+      } else {
+        // Kite: yyyy-mm-dd or ISO format
+        date = new Date(str)
+      }
+    }
 
     if (!symbol || !side || !qty || !price || !date || Number.isNaN(date.getTime())) return
     trades.push({ symbol, side, qty, price, date })
@@ -115,15 +131,20 @@ function computePositions(trades, quotes) {
       lots,
     }
 
-    positions.push(position)
-    summary.invested += invested
-    summary.current += current
+    // Only include positions with non-zero quantity
+    if (qty > 0) {
+      positions.push(position)
+      summary.invested += invested
+      summary.current += current
+      summary.unrealized += unrealized
+      summary.unrealizedLong += unrealizedLong
+      summary.unrealizedShort += unrealizedShort
+    }
+    
+    // Always include realized P/L in summary even if position is closed
     summary.realized += entry.realized
-    summary.unrealized += unrealized
     summary.realizedLong += entry.realizedLong
     summary.realizedShort += entry.realizedShort
-    summary.unrealizedLong += unrealizedLong
-    summary.unrealizedShort += unrealizedShort
   })
 
   // Sort by current value desc
