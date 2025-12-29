@@ -245,52 +245,49 @@ export default function HoldingsTab() {
       {positions.length > 0 && (() => {
         const now = new Date()
         const dayMs = 86400000
-        const longTerm = positions.filter(p => p.lots.some(lot => Math.floor((now - lot.date) / dayMs) >= 365))
-        const shortTerm = positions.filter(p => !longTerm.includes(p))
         
-        const renderTable = (title, list, tone) => (
-          <div style={{ background: '#0a1018', border: `1px solid ${tone}33`, borderRadius: 12, padding: 12, boxShadow: '0 10px 30px rgba(0,0,0,0.35)', marginBottom: 16 }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
-              <h3 style={{ margin: 0, color: tone }}>{title} ({list.length})</h3>
-              {loading && <span style={{ color: '#22d3ee', fontWeight: 700 }}>⏳ Updating prices…</span>}
+        // Summary of all active holdings
+        const summaryCard = (
+          <div style={{ 
+            background: 'linear-gradient(135deg, #0f1724 0%, #0a1018 100%)', 
+            border: '1px solid #1e293b', 
+            borderRadius: 12, 
+            padding: 24, 
+            marginBottom: 24,
+            boxShadow: '0 10px 40px rgba(0,0,0,0.4)',
+            display: 'grid',
+            gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))',
+            gap: 24
+          }}>
+            <div>
+              <div style={{ color: '#7c92ab', fontSize: 11, fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.6px', marginBottom: 8 }}>Total Invested</div>
+              <div style={{ color: '#fbbf24', fontWeight: 900, fontSize: 28 }}>{formatINR(summary.invested)}</div>
+              <div style={{ color: '#94a3b8', fontSize: 12, marginTop: 4 }}>{positions.length} active {positions.length === 1 ? 'position' : 'positions'}</div>
             </div>
-            <div style={{ overflowX: 'auto' }}>
-              <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
-                <thead>
-                  <tr style={{ borderBottom: `1px solid ${tone}33`, color: '#7c92ab', textTransform: 'uppercase', letterSpacing: '0.6px' }}>
-                    <th style={{ textAlign: 'left', padding: '8px 6px' }}>Symbol</th>
-                    <th style={{ textAlign: 'right', padding: '8px 6px' }}>Qty</th>
-                    <th style={{ textAlign: 'right', padding: '8px 6px' }}>Avg Cost</th>
-                    <th style={{ textAlign: 'right', padding: '8px 6px' }}>Invested</th>
-                    <th style={{ textAlign: 'right', padding: '8px 6px' }}>LTP</th>
-                    <th style={{ textAlign: 'right', padding: '8px 6px' }}>Current</th>
-                    <th style={{ textAlign: 'right', padding: '8px 6px' }}>Unrealized</th>
-                    <th style={{ textAlign: 'right', padding: '8px 6px' }}>Realized</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {list.map(p => (
-                    <tr key={p.symbol} style={{ borderBottom: '1px solid #0f172a' }}>
-                      <td style={{ padding: '8px 6px', color: '#e6e9ef', fontWeight: 700 }}>{p.symbol}</td>
-                      <td style={{ padding: '8px 6px', textAlign: 'right', color: '#e6e9ef' }}>{p.qty}</td>
-                      <td style={{ padding: '8px 6px', textAlign: 'right', color: '#e6e9ef' }}>{formatINR(p.avgCost)}</td>
-                      <td style={{ padding: '8px 6px', textAlign: 'right', color: '#fbbf24', fontWeight: 700 }}>{formatINR(p.invested)}</td>
-                      <td style={{ padding: '8px 6px', textAlign: 'right', color: '#7dd3fc' }}>{formatINR(p.price)}</td>
-                      <td style={{ padding: '8px 6px', textAlign: 'right', color: '#22d3ee', fontWeight: 700 }}>{formatINR(p.current)}</td>
-                      <td style={{ padding: '8px 6px', textAlign: 'right', color: p.unrealized >= 0 ? '#22c55e' : '#ef4444', fontWeight: 700 }}>{p.unrealized >= 0 ? '+' : ''}{formatINR(p.unrealized)}</td>
-                      <td style={{ padding: '8px 6px', textAlign: 'right', color: p.realized >= 0 ? '#22c55e' : '#ef4444', fontWeight: 700 }}>{p.realized >= 0 ? '+' : ''}{formatINR(p.realized)}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
+            
+            <div>
+              <div style={{ color: '#7c92ab', fontSize: 11, fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.6px', marginBottom: 8 }}>Current Value</div>
+              <div style={{ color: '#22d3ee', fontWeight: 900, fontSize: 28 }}>{formatINR(summary.current)}</div>
+              <div style={{ color: summary.unrealized >= 0 ? '#22c55e' : '#ef4444', fontSize: 12, marginTop: 4, fontWeight: 700 }}>
+                {summary.unrealized >= 0 ? '↗' : '↘'} {formatINR(Math.abs(summary.unrealized))} ({((summary.unrealized / summary.invested) * 100).toFixed(1)}%)
+              </div>
+            </div>
+            
+            <div>
+              <div style={{ color: '#7c92ab', fontSize: 11, fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.6px', marginBottom: 8 }}>Total Profit/Loss</div>
+              <div style={{ color: totals.totalPL >= 0 ? '#10b981' : '#ef4444', fontWeight: 900, fontSize: 28 }}>
+                {totals.totalPL >= 0 ? '+' : ''}{formatINR(totals.totalPL)}
+              </div>
+              <div style={{ color: '#94a3b8', fontSize: 12, marginTop: 4 }}>
+                Realized: {summary.realized >= 0 ? '+' : ''}{formatINR(summary.realized)} | Unrealized: {summary.unrealized >= 0 ? '+' : ''}{formatINR(summary.unrealized)}
+              </div>
             </div>
           </div>
         )
         
         return (
           <>
-            {longTerm.length > 0 && renderTable('📈 Long Term Holdings (≥1 year)', longTerm, '#22c55e')}
-            {shortTerm.length > 0 && renderTable('⚡ Short Term Holdings (<1 year)', shortTerm, '#fb923c')}
+            {summaryCard}
           </>
         )
       })()}
@@ -332,48 +329,78 @@ export default function HoldingsTab() {
                 const daysAgo = Math.floor((now - tradeDate) / dayMs)
                 const timeLabel = daysAgo === 0 ? 'Today' : daysAgo === 1 ? 'Yesterday' : `${daysAgo} days ago`
                 const isLongTerm = daysAgo >= 365
-                const borderColor = isLongTerm ? '#22c55e' : daysAgo >= 180 ? '#fb923c' : '#3b82f6'
+                const daysIcon = daysAgo === 0 ? '🆕' : daysAgo < 7 ? '🔥' : daysAgo < 30 ? '⚡' : daysAgo < 90 ? '📈' : daysAgo < 365 ? '⏳' : '💎'
+                const borderColor = isLongTerm ? '#10b981' : daysAgo >= 180 ? '#f59e0b' : daysAgo >= 30 ? '#3b82f6' : '#ec4899'
+                const bgColor = isLongTerm ? 'rgba(16, 185, 129, 0.05)' : daysAgo >= 180 ? 'rgba(245, 158, 11, 0.05)' : daysAgo >= 30 ? 'rgba(59, 130, 246, 0.05)' : 'rgba(236, 72, 153, 0.05)'
                 
                 return (
-                  <div key={dateKey} style={{ border: `2px solid ${borderColor}33`, borderRadius: 12, padding: 14, background: 'linear-gradient(135deg, rgba(255,255,255,0.02) 0%, rgba(255,255,255,0.005) 100%)' }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 10, borderBottom: `1px solid ${borderColor}22`, paddingBottom: 8 }}>
+                  <div key={dateKey} style={{ 
+                    border: `2px solid ${borderColor}40`, 
+                    borderRadius: 14, 
+                    padding: 16, 
+                    background: bgColor,
+                    boxShadow: `0 4px 16px ${borderColor}15`,
+                    transition: 'all 0.3s ease'
+                  }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 12, borderBottom: `1px solid ${borderColor}30`, paddingBottom: 10 }}>
+                      <div style={{ fontSize: 24 }}>{daysIcon}</div>
                       <div style={{ flex: 1 }}>
-                        <div style={{ fontSize: 16, fontWeight: 900, color: borderColor, marginBottom: 2 }}>{dateKey}</div>
-                        <div style={{ fontSize: 11, color: '#7c92ab', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.5px' }}>
-                          {timeLabel} {isLongTerm && '• LONG TERM'}
+                        <div style={{ fontSize: 17, fontWeight: 900, color: borderColor, marginBottom: 2 }}>{dateKey}</div>
+                        <div style={{ fontSize: 12, color: '#94a3b8', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.5px' }}>
+                          {timeLabel} {isLongTerm && '• 💎 LONG TERM (1+ year)'}
                         </div>
                       </div>
-                      <div style={{ padding: '6px 12px', borderRadius: 8, background: `${borderColor}22`, border: `1px solid ${borderColor}44` }}>
-                        <div style={{ fontSize: 11, color: '#7c92ab', fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.6px' }}>Trades</div>
-                        <div style={{ fontSize: 16, fontWeight: 900, color: borderColor }}>{dayTrades.length}</div>
+                      <div style={{ 
+                        padding: '8px 14px', 
+                        borderRadius: 10, 
+                        background: `${borderColor}20`, 
+                        border: `1.5px solid ${borderColor}50`,
+                        textAlign: 'center'
+                      }}>
+                        <div style={{ fontSize: 10, color: '#94a3b8', fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.6px' }}>Holdings</div>
+                        <div style={{ fontSize: 18, fontWeight: 900, color: borderColor }}>{dayTrades.length}</div>
                       </div>
                     </div>
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
                       {dayTrades.map((t, idx) => {
                         const totalValue = t.qty * t.price
                         return (
-                          <div key={idx} style={{ display: 'grid', gridTemplateColumns: '2fr 0.8fr 1fr 1fr 1.2fr', gap: 10, alignItems: 'center', padding: '8px 10px', borderRadius: 8, background: 'rgba(255,255,255,0.02)', border: '1px solid #1e293b' }}>
-                            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                              <div style={{ padding: '4px 8px', borderRadius: 6, background: '#22c55e22', border: '1px solid #22c55e44' }}>
-                                <span style={{ fontSize: 10, fontWeight: 900, color: '#22c55e', letterSpacing: '0.5px' }}>HELD</span>
+                          <div key={idx} style={{ 
+                            display: 'flex', 
+                            alignItems: 'center', 
+                            gap: 12, 
+                            padding: '12px 14px', 
+                            borderRadius: 10, 
+                            background: 'rgba(255,255,255,0.03)', 
+                            border: `1px solid ${borderColor}30`,
+                            transition: 'all 0.2s ease',
+                            cursor: 'pointer',
+                            ':hover': { background: 'rgba(255,255,255,0.05)' }
+                          }}>
+                            <div style={{ 
+                              width: 40,
+                              height: 40,
+                              borderRadius: 10,
+                              background: `${borderColor}20`,
+                              border: `1.5px solid ${borderColor}50`,
+                              display: 'flex',
+                              alignItems: 'center',
+                              justifyContent: 'center',
+                              fontWeight: 900,
+                              color: borderColor,
+                              fontSize: 13
+                            }}>
+                              {t.symbol.slice(0, 2)}
+                            </div>
+                            <div style={{ flex: 1, minWidth: 0 }}>
+                              <div style={{ color: '#e6e9ef', fontWeight: 800, fontSize: 15, marginBottom: 2 }}>{t.symbol}</div>
+                              <div style={{ color: '#7c92ab', fontSize: 12, fontWeight: 600 }}>
+                                {t.qty} @ ₹{t.price.toFixed(2)} = ₹{totalValue.toFixed(0)}
                               </div>
-                              <span style={{ color: '#e6e9ef', fontWeight: 800, fontSize: 14 }}>{t.symbol}</span>
                             </div>
-                            <div style={{ textAlign: 'right' }}>
-                              <div style={{ fontSize: 10, color: '#7c92ab', fontWeight: 700 }}>QTY</div>
-                              <div style={{ color: '#22c55e', fontWeight: 700, fontSize: 13 }}>{t.qty}</div>
-                            </div>
-                            <div style={{ textAlign: 'right' }}>
-                              <div style={{ fontSize: 10, color: '#7c92ab', fontWeight: 700 }}>PRICE</div>
-                              <div style={{ color: '#7dd3fc', fontWeight: 800, fontSize: 13 }}>{formatINR(t.price)}</div>
-                            </div>
-                            <div style={{ textAlign: 'right' }}>
-                              <div style={{ fontSize: 10, color: '#7c92ab', fontWeight: 700 }}>VALUE</div>
-                              <div style={{ color: '#fbbf24', fontWeight: 800, fontSize: 13 }}>{formatINR(totalValue)}</div>
-                            </div>
-                            <div style={{ textAlign: 'right' }}>
-                              <div style={{ fontSize: 10, color: '#7c92ab', fontWeight: 700 }}>TIME</div>
-                              <div style={{ color: '#a78bfa', fontWeight: 700, fontSize: 12 }}>{new Date(t.date).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</div>
+                            <div style={{ textAlign: 'right', minWidth: 'fit-content' }}>
+                              <div style={{ color: '#94a3b8', fontSize: 11, fontWeight: 700, textTransform: 'uppercase', marginBottom: 4 }}>Current</div>
+                              <div style={{ color: '#22d3ee', fontWeight: 900, fontSize: 16 }}>₹{totalValue.toFixed(0)}</div>
                             </div>
                           </div>
                         )

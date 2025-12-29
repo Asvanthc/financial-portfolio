@@ -61,89 +61,61 @@ if (process.env.NODE_ENV === 'production' && API_BASE_PATH && API_BASE_PATH !== 
 // Storage for uploads: place next to existing workbook and replace it atomically
 const upload = multer({ dest: path.resolve(process.cwd(), 'uploads') });
 
-// Fetch live quotes from Alpha Vantage (server-side to avoid CORS)
-const ALPHA_VANTAGE_API_KEY = 'W907DOM8IQ7AOTZC'
-
+// Fetch live quotes from Yahoo Finance (server-side to avoid CORS)
 async function fetchQuotes(symbols) {
   const cleaned = symbols
     .map(s => (s || '').trim())
     .filter(Boolean)
-    .slice(0, 25) // Alpha Vantage free tier: 25 requests/day limit, be conservative
+    .slice(0, 50) // cap to keep request reasonable
     .map(s => s.toUpperCase())
 
   if (cleaned.length === 0) return { quotes: {}, missing: [] }
 
-  const quotes = {}
-  const missing = []
+  // Try NSE first (.NS suffix) for all Indian stocks, then BSE (.BO) as fallback
+  const candidates = Array.from(new Set(cleaned.flatMap(sym => {
+    if (sym.includes('.')) return [sym]
+    // Prefer NSE for Indian markets
+    return [`${sym}.NS`, `${sym}.BO`, sym]
+  })))
 
-  // Alpha Vantage requires individual requests per symbol
-  // For Indian stocks, try with .BSE suffix first (Bombay Stock Exchange)
-  for (const symbol of cleaned) {
-    try {
-      // Prepare symbol for Alpha Vantage (NSE/BSE stocks)
-      let avSymbol = symbol.replace(/\.(NS|BO)$/i, '')
+  const url = `https://query1.finance.yahoo.com/v7/finance/quote?symbols=${encodeURIComponent(candidates.join(','))}`
+  try {
+    const resp = await fetch(url)
+    if (!resp.ok) throw new Error(`Quote fetch failed ${resp.status}`)
+    const data = await resp.json()
+    const results = data?.quoteResponse?.result || []
+    const priceMap = {}
+
+    results.forEach(r => {
+      const yahooSymbol = (r.symbol || '').toUpperCase()
+      const base = yahooSymbol.replace(/\.(NS|BO)$/i, '')
+      const price = Number(r.regularMarketPrice ?? r.bid ?? r.ask ?? r.previousClose)
+      if (!Number.isFinite(price) || price <= 0) return
       
-      // Alpha Vantage format for Indian stocks: SYMBOL.BSE (Bombay) or use base symbol
-      const url = `https://www.alphavantage.co/query?function=GLOBAL_QUOTE&symbol=${encodeURIComponent(avSymbol)}.BSE&apikey=${ALPHA_VANTAGE_API_KEY}`
+      // Prefer NSE quotes over BSE
+      const existingPriority = priceMap[base]?.sourceSymbol?.endsWith('.NS') ? 1 : 0
+      const newPriority = yahooSymbol.endsWith('.NS') ? 1 : 0
       
-      const resp = await fetch(url)
-      if (!resp.ok) throw new Error(`Quote fetch failed ${resp.status}`)
-      
-      const data = await resp.json()
-      const quote = data['Global Quote']
-      
-      if (quote && quote['05. price']) {
-        const price = Number(quote['05. price'])
-        if (Number.isFinite(price) && price > 0) {
-          quotes[symbol] = { 
-            price, 
-            currency: 'INR',
-            sourceSymbol: `${avSymbol}.BSE`,
-            change: Number(quote['09. change'] || 0),
-            changePercent: quote['10. change percent'] || '0%'
-          }
-          console.log(`[QUOTES] ${symbol}: ₹${price.toFixed(2)}`)
-          continue
-        }
+      if (!priceMap[base] || newPriority > existingPriority) {
+        priceMap[base] = { price, currency: r.currency || 'INR', sourceSymbol: yahooSymbol }
       }
-      
-      // If .BSE fails, try without suffix (for non-Indian stocks)
-      const fallbackUrl = `https://www.alphavantage.co/query?function=GLOBAL_QUOTE&symbol=${encodeURIComponent(avSymbol)}&apikey=${ALPHA_VANTAGE_API_KEY}`
-      const fallbackResp = await fetch(fallbackUrl)
-      if (fallbackResp.ok) {
-        const fallbackData = await fallbackResp.json()
-        const fallbackQuote = fallbackData['Global Quote']
-        
-        if (fallbackQuote && fallbackQuote['05. price']) {
-          const price = Number(fallbackQuote['05. price'])
-          if (Number.isFinite(price) && price > 0) {
-            quotes[symbol] = { 
-              price, 
-              currency: fallbackQuote['09. change'] ? 'USD' : 'INR',
-              sourceSymbol: avSymbol,
-              change: Number(fallbackQuote['09. change'] || 0),
-              changePercent: fallbackQuote['10. change percent'] || '0%'
-            }
-            console.log(`[QUOTES] ${symbol}: ${quotes[symbol].currency}${price.toFixed(2)}`)
-            continue
-          }
-        }
-      }
-      
-      missing.push(symbol)
-      console.log(`[QUOTES] ${symbol}: not found`)
-      
-    } catch (e) {
-      console.error(`[QUOTES] ${symbol} fetch failed:`, e.message)
-      missing.push(symbol)
-    }
-    
-    // Rate limiting: Alpha Vantage free tier allows 5 API requests per minute
-    await new Promise(resolve => setTimeout(resolve, 12000)) // 12 seconds between requests
+    })
+
+    const quotes = {}
+    const missing = []
+    cleaned.forEach(sym => {
+      const key = sym.replace(/\.(NS|BO)$/i, '').toUpperCase()
+      const q = priceMap[key]
+      if (q) quotes[sym] = q
+      else missing.push(sym)
+    })
+
+    console.log('[QUOTES] Fetched', Object.keys(quotes).length, 'prices; missing:', missing.length)
+    return { quotes, missing }
+  } catch (e) {
+    console.error('[QUOTES] fetch failed:', e.message)
+    return { quotes: {}, missing: cleaned }
   }
-
-  console.log('[QUOTES] Fetched', Object.keys(quotes).length, 'prices; missing:', missing.length)
-  return { quotes, missing }
 }
 
 function readWorkbook(filePath) {
