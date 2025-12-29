@@ -34,4 +34,5 @@ export const api = {
   getCategories: () => fetch(`${API_ROOT}/api/categories`).then(r=>r.json()),
   addCategory: (type, name) => json('POST', `/api/categories/${type}`, { name }),
   deleteCategory: (type, name) => json('DELETE', `/api/categories/${type}/${encodeURIComponent(name)}`),
+  quotes: (symbols=[]) => fetch(`${API_ROOT}/api/quotes?symbols=${encodeURIComponent(symbols.join(','))}`).then(r=>r.json())
 }

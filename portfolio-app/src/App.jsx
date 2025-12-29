@@ -7,6 +7,7 @@ import MonthlyPlanner from './components/MonthlyPlanner'
 import DeepAnalytics from './components/DeepAnalytics'
 import ExpenseTracker from './components/ExpenseTracker'
 import FIRECalculator from './components/FIRECalculator'
+import HoldingsTab from './components/HoldingsTab'
 
 export default function App() {
   const [portfolio, setPortfolio] = useState({ divisions: [] })
@@ -60,7 +61,7 @@ export default function App() {
             📊 Financial Portfolio
           </h1>
           <div style={{ display: 'flex', gap: 'clamp(6px, 1.5vw, 10px)', background: 'linear-gradient(135deg, #0a1018 0%, #0f1724 100%)', padding: 'clamp(6px, 1.2vw, 8px)', borderRadius: 14, border: '2px solid #1e293b', boxShadow: '0 4px 16px rgba(0,0,0,0.3), inset 0 1px 0 rgba(255,255,255,0.05)', flexShrink: 0 }}>
-            {['overview', 'analytics', 'planner', 'expenses', 'fire'].map(tab => (
+            {['overview', 'analytics', 'planner', 'expenses', 'fire', 'holdings'].map(tab => (
               <button
                 key={tab}
                 onClick={() => setActiveTab(tab)}
@@ -93,7 +94,7 @@ export default function App() {
                   }
                 }}
               >
-                {tab === 'overview' ? '📊 Overview' : tab === 'analytics' ? '📈 Analytics' : tab === 'planner' ? '📅 Monthly Plan' : tab === 'expenses' ? '💸 Expenses' : '🔥 FIRE'}
+                {tab === 'overview' ? '📊 Overview' : tab === 'analytics' ? '📈 Analytics' : tab === 'planner' ? '📅 Monthly Plan' : tab === 'expenses' ? '💸 Expenses' : tab === 'holdings' ? '📑 Holdings' : '🔥 FIRE'}
               </button>
             ))}
           </div>
@@ -362,6 +363,10 @@ export default function App() {
           currentPortfolioValue={totalCurrent} 
           expenses={expenses}
         />
+      )}
+
+      {activeTab === 'holdings' && (
+        <HoldingsTab />
       )}
 
       {/* Add division button */}

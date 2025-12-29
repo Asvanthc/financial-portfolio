@@ -61,6 +61,56 @@ if (process.env.NODE_ENV === 'production' && API_BASE_PATH && API_BASE_PATH !== 
 // Storage for uploads: place next to existing workbook and replace it atomically
 const upload = multer({ dest: path.resolve(process.cwd(), 'uploads') });
 
+// Fetch live quotes from Yahoo Finance (server-side to avoid CORS)
+async function fetchQuotes(symbols) {
+  const cleaned = symbols
+    .map(s => (s || '').trim())
+    .filter(Boolean)
+    .slice(0, 50) // cap to keep request reasonable
+    .map(s => s.toUpperCase())
+
+  if (cleaned.length === 0) return { quotes: {}, missing: [] }
+
+  // Add exchange suffix guesses for NSE/BSE if none present
+  const candidates = Array.from(new Set(cleaned.flatMap(sym => {
+    if (sym.includes('.')) return [sym]
+    return [sym, `${sym}.NS`, `${sym}.BO`]
+  })))
+
+  const url = `https://query1.finance.yahoo.com/v7/finance/quote?symbols=${encodeURIComponent(candidates.join(','))}`
+  try {
+    const resp = await fetch(url)
+    if (!resp.ok) throw new Error(`Quote fetch failed ${resp.status}`)
+    const data = await resp.json()
+    const results = data?.quoteResponse?.result || []
+    const priceMap = {}
+
+    results.forEach(r => {
+      const yahooSymbol = (r.symbol || '').toUpperCase()
+      const base = yahooSymbol.replace(/\.(NS|BO)$/i, '')
+      const price = Number(r.regularMarketPrice ?? r.bid ?? r.ask ?? r.previousClose)
+      if (!Number.isFinite(price)) return
+      if (!priceMap[base]) {
+        priceMap[base] = { price, currency: r.currency || 'INR', sourceSymbol: yahooSymbol }
+      }
+    })
+
+    const quotes = {}
+    const missing = []
+    cleaned.forEach(sym => {
+      const key = sym.toUpperCase()
+      const q = priceMap[key] || priceMap[key.replace(/\.(NS|BO)$/i, '')]
+      if (q) quotes[sym] = q
+      else missing.push(sym)
+    })
+
+    return { quotes, missing }
+  } catch (e) {
+    console.error('[QUOTES] fetch failed:', e.message)
+    return { quotes: {}, missing: cleaned }
+  }
+}
+
 function readWorkbook(filePath) {
   if (!fs.existsSync(filePath)) {
     throw new Error(`Workbook not found at ${filePath}`);
@@ -161,6 +211,18 @@ app.get('/api/group', (req, res) => {
     res.json({ labels, values, by, value: value || 'count' });
   } catch (e) {
     res.status(500).json({ error: e.message });
+  }
+});
+
+// Live quotes endpoint
+app.get('/api/quotes', async (req, res) => {
+  try {
+    const symbolsParam = req.query.symbols || ''
+    const symbols = symbolsParam.split(',').map(s => s.trim()).filter(Boolean)
+    const { quotes, missing } = await fetchQuotes(symbols)
+    res.json({ quotes, missing })
+  } catch (e) {
+    res.status(500).json({ error: e.message })
   }
 });
 
