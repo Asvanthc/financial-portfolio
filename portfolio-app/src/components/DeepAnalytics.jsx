@@ -22,24 +22,24 @@ export default function DeepAnalytics({ divisions, analytics }) {
       const divAnalytics = analytics.divisions?.find(d => d.id === div.id)
       const divCurrent = divAnalytics?.current || 0
       const divInvested = divAnalytics?.invested || 0
-      const divPL = divAnalytics?.pl || 0
+      const divProfit = divAnalytics?.profit || 0
       const divTargetPct = Number(div.targetPercent) || 0
       
       ;(div.subdivisions || []).forEach(sub => {
         const subAnalytics = divAnalytics?.subdivisions?.find(s => s.id === sub.id) || {}
         const subCurrent = subAnalytics.current || 0
         const subInvested = subAnalytics.invested || 0
-        const subPL = subAnalytics.pl || 0
+        const subProfit = subAnalytics.profit || 0
         const subTargetPct = Number(sub.targetPercent) || 0
         
         // Calculate metrics
         const overallCurrentPct = totalCurrent > 0 ? (subCurrent / totalCurrent) * 100 : 0
         const overallTargetPct = (divTargetPct / 100) * subTargetPct
-        const roi = subInvested > 0 ? (subPL / subInvested) * 100 : 0
+        const roi = subInvested > 0 ? (subProfit / subInvested) * 100 : 0
         const deviation = overallTargetPct > 0 ? ((overallCurrentPct - overallTargetPct) / overallTargetPct) * 100 : 0
         
         totalPositions++
-        if (subPL > 0) profitablePositions++
+        if (subProfit > 0) profitablePositions++
         if (roi > maxGain) maxGain = roi
         if (roi < maxLoss) maxLoss = roi
         totalVolatility += Math.abs(deviation)
@@ -50,7 +50,7 @@ export default function DeepAnalytics({ divisions, analytics }) {
           divisionName: div.name,
           current: subCurrent,
           invested: subInvested,
-          pl: subPL,
+          pl: subProfit,
           roi,
           overallCurrentPct,
           overallTargetPct,
@@ -183,9 +183,36 @@ export default function DeepAnalytics({ divisions, analytics }) {
         <h2 style={{ margin: '0 0 8px 0', fontSize: 28, fontWeight: 900, color: '#e6e9ef', letterSpacing: '-0.5px' }}>
           🧠 Advanced Portfolio Analytics
         </h2>
-        <p style={{ color: '#94a3b8', fontSize: 14, margin: 0 }}>
+        <p style={{ color: '#94a3b8', fontSize: 14, margin: '0 0 16px 0' }}>
           Deep insights into risk, performance, diversification, and rebalancing opportunities
         </p>
+        
+        {/* Quick Guide */}
+        <div style={{ 
+          background: 'linear-gradient(135deg, rgba(34, 211, 238, 0.08), transparent)',
+          border: '1px solid rgba(34, 211, 238, 0.2)',
+          borderRadius: 12,
+          padding: 16,
+          marginBottom: 8
+        }}>
+          <div style={{ fontSize: 12, color: '#22d3ee', fontWeight: 800, marginBottom: 10, display: 'flex', alignItems: 'center', gap: 8 }}>
+            💡 QUICK GUIDE
+          </div>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 12, fontSize: 12, color: '#94a3b8', lineHeight: 1.6 }}>
+            <div>
+              <strong style={{ color: '#22d3ee' }}>P/L (Profit/Loss):</strong> Current value - Invested amount
+            </div>
+            <div>
+              <strong style={{ color: '#a78bfa' }}>ROI (Return on Investment):</strong> (P/L ÷ Invested) × 100%
+            </div>
+            <div>
+              <strong style={{ color: '#f59e0b' }}>Deviation:</strong> % difference between your current allocation and target allocation
+            </div>
+            <div>
+              <strong style={{ color: '#ef4444' }}>Risk Level:</strong> Low (&lt;15% deviation), Medium (15-30%), High (&gt;30%)
+            </div>
+          </div>
+        </div>
       </div>
 
       {/* Portfolio Health Dashboard */}
