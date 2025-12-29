@@ -274,22 +274,81 @@ export default function HoldingsTab() {
         )
       })()}
 
-      {trades.length > 0 && (
-        <div style={{ marginTop: 16, background: '#0a1018', border: '1px solid #1e293b', borderRadius: 12, padding: 12 }}>
-          <h3 style={{ margin: '0 0 10px 0', color: '#e6e9ef' }}>Trade Ledger</h3>
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 8, alignItems: 'center' }}>
-            {trades.map((t, idx) => (
-              <div key={idx} style={{ padding: 10, borderRadius: 10, border: '1px solid #1e293b', background: 'rgba(255,255,255,0.02)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                <div style={{ color: '#e6e9ef', fontWeight: 800 }}>{t.symbol}</div>
-                <div style={{ color: t.side === 'buy' ? '#22c55e' : '#ef4444', fontWeight: 800 }}>{t.side.toUpperCase()}</div>
-                <div style={{ color: '#7c92ab', fontWeight: 700 }}>Qty {t.qty}</div>
-                <div style={{ color: '#7dd3fc', fontWeight: 800 }}>{formatINR(t.price)}</div>
-                <div style={{ color: '#94a3b8', fontSize: 11 }}>{new Date(t.date).toLocaleDateString()}</div>
-              </div>
-            ))}
+      {trades.length > 0 && (() => {
+        const now = new Date()
+        const dayMs = 86400000
+        const groupedByDate = trades.reduce((acc, t) => {
+          const dateKey = new Date(t.date).toLocaleDateString()
+          if (!acc[dateKey]) acc[dateKey] = []
+          acc[dateKey].push(t)
+          return acc
+        }, {})
+        const sortedDates = Object.keys(groupedByDate).sort((a, b) => new Date(b) - new Date(a))
+        
+        return (
+          <div style={{ marginTop: 16, background: '#0a1018', border: '1px solid #1e293b', borderRadius: 12, padding: 16 }}>
+            <h3 style={{ margin: '0 0 16px 0', color: '#e6e9ef', fontSize: 18, fontWeight: 900 }}>📅 Trade Ledger</h3>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+              {sortedDates.map(dateKey => {
+                const dayTrades = groupedByDate[dateKey]
+                const tradeDate = new Date(dayTrades[0].date)
+                const daysAgo = Math.floor((now - tradeDate) / dayMs)
+                const timeLabel = daysAgo === 0 ? 'Today' : daysAgo === 1 ? 'Yesterday' : `${daysAgo} days ago`
+                const isLongTerm = daysAgo >= 365
+                const borderColor = isLongTerm ? '#22c55e' : daysAgo >= 180 ? '#fb923c' : '#3b82f6'
+                
+                return (
+                  <div key={dateKey} style={{ border: `2px solid ${borderColor}33`, borderRadius: 12, padding: 14, background: 'linear-gradient(135deg, rgba(255,255,255,0.02) 0%, rgba(255,255,255,0.005) 100%)' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 10, borderBottom: `1px solid ${borderColor}22`, paddingBottom: 8 }}>
+                      <div style={{ flex: 1 }}>
+                        <div style={{ fontSize: 16, fontWeight: 900, color: borderColor, marginBottom: 2 }}>{dateKey}</div>
+                        <div style={{ fontSize: 11, color: '#7c92ab', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.5px' }}>
+                          {timeLabel} {isLongTerm && '• LONG TERM'}
+                        </div>
+                      </div>
+                      <div style={{ padding: '6px 12px', borderRadius: 8, background: `${borderColor}22`, border: `1px solid ${borderColor}44` }}>
+                        <div style={{ fontSize: 11, color: '#7c92ab', fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.6px' }}>Trades</div>
+                        <div style={{ fontSize: 16, fontWeight: 900, color: borderColor }}>{dayTrades.length}</div>
+                      </div>
+                    </div>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                      {dayTrades.map((t, idx) => {
+                        const totalValue = t.qty * t.price
+                        return (
+                          <div key={idx} style={{ display: 'grid', gridTemplateColumns: '2fr 0.8fr 1fr 1fr 1.2fr', gap: 10, alignItems: 'center', padding: '8px 10px', borderRadius: 8, background: 'rgba(255,255,255,0.02)', border: '1px solid #1e293b' }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                              <div style={{ padding: '4px 8px', borderRadius: 6, background: t.side === 'buy' ? '#22c55e22' : '#ef444422', border: `1px solid ${t.side === 'buy' ? '#22c55e44' : '#ef444444'}` }}>
+                                <span style={{ fontSize: 10, fontWeight: 900, color: t.side === 'buy' ? '#22c55e' : '#ef4444', letterSpacing: '0.5px' }}>{t.side.toUpperCase()}</span>
+                              </div>
+                              <span style={{ color: '#e6e9ef', fontWeight: 800, fontSize: 14 }}>{t.symbol}</span>
+                            </div>
+                            <div style={{ textAlign: 'right' }}>
+                              <div style={{ fontSize: 10, color: '#7c92ab', fontWeight: 700 }}>QTY</div>
+                              <div style={{ color: '#e6e9ef', fontWeight: 700, fontSize: 13 }}>{t.qty}</div>
+                            </div>
+                            <div style={{ textAlign: 'right' }}>
+                              <div style={{ fontSize: 10, color: '#7c92ab', fontWeight: 700 }}>PRICE</div>
+                              <div style={{ color: '#7dd3fc', fontWeight: 800, fontSize: 13 }}>{formatINR(t.price)}</div>
+                            </div>
+                            <div style={{ textAlign: 'right' }}>
+                              <div style={{ fontSize: 10, color: '#7c92ab', fontWeight: 700 }}>VALUE</div>
+                              <div style={{ color: '#fbbf24', fontWeight: 800, fontSize: 13 }}>{formatINR(totalValue)}</div>
+                            </div>
+                            <div style={{ textAlign: 'right' }}>
+                              <div style={{ fontSize: 10, color: '#7c92ab', fontWeight: 700 }}>TIME</div>
+                              <div style={{ color: '#a78bfa', fontWeight: 700, fontSize: 12 }}>{new Date(t.date).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</div>
+                            </div>
+                          </div>
+                        )
+                      })}
+                    </div>
+                  </div>
+                )
+              })}
+            </div>
           </div>
-        </div>
-      )}
+        )
+      })()}
     </div>
   )
 }
