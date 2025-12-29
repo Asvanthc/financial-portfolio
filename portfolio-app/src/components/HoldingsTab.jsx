@@ -295,10 +295,26 @@ export default function HoldingsTab() {
         )
       })()}
 
-      {trades.length > 0 && (() => {
+      {trades.length > 0 && positions.length > 0 && (() => {
         const now = new Date()
         const dayMs = 86400000
-        const groupedByDate = trades.reduce((acc, t) => {
+        
+        // Get active lots from positions (only show trades that still have holdings)
+        const activeLots = []
+        positions.forEach(p => {
+          p.lots.forEach(lot => {
+            activeLots.push({
+              symbol: p.symbol,
+              qty: lot.qty,
+              price: lot.price,
+              date: lot.date,
+              side: 'buy' // Only buy lots remain in positions
+            })
+          })
+        })
+        
+        // Group active lots by date
+        const groupedByDate = activeLots.reduce((acc, t) => {
           const dateKey = new Date(t.date).toLocaleDateString()
           if (!acc[dateKey]) acc[dateKey] = []
           acc[dateKey].push(t)
@@ -308,7 +324,7 @@ export default function HoldingsTab() {
         
         return (
           <div style={{ marginTop: 16, background: '#0a1018', border: '1px solid #1e293b', borderRadius: 12, padding: 16 }}>
-            <h3 style={{ margin: '0 0 16px 0', color: '#e6e9ef', fontSize: 18, fontWeight: 900 }}>📅 Trade Ledger</h3>
+            <h3 style={{ margin: '0 0 16px 0', color: '#e6e9ef', fontSize: 18, fontWeight: 900 }}>� Active Holdings Ledger</h3>
             <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
               {sortedDates.map(dateKey => {
                 const dayTrades = groupedByDate[dateKey]
@@ -338,14 +354,14 @@ export default function HoldingsTab() {
                         return (
                           <div key={idx} style={{ display: 'grid', gridTemplateColumns: '2fr 0.8fr 1fr 1fr 1.2fr', gap: 10, alignItems: 'center', padding: '8px 10px', borderRadius: 8, background: 'rgba(255,255,255,0.02)', border: '1px solid #1e293b' }}>
                             <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                              <div style={{ padding: '4px 8px', borderRadius: 6, background: t.side === 'buy' ? '#22c55e22' : '#ef444422', border: `1px solid ${t.side === 'buy' ? '#22c55e44' : '#ef444444'}` }}>
-                                <span style={{ fontSize: 10, fontWeight: 900, color: t.side === 'buy' ? '#22c55e' : '#ef4444', letterSpacing: '0.5px' }}>{t.side.toUpperCase()}</span>
+                              <div style={{ padding: '4px 8px', borderRadius: 6, background: '#22c55e22', border: '1px solid #22c55e44' }}>
+                                <span style={{ fontSize: 10, fontWeight: 900, color: '#22c55e', letterSpacing: '0.5px' }}>HELD</span>
                               </div>
                               <span style={{ color: '#e6e9ef', fontWeight: 800, fontSize: 14 }}>{t.symbol}</span>
                             </div>
                             <div style={{ textAlign: 'right' }}>
                               <div style={{ fontSize: 10, color: '#7c92ab', fontWeight: 700 }}>QTY</div>
-                              <div style={{ color: '#e6e9ef', fontWeight: 700, fontSize: 13 }}>{t.qty}</div>
+                              <div style={{ color: '#22c55e', fontWeight: 700, fontSize: 13 }}>{t.qty}</div>
                             </div>
                             <div style={{ textAlign: 'right' }}>
                               <div style={{ fontSize: 10, color: '#7c92ab', fontWeight: 700 }}>PRICE</div>
