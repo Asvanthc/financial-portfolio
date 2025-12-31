@@ -4,7 +4,7 @@ import HoldingsEditor from './HoldingsEditor'
 
 import EditSubdivisionForm from './EditSubdivisionForm'
 
-export default function DivisionCard({ division, analytics, subdivisionGoalSeek, onUpdate }) {
+export default function DivisionCard({ division, analytics, subdivisionGoalSeek, totalPortfolioCurrent, onUpdate }) {
   const [expanded, setExpanded] = useState(true)
   const [newSubDiv, setNewSubDiv] = useState({ name: '', targetPercent: '' })
   const [hoveredDiv, setHoveredDiv] = useState(false)
@@ -284,6 +284,7 @@ export default function DivisionCard({ division, analytics, subdivisionGoalSeek,
                 const subTargetPct = subAnalytics.targetPercent || 0
                 const subDelta = subAnalytics.deltaPercent || 0
                 const subProfitPercent = subInvested > 0 ? (subProfit / subInvested) * 100 : 0
+                const portfolioPct = totalPortfolioCurrent > 0 ? (subCurrent / totalPortfolioCurrent) * 100 : 0
 
                 return (
                   <div 
@@ -305,6 +306,16 @@ export default function DivisionCard({ division, analytics, subdivisionGoalSeek,
                       <div style={{ flex: 1, display: 'flex', alignItems: 'center', gap: 10 }}>
                         <span style={{ color: '#e6e9ef', fontSize: 16, fontWeight: 700 }}>{sub.name}</span>
                         <span style={{ color: '#a78bfa', fontSize: 12, fontWeight: 700 }}>🎯 {subTargetPct.toFixed(2)}%</span>
+                        <span style={{ 
+                          color: '#10b981', 
+                          fontSize: 11, 
+                          fontWeight: 800, 
+                          background: 'rgba(16,185,129,0.15)', 
+                          padding: '3px 8px', 
+                          borderRadius: 6,
+                          border: '1px solid rgba(16,185,129,0.3)',
+                          letterSpacing: '0.3px'
+                        }}>🌐 {portfolioPct.toFixed(2)}% of Portfolio</span>
                         <button
                           type="button"
                           onClick={() => setEditingSubdivision({ ...sub })}

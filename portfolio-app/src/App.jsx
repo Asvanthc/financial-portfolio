@@ -341,7 +341,7 @@ export default function App() {
           📁 Portfolio Divisions
         </h2>
         {(portfolio.divisions || []).map(div => (
-          <DivisionCard key={div.id} division={div} analytics={analytics} subdivisionGoalSeek={subdivisionGoalSeek} onUpdate={refreshAll} />
+          <DivisionCard key={div.id} division={div} analytics={analytics} subdivisionGoalSeek={subdivisionGoalSeek} totalPortfolioCurrent={totalCurrent} onUpdate={refreshAll} />
         ))}
       </div>
       </>
