@@ -9,6 +9,8 @@ export default function EditSubdivisionForm({ isOpen, onClose, subdivision, hold
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
   const [deletedIds, setDeletedIds] = useState([])
+  const [addInvestmentId, setAddInvestmentId] = useState(null)
+  const [addInvestmentAmount, setAddInvestmentAmount] = useState('')
 
   useEffect(() => {
     if (subdivision) {
@@ -49,6 +51,18 @@ export default function EditSubdivisionForm({ isOpen, onClose, subdivision, hold
     if (!row) return
     if (!row._isNew) setDeletedIds(prev => [...prev, id])
     setRows(prev => prev.filter(r => r.id !== id))
+  }
+
+  const handleAddInvestment = (id) => {
+    const amount = Number(addInvestmentAmount) || 0
+    if (amount <= 0) return
+    
+    updateRow(id, { 
+      invested: rows.find(r => r.id === id).invested + amount,
+      current: rows.find(r => r.id === id).current + amount
+    })
+    setAddInvestmentId(null)
+    setAddInvestmentAmount('')
   }
 
   // Live summary for better visualization
@@ -160,42 +174,29 @@ export default function EditSubdivisionForm({ isOpen, onClose, subdivision, hold
         </div>
 
         <div style={{ marginTop: 6, borderTop: '1px solid #1e293b', paddingTop: 10 }}>
-          <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr 1fr 1fr 60px', gap: 8, alignItems: 'center', marginBottom: 8 }}>
+          <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr 1fr 1fr 80px 60px', gap: 8, alignItems: 'center', marginBottom: 8 }}>
             <div style={{ color: '#7c92ab', fontSize: 11, textTransform: 'uppercase', fontWeight: 700 }}>Holding</div>
             <div style={{ color: '#7c92ab', fontSize: 11, textTransform: 'uppercase', fontWeight: 700, textAlign: 'right' }}>Invested (₹)</div>
             <div style={{ color: '#7c92ab', fontSize: 11, textTransform: 'uppercase', fontWeight: 700, textAlign: 'right' }}>Current (₹)</div>
             <div style={{ color: '#7c92ab', fontSize: 11, textTransform: 'uppercase', fontWeight: 700, textAlign: 'right' }}>Target %</div>
+            <div style={{ color: '#7c92ab', fontSize: 11, textTransform: 'uppercase', fontWeight: 700, textAlign: 'center' }}>Add ₹</div>
             <div></div>
           </div>
 
           {rows.map(r => (
-            <div key={r.id} style={{ display: 'grid', gridTemplateColumns: '2fr 1fr 1fr 1fr 60px', gap: 8, alignItems: 'center', marginBottom: 8 }}>
+            <div key={r.id} style={{ display: 'grid', gridTemplateColumns: '2fr 1fr 1fr 1fr 80px 60px', gap: 8, alignItems: 'center', marginBottom: 8 }}>
               <input
                 type="text"
                 value={r.name}
                 onChange={e => updateRow(r.id, { name: e.target.value })}
                 style={{ width: '100%', padding: '8px 10px', borderRadius: 8, border: '1px solid #2d3f5f', background: '#0f1724', color: '#e6e9ef', fontSize: 13 }}
               />
-              <div style={{ display: 'flex', gap: 4, alignItems: 'center' }}>
-                <button
-                  type="button"
-                  onClick={() => updateRow(r.id, { invested: Math.max(0, r.invested - 1000) })}
-                  style={{ padding: '6px 8px', borderRadius: 6, border: 'none', background: '#2d3f5f', color: '#fbbf24', fontSize: 12, fontWeight: 900, cursor: 'pointer', flexShrink: 0 }}
-                  title="Decrease by 1000"
-                >−</button>
-                <input
-                  type="number"
-                  value={r.invested}
-                  onChange={e => updateRow(r.id, { invested: Number(e.target.value) || 0 })}
-                  style={{ width: '100%', padding: '8px 6px', borderRadius: 8, border: '1px solid #2d3f5f', background: '#0f1724', color: '#fbbf24', fontSize: 13, textAlign: 'right' }}
-                />
-                <button
-                  type="button"
-                  onClick={() => updateRow(r.id, { invested: r.invested + 1000 })}
-                  style={{ padding: '6px 8px', borderRadius: 6, border: 'none', background: '#2d3f5f', color: '#fbbf24', fontSize: 12, fontWeight: 900, cursor: 'pointer', flexShrink: 0 }}
-                  title="Increase by 1000"
-                >+</button>
-              </div>
+              <input
+                type="number"
+                value={r.invested}
+                onChange={e => updateRow(r.id, { invested: Number(e.target.value) || 0 })}
+                style={{ width: '100%', padding: '8px 10px', borderRadius: 8, border: '1px solid #2d3f5f', background: '#0f1724', color: '#fbbf24', fontSize: 13, textAlign: 'right' }}
+              />
               <input
                 type="number"
                 value={r.current}
@@ -209,6 +210,38 @@ export default function EditSubdivisionForm({ isOpen, onClose, subdivision, hold
                 onChange={e => updateRow(r.id, { targetPercent: Number(e.target.value) || 0 })}
                 style={{ width: '100%', padding: '8px 10px', borderRadius: 8, border: '1px solid #2d3f5f', background: '#0f1724', color: '#a78bfa', fontSize: 13, textAlign: 'right' }}
               />
+              <div style={{ position: 'relative' }}>
+                {addInvestmentId === r.id ? (
+                  <div style={{ display: 'flex', gap: 4, alignItems: 'center', position: 'absolute', right: 0, top: '50%', transform: 'translateY(-50%)', background: '#1a2332', padding: '6px', borderRadius: 8, border: '2px solid #22c55e', boxShadow: '0 4px 12px rgba(34,197,94,0.3)', zIndex: 10 }}>
+                    <input
+                      type="number"
+                      value={addInvestmentAmount}
+                      onChange={e => setAddInvestmentAmount(e.target.value)}
+                      onKeyDown={e => e.key === 'Enter' && handleAddInvestment(r.id)}
+                      placeholder="Amount"
+                      autoFocus
+                      style={{ width: '80px', padding: '6px 8px', borderRadius: 6, border: '1px solid #22c55e', background: '#0f1724', color: '#22c55e', fontSize: 12, textAlign: 'right' }}
+                    />
+                    <button
+                      type="button"
+                      onClick={() => handleAddInvestment(r.id)}
+                      style={{ padding: '6px 10px', borderRadius: 6, border: 'none', background: '#22c55e', color: '#fff', fontSize: 12, fontWeight: 900, cursor: 'pointer' }}
+                    >✓</button>
+                    <button
+                      type="button"
+                      onClick={() => { setAddInvestmentId(null); setAddInvestmentAmount('') }}
+                      style={{ padding: '6px 8px', borderRadius: 6, border: 'none', background: '#ef4444', color: '#fff', fontSize: 12, fontWeight: 900, cursor: 'pointer' }}
+                    >✕</button>
+                  </div>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={() => setAddInvestmentId(r.id)}
+                    title="Add new investment (increases both invested & current)"
+                    style={{ width: '100%', padding: '8px', borderRadius: 8, border: 'none', background: 'linear-gradient(135deg, #22c55e, #16a34a)', color: '#fff', fontSize: 12, fontWeight: 900, cursor: 'pointer' }}
+                  >+ ₹</button>
+                )}
+              </div>
               <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
                 <button
                   type="button"
