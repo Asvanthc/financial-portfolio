@@ -176,12 +176,26 @@ export default function EditSubdivisionForm({ isOpen, onClose, subdivision, hold
                 onChange={e => updateRow(r.id, { name: e.target.value })}
                 style={{ width: '100%', padding: '8px 10px', borderRadius: 8, border: '1px solid #2d3f5f', background: '#0f1724', color: '#e6e9ef', fontSize: 13 }}
               />
-              <input
-                type="number"
-                value={r.invested}
-                onChange={e => updateRow(r.id, { invested: Number(e.target.value) || 0 })}
-                style={{ width: '100%', padding: '8px 10px', borderRadius: 8, border: '1px solid #2d3f5f', background: '#0f1724', color: '#fbbf24', fontSize: 13, textAlign: 'right' }}
-              />
+              <div style={{ display: 'flex', gap: 4, alignItems: 'center' }}>
+                <button
+                  type="button"
+                  onClick={() => updateRow(r.id, { invested: Math.max(0, r.invested - 1000) })}
+                  style={{ padding: '6px 8px', borderRadius: 6, border: 'none', background: '#2d3f5f', color: '#fbbf24', fontSize: 12, fontWeight: 900, cursor: 'pointer', flexShrink: 0 }}
+                  title="Decrease by 1000"
+                >−</button>
+                <input
+                  type="number"
+                  value={r.invested}
+                  onChange={e => updateRow(r.id, { invested: Number(e.target.value) || 0 })}
+                  style={{ width: '100%', padding: '8px 6px', borderRadius: 8, border: '1px solid #2d3f5f', background: '#0f1724', color: '#fbbf24', fontSize: 13, textAlign: 'right' }}
+                />
+                <button
+                  type="button"
+                  onClick={() => updateRow(r.id, { invested: r.invested + 1000 })}
+                  style={{ padding: '6px 8px', borderRadius: 6, border: 'none', background: '#2d3f5f', color: '#fbbf24', fontSize: 12, fontWeight: 900, cursor: 'pointer', flexShrink: 0 }}
+                  title="Increase by 1000"
+                >+</button>
+              </div>
               <input
                 type="number"
                 value={r.current}
