@@ -12,6 +12,7 @@ const {
   deleteExpense,
   loadCategories,
   saveCategories,
+  saveMonthExpenses,
   createDivision,
   createSubdivision,
   createHolding,
@@ -703,6 +704,16 @@ app.delete('/api/expenses/:id', async (req, res) => {
     const result = await deleteExpense(req.params.id)
     if (!result) return res.status(404).json({ error: 'Expense not found' })
     res.json({ success: true })
+  } catch (e) { res.status(500).json({ error: e.message }) }
+})
+
+// Save entire month's expenses atomically (replaces all existing for that month)
+app.post('/api/expenses/month', async (req, res) => {
+  try {
+    const { year, month, entries } = req.body
+    if (!year || !month || !Array.isArray(entries)) return res.status(400).json({ error: 'Invalid request' })
+    const result = await saveMonthExpenses(year, month, entries)
+    res.json({ ok: true, count: result.length })
   } catch (e) { res.status(500).json({ error: e.message }) }
 })
 

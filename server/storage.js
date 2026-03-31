@@ -219,6 +219,39 @@ async function deleteExpense(id) {
   return false
 }
 
+async function saveMonthExpenses(year, month, entries) {
+  const y = Number(year), m = Number(month)
+  if (expensesCollection) {
+    try {
+      await expensesCollection.deleteMany({ year: y, month: m })
+      if (entries.length > 0) {
+        const docs = entries.map(e => ({
+          type: e.type, category: e.category,
+          amount: Number(e.amount), month: m, year: y,
+          description: e.description || '', createdAt: new Date().toISOString()
+        }))
+        await expensesCollection.insertMany(docs)
+      }
+      console.log('[STORAGE] Month expenses saved:', y, m, entries.length, 'entries')
+      return entries
+    } catch (e) {
+      console.error('[STORAGE] MongoDB saveMonthExpenses failed:', e.message)
+    }
+  }
+  ensureDataFile()
+  const data = JSON.parse(fs.readFileSync(DATA_FILE, 'utf8'))
+  if (!data.expenses) data.expenses = []
+  data.expenses = data.expenses.filter(e => !(Number(e.year) === y && Number(e.month) === m))
+  const docs = entries.map(e => ({
+    _id: randomUUID(), type: e.type, category: e.category,
+    amount: Number(e.amount), month: m, year: y,
+    description: e.description || '', createdAt: new Date().toISOString()
+  }))
+  data.expenses.push(...docs)
+  fs.writeFileSync(DATA_FILE, JSON.stringify(data, null, 2))
+  return entries
+}
+
 async function saveCategories(categories) {
   if (categoriesCollection) {
     try {
@@ -279,6 +312,7 @@ module.exports = {
   deleteExpense,
   loadCategories,
   saveCategories,
+  saveMonthExpenses,
   createDivision,
   createSubdivision,
   createHolding,

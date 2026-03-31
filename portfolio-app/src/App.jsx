@@ -106,14 +106,16 @@ export default function App() {
               <h2 className="section-title">Divisions</h2>
               <button className="btn btn-primary btn-sm" onClick={() => setShowAddDivision(true)}>+ Add Division</button>
             </div>
-            {(portfolio.divisions || []).map(div => (
-              <DivisionCard
-                key={div.id}
-                division={div}
-                analytics={analytics}
-                onUpdate={refreshAll}
-              />
-            ))}
+            {[...(portfolio.divisions || [])]
+              .sort((a, b) => {
+                const aVal = analytics.divisions?.find(d => d.id === a.id)?.current || 0
+                const bVal = analytics.divisions?.find(d => d.id === b.id)?.current || 0
+                return bVal - aVal
+              })
+              .map(div => (
+                <DivisionCard key={div.id} division={div} analytics={analytics} onUpdate={refreshAll} />
+              ))
+            }
             {portfolio.divisions?.length === 0 && (
               <div className="card" style={{ textAlign: 'center', color: 'var(--text3)', padding: 32 }}>
                 No divisions yet. Click "Add Division" to get started.
