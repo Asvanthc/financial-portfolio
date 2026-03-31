@@ -250,8 +250,22 @@ function createSubdivision({ name, targetPercent = 0 }) {
   return { id: randomUUID(), name, targetPercent: Number(targetPercent) || 0, holdings: [] }
 }
 
-function createHolding({ name, invested = 0, current = 0, targetPercent = undefined }) {
-  const h = { id: randomUUID(), name, invested: Number(invested) || 0, current: Number(current) || 0 }
+function createHolding({ name, invested = 0, current = 0, targetPercent = undefined, platform = 'other', assetType = 'stock', ticker = '', schemeCode = '', units = 0, buyPrice = 0, currentPrice = 0, note = '' }) {
+  const h = {
+    id: randomUUID(),
+    name,
+    platform: platform || 'other',
+    assetType: assetType || 'stock',
+    ticker: ticker || '',
+    schemeCode: schemeCode || '',
+    units: Number(units) || 0,
+    buyPrice: Number(buyPrice) || 0,
+    currentPrice: Number(currentPrice) || 0,
+    invested: Number(invested) || 0,
+    current: Number(current) || 0,
+    note: note || '',
+    priceDate: null,
+  }
   if (targetPercent !== undefined) h.targetPercent = Number(targetPercent) || 0
   return h
 }

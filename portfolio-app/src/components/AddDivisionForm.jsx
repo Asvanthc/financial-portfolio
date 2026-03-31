@@ -1,138 +1,42 @@
 import React, { useState } from 'react'
-import Modal from './Modal'
 
 export default function AddDivisionForm({ isOpen, onClose, onAdd }) {
-  const [form, setForm] = useState({ name: '', targetPercent: '' })
+  const [name, setName] = useState('')
+  const [targetPercent, setTargetPercent] = useState('')
   const [error, setError] = useState('')
 
-  const handleSubmit = () => {
-    setError('')
-    if (!form.name.trim()) {
-      setError('Division name is required')
-      return
-    }
-    if (!form.targetPercent || Number(form.targetPercent) < 0 || Number(form.targetPercent) > 100) {
-      setError('Target % must be between 0 and 100')
-      return
-    }
-    onAdd({ name: form.name, targetPercent: Number(form.targetPercent) })
-    setForm({ name: '', targetPercent: '' })
-    onClose()
-  }
+  if (!isOpen) return null
 
-  const handleKeyDown = (e) => {
-    if (e.key === 'Enter') handleSubmit()
+  function handleSubmit() {
+    setError('')
+    if (!name.trim()) { setError('Name is required'); return }
+    onAdd({ name: name.trim(), targetPercent: Number(targetPercent) || 0 })
+    setName(''); setTargetPercent('')
   }
 
   return (
-    <Modal isOpen={isOpen} title="➕ Add Division" onClose={onClose}>
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-        <div>
-          <label style={{ fontSize: 11, fontWeight: 700, color: '#7c92ab', display: 'block', marginBottom: 8, textTransform: 'uppercase', letterSpacing: '0.5px' }}>
-            Division Name
-          </label>
-          <input
-            autoFocus
-            placeholder="e.g., Equity, Debt, Alternatives"
-            value={form.name}
-            onChange={e => setForm({ ...form, name: e.target.value })}
-            onKeyDown={handleKeyDown}
-            style={{
-              width: '100%',
-              padding: '12px 14px',
-              background: '#0a1018',
-              color: '#e6e9ef',
-              border: '1px solid #2d3f5f',
-              borderRadius: 8,
-              fontSize: 14,
-              outline: 'none',
-              boxSizing: 'border-box',
-            }}
-          />
+    <div className="modal-backdrop" onClick={e => e.target === e.currentTarget && onClose()}>
+      <div className="modal-box">
+        <div className="flex items-center gap-2 mb-4">
+          <h2 className="modal-title" style={{ margin: 0 }}>Add Division</h2>
+          <button className="btn-icon ml-auto" onClick={onClose} style={{ fontSize: 18 }}>×</button>
         </div>
-
-        <div>
-          <label style={{ fontSize: 11, fontWeight: 700, color: '#7c92ab', display: 'block', marginBottom: 8, textTransform: 'uppercase', letterSpacing: '0.5px' }}>
-            Target Allocation %
-          </label>
-          <input
-            type="number"
-            placeholder="e.g., 50"
-            step="0.01"
-            min="0"
-            max="100"
-            value={form.targetPercent}
-            onChange={e => setForm({ ...form, targetPercent: e.target.value })}
-            onKeyDown={handleKeyDown}
-            style={{
-              width: '100%',
-              padding: '12px 14px',
-              background: '#0a1018',
-              color: '#e6e9ef',
-              border: '1px solid #2d3f5f',
-              borderRadius: 8,
-              fontSize: 14,
-              outline: 'none',
-              textAlign: 'center',
-              boxSizing: 'border-box',
-            }}
-          />
-        </div>
-
-        {error && (
-          <div style={{
-            background: '#7f1d1d',
-            color: '#fca5a5',
-            padding: 12,
-            borderRadius: 8,
-            fontSize: 12,
-            borderLeft: '3px solid #ef4444',
-          }}>
-            {error}
+        <div className="flex flex-col gap-2">
+          <div className="form-group">
+            <label className="form-label">Division Name</label>
+            <input className="input" autoFocus placeholder="e.g. Equity, Debt, Mutual Funds" value={name} onChange={e => setName(e.target.value)} onKeyDown={e => e.key === 'Enter' && handleSubmit()} />
           </div>
-        )}
-
-        <div style={{ display: 'flex', gap: 10, marginTop: 8 }}>
-          <button
-            onClick={handleSubmit}
-            style={{
-              flex: 1,
-              padding: '12px 20px',
-              background: '#22c55e',
-              color: 'white',
-              border: 'none',
-              borderRadius: 8,
-              fontSize: 14,
-              fontWeight: 700,
-              cursor: 'pointer',
-              transition: 'all 0.2s ease',
-            }}
-            onMouseEnter={e => e.target.style.background = '#16a34a'}
-            onMouseLeave={e => e.target.style.background = '#22c55e'}
-          >
-            Create Division
-          </button>
-          <button
-            onClick={onClose}
-            style={{
-              flex: 1,
-              padding: '12px 20px',
-              background: '#374151',
-              color: '#e6e9ef',
-              border: 'none',
-              borderRadius: 8,
-              fontSize: 14,
-              fontWeight: 700,
-              cursor: 'pointer',
-              transition: 'all 0.2s ease',
-            }}
-            onMouseEnter={e => e.target.style.background = '#4b5563'}
-            onMouseLeave={e => e.target.style.background = '#374151'}
-          >
-            Cancel
-          </button>
+          <div className="form-group">
+            <label className="form-label">Target Allocation %</label>
+            <input className="input" type="number" placeholder="e.g. 50" min="0" max="100" step="0.5" value={targetPercent} onChange={e => setTargetPercent(e.target.value)} onKeyDown={e => e.key === 'Enter' && handleSubmit()} />
+          </div>
+          {error && <div style={{ background: 'var(--red-dim)', color: 'var(--red)', padding: '8px 12px', borderRadius: 6, fontSize: 12 }}>{error}</div>}
+          <div className="flex gap-2 mt-2">
+            <button className="btn btn-primary" style={{ flex: 1 }} onClick={handleSubmit}>Create Division</button>
+            <button className="btn btn-secondary" onClick={onClose}>Cancel</button>
+          </div>
         </div>
       </div>
-    </Modal>
+    </div>
   )
 }

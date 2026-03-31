@@ -61,6 +61,21 @@ if (process.env.NODE_ENV === 'production' && API_BASE_PATH && API_BASE_PATH !== 
 // Storage for uploads: place next to existing workbook and replace it atomically
 const upload = multer({ dest: path.resolve(process.cwd(), 'uploads') });
 
+// Fetch MF NAV from AMFI via mfapi.in
+async function fetchMfNav(schemeCodes) {
+  const results = {}
+  await Promise.all(schemeCodes.map(async code => {
+    try {
+      const resp = await fetch(`https://api.mfapi.in/mf/${code}/latest`)
+      if (!resp.ok) return
+      const data = await resp.json()
+      const nav = Number(data?.data?.[0]?.nav)
+      if (nav > 0) results[code] = { price: nav, date: data?.data?.[0]?.date || null, currency: 'INR' }
+    } catch (_) {}
+  }))
+  return results
+}
+
 // Fetch live quotes from Yahoo Finance (server-side to avoid CORS)
 async function fetchQuotes(symbols) {
   const cleaned = symbols
@@ -221,6 +236,75 @@ app.get('/api/group', (req, res) => {
   }
 });
 
+// MF search via mfapi.in
+app.get('/api/mf/search', async (req, res) => {
+  try {
+    const q = (req.query.q || '').trim()
+    if (!q) return res.json([])
+    const resp = await fetch(`https://api.mfapi.in/mf/search?q=${encodeURIComponent(q)}`)
+    if (!resp.ok) return res.json([])
+    const data = await resp.json()
+    res.json((data || []).slice(0, 20))
+  } catch (e) {
+    res.status(500).json({ error: e.message })
+  }
+})
+
+// MF latest NAV
+app.get('/api/mf/nav', async (req, res) => {
+  try {
+    const codes = (req.query.codes || '').split(',').map(s => s.trim()).filter(Boolean)
+    if (!codes.length) return res.json({})
+    const navs = await fetchMfNav(codes)
+    res.json(navs)
+  } catch (e) {
+    res.status(500).json({ error: e.message })
+  }
+})
+
+// Refresh price for a single holding based on its assetType + ticker/schemeCode
+app.post('/api/holdings/:hid/refresh-price', async (req, res) => {
+  try {
+    const p = await loadPortfolio()
+    let found
+    for (const d of p.divisions) {
+      if (d.holdings) {
+        const h = d.holdings.find(x => x.id === req.params.hid)
+        if (h) { found = h; break }
+      }
+      for (const sd of (d.subdivisions || [])) {
+        const h = (sd.holdings || []).find(x => x.id === req.params.hid)
+        if (h) { found = h; break }
+      }
+      if (found) break
+    }
+    if (!found) return res.status(404).json({ error: 'holding not found' })
+
+    let newPrice = null
+    const at = found.assetType || 'stock'
+
+    if (at === 'mf' && found.schemeCode) {
+      const navs = await fetchMfNav([found.schemeCode])
+      newPrice = navs[found.schemeCode]?.price ?? null
+    } else if (['stock', 'etf', 'foreign', 'gold'].includes(at) && found.ticker) {
+      const { quotes } = await fetchQuotes([found.ticker])
+      const q = quotes[found.ticker] || quotes[found.ticker.replace(/\.(NS|BO)$/i, '')]
+      newPrice = q?.price ?? null
+    }
+
+    if (newPrice !== null) {
+      found.currentPrice = newPrice
+      found.priceDate = new Date().toISOString().split('T')[0]
+      if (found.units > 0) found.current = Math.round(found.units * newPrice * 100) / 100
+      await savePortfolio(p)
+    }
+
+    res.json({ holding: found, newPrice })
+  } catch (e) {
+    res.status(500).json({ error: e.message })
+  }
+})
+
 // Live quotes endpoint
 app.get('/api/quotes', async (req, res) => {
   try {
@@ -305,9 +389,9 @@ app.post('/api/divisions/:id/holdings', async (req, res) => {
     const p = await loadPortfolio()
     const d = p.divisions.find(x => x.id === req.params.id)
     if (!d) return res.status(404).json({ error: 'division not found' })
-    const { name, invested, current, subdivisionId } = req.body || {}
+    const { name, invested, current, subdivisionId, platform, assetType, ticker, schemeCode, units, buyPrice, currentPrice, note } = req.body || {}
     if (!name) return res.status(400).json({ error: 'name required' })
-    const h = createHolding({ name, invested, current })
+    const h = createHolding({ name, invested, current, platform, assetType, ticker, schemeCode, units, buyPrice, currentPrice, note })
     if (subdivisionId) {
       const sd = (d.subdivisions || []).find(s => s.id === subdivisionId)
       if (!sd) return res.status(404).json({ error: 'subdivision not found' })
@@ -338,11 +422,20 @@ app.patch('/api/holdings/:hid', async (req, res) => {
       if (found) break
     }
     if (!found) return res.status(404).json({ error: 'holding not found' })
-    const { name, invested, current, targetPercent } = req.body || {}
+    const { name, invested, current, targetPercent, platform, assetType, ticker, schemeCode, units, buyPrice, currentPrice, priceDate, note } = req.body || {}
     if (name !== undefined) found.name = name
     if (invested !== undefined) found.invested = Number(invested) || 0
     if (current !== undefined) found.current = Number(current) || 0
     if (targetPercent !== undefined) found.targetPercent = Number(targetPercent) || 0
+    if (platform !== undefined) found.platform = platform
+    if (assetType !== undefined) found.assetType = assetType
+    if (ticker !== undefined) found.ticker = ticker
+    if (schemeCode !== undefined) found.schemeCode = schemeCode
+    if (units !== undefined) found.units = Number(units) || 0
+    if (buyPrice !== undefined) found.buyPrice = Number(buyPrice) || 0
+    if (currentPrice !== undefined) found.currentPrice = Number(currentPrice) || 0
+    if (priceDate !== undefined) found.priceDate = priceDate
+    if (note !== undefined) found.note = note
     await savePortfolio(p)
     res.json(found)
   } catch (e) { res.status(500).json({ error: e.message }) }

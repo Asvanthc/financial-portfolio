@@ -1,455 +1,278 @@
 import React, { useMemo } from 'react'
-import { Pie, Bar, Doughnut } from 'react-chartjs-2'
-import { Chart as ChartJS, ArcElement, CategoryScale, LinearScale, BarElement, Title, Tooltip, Legend } from 'chart.js'
+import { Doughnut, Bar } from 'react-chartjs-2'
+import { Chart as ChartJS, ArcElement, CategoryScale, LinearScale, BarElement, Tooltip, Legend } from 'chart.js'
 
-ChartJS.register(ArcElement, CategoryScale, LinearScale, BarElement, Title, Tooltip, Legend)
+ChartJS.register(ArcElement, CategoryScale, LinearScale, BarElement, Tooltip, Legend)
+
+function fmt(n) {
+  if (!n && n !== 0) return '—'
+  const abs = Math.abs(n)
+  if (abs >= 1e7) return `₹${(n / 1e7).toFixed(2)}Cr`
+  if (abs >= 1e5) return `₹${(n / 1e5).toFixed(1)}L`
+  return `₹${Math.round(n).toLocaleString('en-IN')}`
+}
+
+const COLORS = ['#22d3ee','#a78bfa','#4ade80','#fb923c','#f472b6','#818cf8','#facc15','#34d399','#60a5fa','#f87171']
 
 export default function DeepAnalytics({ divisions, analytics }) {
   const totalCurrent = analytics?.totals?.current || 0
   const totalInvested = analytics?.totals?.invested || 0
-  const totalPL = analytics?.totals?.pl || 0
+  const totalProfit = analytics?.totals?.profit || 0
 
-  // Advanced metrics computation
-  const advancedMetrics = useMemo(() => {
-    const items = []
-    let totalPositions = 0
-    let profitablePositions = 0
-    let maxGain = 0
-    let maxLoss = 0
-    let totalVolatility = 0
-    
+  const metrics = useMemo(() => {
+    let positions = 0, profitable = 0, maxGain = 0, maxLoss = 0, totalDev = 0
+    const allItems = []
+
+    // Gather all holdings (direct + from subdivisions)
     divisions.forEach(div => {
-      const divAnalytics = analytics.divisions?.find(d => d.id === div.id)
-      const divCurrent = divAnalytics?.current || 0
-      const divInvested = divAnalytics?.invested || 0
-      const divProfit = divAnalytics?.profit || 0
+      const da = analytics.divisions?.find(d => d.id === div.id) || {}
       const divTargetPct = Number(div.targetPercent) || 0
-      
-      ;(div.subdivisions || []).forEach(sub => {
-        const subAnalytics = divAnalytics?.subdivisions?.find(s => s.id === sub.id) || {}
-        const subCurrent = subAnalytics.current || 0
-        const subInvested = subAnalytics.invested || 0
-        const subProfit = subAnalytics.profit || 0
-        const subTargetPct = Number(sub.targetPercent) || 0
-        
-        // Calculate metrics
-        const overallCurrentPct = totalCurrent > 0 ? (subCurrent / totalCurrent) * 100 : 0
-        const overallTargetPct = (divTargetPct / 100) * subTargetPct
-        const roi = subInvested > 0 ? (subProfit / subInvested) * 100 : 0
-        const deviation = overallTargetPct > 0 ? ((overallCurrentPct - overallTargetPct) / overallTargetPct) * 100 : 0
-        
-        totalPositions++
-        if (subProfit > 0) profitablePositions++
+
+      const processHolding = (h, parentName) => {
+        const invested = Number(h.invested) || 0
+        const current = Number(h.current) || 0
+        const profit = current - invested
+        const roi = invested > 0 ? (profit / invested) * 100 : 0
+        const currentPct = totalCurrent > 0 ? (current / totalCurrent) * 100 : 0
+        positions++
+        if (profit > 0) profitable++
         if (roi > maxGain) maxGain = roi
         if (roi < maxLoss) maxLoss = roi
-        totalVolatility += Math.abs(deviation)
-        
-        items.push({
-          id: sub.id,
-          name: sub.name,
-          divisionName: div.name,
-          current: subCurrent,
-          invested: subInvested,
-          pl: subProfit,
-          roi,
-          overallCurrentPct,
-          overallTargetPct,
-          deviation,
-          risk: Math.abs(deviation) > 30 ? 'High' : Math.abs(deviation) > 15 ? 'Medium' : 'Low'
-        })
+        allItems.push({ name: h.name, parent: parentName, invested, current, profit, roi, currentPct, platform: h.platform, assetType: h.assetType })
+      }
+
+      ;(div.holdings || []).forEach(h => processHolding(h, div.name))
+      ;(div.subdivisions || []).forEach(sub => {
+        ;(sub.holdings || []).forEach(h => processHolding(h, `${div.name} / ${sub.name}`))
       })
+
+      // Division-level metrics
+      const currentPct = da.currentPercent || 0
+      const dev = divTargetPct > 0 ? Math.abs(currentPct - divTargetPct) : 0
+      totalDev += dev
     })
-    
-    const winRate = totalPositions > 0 ? (profitablePositions / totalPositions) * 100 : 0
-    const avgVolatility = totalPositions > 0 ? totalVolatility / totalPositions : 0
-    const diversificationScore = totalPositions > 0 ? Math.min(100, (totalPositions / 15) * 100) : 0
-    const portfolioHealth = ((winRate * 0.4) + (diversificationScore * 0.3) + (Math.max(0, 100 - avgVolatility) * 0.3))
-    
-    return { 
-      items, 
-      totalPositions, 
-      profitablePositions, 
-      winRate, 
-      maxGain, 
-      maxLoss, 
-      avgVolatility,
-      diversificationScore,
-      portfolioHealth
-    }
+
+    const winRate = positions > 0 ? (profitable / positions) * 100 : 0
+    const avgDev = analytics.divisions?.length > 0 ? totalDev / analytics.divisions.length : 0
+    const diversification = Math.min(100, (positions / 12) * 100)
+    const health = (winRate * 0.4) + (diversification * 0.3) + (Math.max(0, 100 - avgDev * 3) * 0.3)
+
+    // Platform breakdown
+    const byPlatform = {}
+    allItems.forEach(h => {
+      const p = h.platform || 'other'
+      if (!byPlatform[p]) byPlatform[p] = { invested: 0, current: 0 }
+      byPlatform[p].invested += h.invested
+      byPlatform[p].current += h.current
+    })
+
+    // Asset type breakdown
+    const byAsset = {}
+    allItems.forEach(h => {
+      const a = h.assetType || 'other'
+      if (!byAsset[a]) byAsset[a] = 0
+      byAsset[a] += h.current
+    })
+
+    return { positions, profitable, winRate, maxGain, maxLoss, avgDev, diversification, health, allItems, byPlatform, byAsset }
   }, [divisions, analytics, totalCurrent])
 
-  // Portfolio Health Score Card
-  const healthColor = advancedMetrics.portfolioHealth >= 70 ? '#10b981' : advancedMetrics.portfolioHealth >= 40 ? '#f59e0b' : '#ef4444'
-  const riskLevel = advancedMetrics.avgVolatility > 25 ? '🔴 High Risk' : advancedMetrics.avgVolatility > 15 ? '🟡 Medium Risk' : '🟢 Low Risk'
-  
-  // Risk Distribution
-  const riskDist = advancedMetrics.items.reduce((acc, item) => {
-    acc[item.risk] = (acc[item.risk] || 0) + 1
-    return acc
-  }, {})
+  const returnPct = totalInvested > 0 ? (totalProfit / totalInvested) * 100 : 0
+  const healthColor = metrics.health >= 70 ? 'var(--green)' : metrics.health >= 45 ? 'var(--orange)' : 'var(--red)'
 
-  // ROI Distribution Chart
-  const roiData = {
-    labels: advancedMetrics.items.map(s => s.name).slice(0, 10),
+  // Allocation chart
+  const allocData = {
+    labels: (analytics.divisions || []).map(d => d.name),
     datasets: [{
-      label: 'ROI %',
-      data: advancedMetrics.items.map(s => s.roi).slice(0, 10),
-      backgroundColor: advancedMetrics.items.map(s => s.roi >= 0 ? 'rgba(16, 185, 129, 0.8)' : 'rgba(239, 68, 68, 0.8)'),
-      borderColor: advancedMetrics.items.map(s => s.roi >= 0 ? '#10b981' : '#ef4444'),
-      borderWidth: 2,
-      borderRadius: 8,
+      data: (analytics.divisions || []).map(d => d.current || 0),
+      backgroundColor: COLORS,
+      borderWidth: 0,
     }]
   }
 
-  // Risk Distribution Pie
-  const riskDistData = {
-    labels: ['Low Risk', 'Medium Risk', 'High Risk'],
+  // Asset type chart
+  const assetLabels = Object.keys(metrics.byAsset)
+  const assetData = {
+    labels: assetLabels.map(k => k.toUpperCase()),
     datasets: [{
-      data: [riskDist['Low'] || 0, riskDist['Medium'] || 0, riskDist['High'] || 0],
-      backgroundColor: ['rgba(16, 185, 129, 0.9)', 'rgba(245, 158, 11, 0.9)', 'rgba(239, 68, 68, 0.9)'],
-      borderColor: '#0b1220',
-      borderWidth: 3,
-      hoverOffset: 15,
+      data: assetLabels.map(k => metrics.byAsset[k]),
+      backgroundColor: COLORS,
+      borderWidth: 0,
     }]
   }
 
-  // Allocation vs Target
-  const allocationData = {
-    labels: advancedMetrics.items.map(s => s.name).slice(0, 8),
+  // Division vs target bar
+  const barData = {
+    labels: (analytics.divisions || []).map(d => d.name),
     datasets: [
       {
-        label: 'Target %',
-        data: advancedMetrics.items.map(s => s.overallTargetPct).slice(0, 8),
-        backgroundColor: 'rgba(34, 197, 94, 0.7)',
-        borderColor: '#22c55e',
-        borderWidth: 2,
-        borderRadius: 6,
+        label: 'Current %',
+        data: (analytics.divisions || []).map(d => Number((d.currentPercent || 0).toFixed(1))),
+        backgroundColor: 'rgba(34,211,238,0.6)',
       },
       {
-        label: 'Current %',
-        data: advancedMetrics.items.map(s => s.overallCurrentPct).slice(0, 8),
-        backgroundColor: 'rgba(34, 211, 238, 0.7)',
-        borderColor: '#22d3ee',
-        borderWidth: 2,
-        borderRadius: 6,
-      },
-    ],
+        label: 'Target %',
+        data: (analytics.divisions || []).map(d => Number((d.targetPercent || 0))),
+        backgroundColor: 'rgba(167,139,250,0.4)',
+      }
+    ]
   }
 
-  const chartOptions = {
-    responsive: true,
-    maintainAspectRatio: true,
-    animation: { duration: 1000, easing: 'easeInOutQuart' },
-    plugins: {
-      legend: {
-        labels: { 
-          color: '#e6e9ef', 
-          font: { size: 12, weight: '700' },
-          padding: 12,
-          usePointStyle: true,
-        },
-      },
-      tooltip: {
-        backgroundColor: 'rgba(15, 23, 36, 0.95)',
-        titleColor: '#22d3ee',
-        bodyColor: '#e6e9ef',
-        borderColor: '#22d3ee',
-        borderWidth: 2,
-        padding: 12,
-        cornerRadius: 8,
-      },
-    },
+  const pieOpts = {
+    responsive: true, maintainAspectRatio: false,
+    plugins: { legend: { position: 'bottom', labels: { color: '#94a3b8', font: { size: 11 }, boxWidth: 12 } }, tooltip: { callbacks: { label: ctx => `${ctx.label}: ${fmt(ctx.raw)}` } } }
   }
-
-  const barOptions = {
-    ...chartOptions,
-    indexAxis: 'y',
+  const barOpts = {
+    responsive: true, maintainAspectRatio: false,
+    plugins: { legend: { labels: { color: '#94a3b8', font: { size: 11 } } }, tooltip: {} },
     scales: {
-      x: {
-        grid: { color: 'rgba(26, 36, 54, 0.4)' },
-        ticks: { color: '#9fb3c8', font: { size: 11 } },
-      },
-      y: {
-        grid: { display: false },
-        ticks: { color: '#9fb3c8', font: { size: 10 } },
-      },
-    },
+      x: { ticks: { color: '#64748b', font: { size: 11 } }, grid: { display: false } },
+      y: { ticks: { color: '#64748b', callback: v => `${v}%` }, grid: { color: '#1f2937' } }
+    }
   }
 
   return (
-    <div style={{ padding: '20px', background: '#0a0f1a' }}>
-      {/* Header */}
-      <div style={{ marginBottom: 24 }}>
-        <h2 style={{ margin: '0 0 8px 0', fontSize: 28, fontWeight: 900, color: '#e6e9ef', letterSpacing: '-0.5px' }}>
-          🧠 Advanced Portfolio Analytics
-        </h2>
-        <p style={{ color: '#94a3b8', fontSize: 14, margin: '0 0 16px 0' }}>
-          Deep insights into risk, performance, diversification, and rebalancing opportunities
-        </p>
-        
-        {/* Quick Guide */}
-        <div style={{ 
-          background: 'linear-gradient(135deg, rgba(34, 211, 238, 0.08), transparent)',
-          border: '1px solid rgba(34, 211, 238, 0.2)',
-          borderRadius: 12,
-          padding: 16,
-          marginBottom: 8
-        }}>
-          <div style={{ fontSize: 12, color: '#22d3ee', fontWeight: 800, marginBottom: 10, display: 'flex', alignItems: 'center', gap: 8 }}>
-            💡 QUICK GUIDE
-          </div>
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 12, fontSize: 12, color: '#94a3b8', lineHeight: 1.6 }}>
-            <div>
-              <strong style={{ color: '#22d3ee' }}>P/L (Profit/Loss):</strong> Current value - Invested amount
-            </div>
-            <div>
-              <strong style={{ color: '#a78bfa' }}>ROI (Return on Investment):</strong> (P/L ÷ Invested) × 100%
-            </div>
-            <div>
-              <strong style={{ color: '#f59e0b' }}>Deviation:</strong> % difference between your current allocation and target allocation
-            </div>
-            <div>
-              <strong style={{ color: '#ef4444' }}>Risk Level:</strong> Low (&lt;15% deviation), Medium (15-30%), High (&gt;30%)
-            </div>
-          </div>
+    <div>
+      <div className="section-header">
+        <h2 className="section-title">Analytics</h2>
+      </div>
+
+      {/* Top KPIs */}
+      <div className="metric-grid mb-4">
+        <div className="metric-card">
+          <div className="metric-label">Portfolio Health</div>
+          <div className="metric-value" style={{ color: healthColor }}>{metrics.health.toFixed(0)}<span style={{ fontSize: 14 }}>/100</span></div>
+        </div>
+        <div className="metric-card">
+          <div className="metric-label">Win Rate</div>
+          <div className="metric-value" style={{ color: metrics.winRate >= 60 ? 'var(--green)' : 'var(--orange)' }}>{metrics.winRate.toFixed(0)}%</div>
+          <div style={{ fontSize: 11, color: 'var(--text3)', marginTop: 2 }}>{metrics.profitable}/{metrics.positions} profitable</div>
+        </div>
+        <div className="metric-card">
+          <div className="metric-label">Total Return</div>
+          <div className="metric-value" style={{ color: returnPct >= 0 ? 'var(--green)' : 'var(--red)' }}>{returnPct >= 0 ? '+' : ''}{returnPct.toFixed(1)}%</div>
+          <div style={{ fontSize: 11, color: 'var(--text3)', marginTop: 2 }}>{fmt(totalProfit)}</div>
+        </div>
+        <div className="metric-card">
+          <div className="metric-label">Best ROI</div>
+          <div className="metric-value" style={{ color: 'var(--green)' }}>+{metrics.maxGain.toFixed(1)}%</div>
+        </div>
+        <div className="metric-card">
+          <div className="metric-label">Worst ROI</div>
+          <div className="metric-value" style={{ color: 'var(--red)' }}>{metrics.maxLoss.toFixed(1)}%</div>
+        </div>
+        <div className="metric-card">
+          <div className="metric-label">Positions</div>
+          <div className="metric-value" style={{ color: 'var(--cyan)' }}>{metrics.positions}</div>
+        </div>
+        <div className="metric-card">
+          <div className="metric-label">Avg Allocation Gap</div>
+          <div className="metric-value" style={{ color: metrics.avgDev < 3 ? 'var(--green)' : 'var(--orange)' }}>{metrics.avgDev.toFixed(1)}%</div>
+        </div>
+        <div className="metric-card">
+          <div className="metric-label">Diversification</div>
+          <div className="metric-value" style={{ color: 'var(--purple)' }}>{metrics.diversification.toFixed(0)}<span style={{ fontSize: 14 }}>/100</span></div>
         </div>
       </div>
 
-      {/* Portfolio Health Dashboard */}
-      <div style={{ 
-        display: 'grid', 
-        gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', 
-        gap: 16, 
-        marginBottom: 24 
-      }}>
-        <div style={{ 
-          background: `linear-gradient(135deg, ${healthColor}15, transparent)`,
-          border: `2px solid ${healthColor}40`,
-          borderRadius: 16,
-          padding: 20,
-          boxShadow: `0 8px 24px ${healthColor}20`
-        }}>
-          <div style={{ fontSize: 12, color: '#94a3b8', fontWeight: 800, textTransform: 'uppercase', marginBottom: 8 }}>
-            Portfolio Health Score
-          </div>
-          <div style={{ fontSize: 40, fontWeight: 900, color: healthColor, marginBottom: 4 }}>
-            {advancedMetrics.portfolioHealth.toFixed(0)}%
-          </div>
-          <div style={{ fontSize: 11, color: '#7c92ab' }}>
-            {advancedMetrics.portfolioHealth >= 70 ? '🎉 Excellent' : advancedMetrics.portfolioHealth >= 40 ? '👍 Good' : '⚠️ Needs Attention'}
-          </div>
+      {/* Charts row */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))', gap: 16, marginBottom: 20 }}>
+        <div className="card-lg">
+          <div className="card-title">Allocation by Division</div>
+          <div style={{ height: 220 }}><Doughnut data={allocData} options={pieOpts} /></div>
         </div>
-
-        <div style={{ 
-          background: 'linear-gradient(135deg, rgba(34, 211, 238, 0.1), transparent)',
-          border: '2px solid rgba(34, 211, 238, 0.3)',
-          borderRadius: 16,
-          padding: 20,
-        }}>
-          <div style={{ fontSize: 12, color: '#94a3b8', fontWeight: 800, textTransform: 'uppercase', marginBottom: 8 }}>
-            Win Rate
+        {assetLabels.length > 1 && (
+          <div className="card-lg">
+            <div className="card-title">By Asset Type</div>
+            <div style={{ height: 220 }}><Doughnut data={assetData} options={pieOpts} /></div>
           </div>
-          <div style={{ fontSize: 40, fontWeight: 900, color: '#22d3ee', marginBottom: 4 }}>
-            {advancedMetrics.winRate.toFixed(0)}%
-          </div>
-          <div style={{ fontSize: 11, color: '#7c92ab' }}>
-            {advancedMetrics.profitablePositions}/{advancedMetrics.totalPositions} profitable
-          </div>
-        </div>
-
-        <div style={{ 
-          background: 'linear-gradient(135deg, rgba(168, 139, 250, 0.1), transparent)',
-          border: '2px solid rgba(168, 139, 250, 0.3)',
-          borderRadius: 16,
-          padding: 20,
-        }}>
-          <div style={{ fontSize: 12, color: '#94a3b8', fontWeight: 800, textTransform: 'uppercase', marginBottom: 8 }}>
-            Diversification
-          </div>
-          <div style={{ fontSize: 40, fontWeight: 900, color: '#a78bfa', marginBottom: 4 }}>
-            {advancedMetrics.diversificationScore.toFixed(0)}%
-          </div>
-          <div style={{ fontSize: 11, color: '#7c92ab' }}>
-            {advancedMetrics.totalPositions} positions
-          </div>
-        </div>
-
-        <div style={{ 
-          background: `linear-gradient(135deg, ${advancedMetrics.avgVolatility > 25 ? 'rgba(239, 68, 68, 0.1)' : 'rgba(34, 197, 94, 0.1)'}, transparent)`,
-          border: `2px solid ${advancedMetrics.avgVolatility > 25 ? 'rgba(239, 68, 68, 0.3)' : 'rgba(34, 197, 94, 0.3)'}`,
-          borderRadius: 16,
-          padding: 20,
-        }}>
-          <div style={{ fontSize: 12, color: '#94a3b8', fontWeight: 800, textTransform: 'uppercase', marginBottom: 8 }}>
-            Risk Level
-          </div>
-          <div style={{ fontSize: 24, fontWeight: 900, color: advancedMetrics.avgVolatility > 25 ? '#ef4444' : '#10b981', marginBottom: 4 }}>
-            {riskLevel}
-          </div>
-          <div style={{ fontSize: 11, color: '#7c92ab' }}>
-            Avg deviation: {advancedMetrics.avgVolatility.toFixed(1)}%
-          </div>
+        )}
+        <div className="card-lg" style={{ gridColumn: assetLabels.length > 1 ? '1 / -1' : 'auto' }}>
+          <div className="card-title">Current vs Target Allocation</div>
+          <div style={{ height: 200 }}><Bar data={barData} options={barOpts} /></div>
         </div>
       </div>
 
-      {/* Charts Grid */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(400px, 1fr))', gap: 20, marginBottom: 24 }}>
-        
-        {/* ROI Performance */}
-        <div style={{
-          background: 'linear-gradient(135deg, #0f1724 0%, #0a1018 100%)',
-          padding: 20,
-          borderRadius: 16,
-          border: '1px solid #1e293b',
-          boxShadow: '0 12px 32px rgba(0,0,0,0.4)',
-        }}>
-          <h3 style={{ margin: '0 0 16px 0', fontSize: 18, fontWeight: 800, color: '#e6e9ef' }}>
-            📊 Top ROI Performance
-          </h3>
-          <div style={{ height: 320 }}>
-            <Bar data={roiData} options={barOptions} />
-          </div>
-        </div>
-
-        {/* Risk Distribution */}
-        <div style={{
-          background: 'linear-gradient(135deg, #0f1724 0%, #0a1018 100%)',
-          padding: 20,
-          borderRadius: 16,
-          border: '1px solid #1e293b',
-          boxShadow: '0 12px 32px rgba(0,0,0,0.4)',
-        }}>
-          <h3 style={{ margin: '0 0 16px 0', fontSize: 18, fontWeight: 800, color: '#e6e9ef' }}>
-            🎯 Risk Distribution
-          </h3>
-          <div style={{ height: 320, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-            <Doughnut data={riskDistData} options={chartOptions} />
-          </div>
-        </div>
-
-      </div>
-
-      {/* Allocation vs Target */}
-      <div style={{
-        background: 'linear-gradient(135deg, #0f1724 0%, #0a1018 100%)',
-        padding: 20,
-        borderRadius: 16,
-        border: '1px solid #1e293b',
-        boxShadow: '0 12px 32px rgba(0,0,0,0.4)',
-        marginBottom: 24,
-      }}>
-        <h3 style={{ margin: '0 0 16px 0', fontSize: 18, fontWeight: 800, color: '#e6e9ef' }}>
-          ⚖️ Allocation vs Target (Top Holdings)
-        </h3>
-        <div style={{ height: 350 }}>
-          <Bar data={allocationData} options={barOptions} />
-        </div>
-      </div>
-
-      {/* Detailed Insights Table */}
-      <div style={{
-        background: '#0c1423',
-        padding: 20,
-        borderRadius: 16,
-        border: '1px solid #1f2d3f',
-        boxShadow: '0 12px 32px rgba(0,0,0,0.4)',
-      }}>
-        <h3 style={{ margin: '0 0 16px 0', fontSize: 18, fontWeight: 800, color: '#e6e9ef' }}>
-          📈 Detailed Position Analysis
-        </h3>
-        <div style={{ overflowX: 'auto' }}>
-          <table style={{ width: '100%', fontSize: 12, minWidth: 900, borderCollapse: 'collapse' }}>
-            <thead>
-              <tr style={{ borderBottom: '2px solid #1f2d3f', background: '#0a1018' }}>
-                <th style={{ textAlign: 'left', padding: '12px 10px', color: '#7c92ab', fontSize: 10, textTransform: 'uppercase' }}>Position</th>
-                <th style={{ textAlign: 'right', padding: '12px 10px', color: '#7c92ab', fontSize: 10, textTransform: 'uppercase' }}>Invested</th>
-                <th style={{ textAlign: 'right', padding: '12px 10px', color: '#7c92ab', fontSize: 10, textTransform: 'uppercase' }}>Current</th>
-                <th style={{ textAlign: 'right', padding: '12px 10px', color: '#7c92ab', fontSize: 10, textTransform: 'uppercase' }}>P/L</th>
-                <th style={{ textAlign: 'right', padding: '12px 10px', color: '#7c92ab', fontSize: 10, textTransform: 'uppercase' }}>ROI %</th>
-                <th style={{ textAlign: 'right', padding: '12px 10px', color: '#7c92ab', fontSize: 10, textTransform: 'uppercase' }}>Portfolio %</th>
-                <th style={{ textAlign: 'right', padding: '12px 10px', color: '#7c92ab', fontSize: 10, textTransform: 'uppercase' }}>Target %</th>
-                <th style={{ textAlign: 'right', padding: '12px 10px', color: '#7c92ab', fontSize: 10, textTransform: 'uppercase' }}>Deviation</th>
-                <th style={{ textAlign: 'center', padding: '12px 10px', color: '#7c92ab', fontSize: 10, textTransform: 'uppercase' }}>Risk</th>
-              </tr>
-            </thead>
-            <tbody>
-              {advancedMetrics.items
-                .sort((a, b) => b.current - a.current)
-                .map(item => {
-                  const plColor = item.pl >= 0 ? '#10b981' : '#ef4444'
-                  const riskColor = item.risk === 'High' ? '#ef4444' : item.risk === 'Medium' ? '#f59e0b' : '#10b981'
-                  const devColor = Math.abs(item.deviation) > 30 ? '#ef4444' : Math.abs(item.deviation) > 15 ? '#f59e0b' : '#10b981'
-                  
+      {/* Platform summary */}
+      {Object.keys(metrics.byPlatform).length > 0 && (
+        <div className="card-lg mb-4">
+          <div className="card-title">By Platform</div>
+          <div style={{ overflowX: 'auto' }}>
+            <table className="holdings-table">
+              <thead>
+                <tr>
+                  <th>Platform</th>
+                  <th className="right">Invested</th>
+                  <th className="right">Current</th>
+                  <th className="right">P/L</th>
+                  <th className="right">Return</th>
+                  <th className="right">Share</th>
+                </tr>
+              </thead>
+              <tbody>
+                {Object.entries(metrics.byPlatform).map(([p, v]) => {
+                  const pl = v.current - v.invested
+                  const ret = v.invested > 0 ? (pl / v.invested) * 100 : 0
+                  const share = totalCurrent > 0 ? (v.current / totalCurrent) * 100 : 0
+                  const PLABELS = { kite: 'Kite', groww: 'Groww', indmoney: 'IndMoney', bank: 'Bank', other: 'Other' }
+                  const PCLS = { kite: 'platform-kite', groww: 'platform-groww', indmoney: 'platform-indmoney', bank: 'platform-bank', other: 'platform-other' }
                   return (
-                    <tr key={item.id} style={{ borderBottom: '1px solid #1a2436' }}>
-                      <td style={{ padding: '12px 10px', color: '#e6e9ef', fontWeight: 700 }}>
-                        {item.name}
-                        <div style={{ fontSize: 10, color: '#7c92ab', fontWeight: 600 }}>{item.divisionName}</div>
-                      </td>
-                      <td style={{ padding: '12px 10px', color: '#fbbf24', textAlign: 'right', fontWeight: 700 }}>₹{item.invested.toLocaleString()}</td>
-                      <td style={{ padding: '12px 10px', color: '#22d3ee', textAlign: 'right', fontWeight: 700 }}>₹{item.current.toLocaleString()}</td>
-                      <td style={{ padding: '12px 10px', color: plColor, textAlign: 'right', fontWeight: 800 }}>
-                        {item.pl >= 0 ? '+' : ''}₹{item.pl.toLocaleString()}
-                      </td>
-                      <td style={{ padding: '12px 10px', color: plColor, textAlign: 'right', fontWeight: 800 }}>
-                        {item.roi >= 0 ? '+' : ''}{item.roi.toFixed(1)}%
-                      </td>
-                      <td style={{ padding: '12px 10px', color: '#a78bfa', textAlign: 'right', fontWeight: 700 }}>{item.overallCurrentPct.toFixed(2)}%</td>
-                      <td style={{ padding: '12px 10px', color: '#22c55e', textAlign: 'right', fontWeight: 700 }}>{item.overallTargetPct.toFixed(2)}%</td>
-                      <td style={{ padding: '12px 10px', color: devColor, textAlign: 'right', fontWeight: 800 }}>
-                        {item.deviation > 0 ? '+' : ''}{item.deviation.toFixed(1)}%
-                      </td>
-                      <td style={{ padding: '12px 10px', textAlign: 'center' }}>
-                        <span style={{
-                          padding: '4px 10px',
-                          borderRadius: 6,
-                          background: `${riskColor}20`,
-                          border: `1px solid ${riskColor}`,
-                          color: riskColor,
-                          fontSize: 10,
-                          fontWeight: 900,
-                        }}>
-                          {item.risk}
-                        </span>
-                      </td>
+                    <tr key={p}>
+                      <td><span className={`platform-badge ${PCLS[p] || 'platform-other'}`}>{PLABELS[p] || p}</span></td>
+                      <td className="right num">{fmt(v.invested)}</td>
+                      <td className="right num" style={{ color: 'var(--purple)' }}>{fmt(v.current)}</td>
+                      <td className="right num"><span className={pl >= 0 ? 'pos' : 'neg'}>{pl >= 0 ? '+' : ''}{fmt(pl)}</span></td>
+                      <td className="right num"><span className={ret >= 0 ? 'pos' : 'neg'}>{ret >= 0 ? '+' : ''}{ret.toFixed(1)}%</span></td>
+                      <td className="right num" style={{ color: 'var(--text2)' }}>{share.toFixed(1)}%</td>
                     </tr>
                   )
                 })}
-            </tbody>
-          </table>
-        </div>
-
-        {/* Insights Panel */}
-        <div style={{ marginTop: 20, display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(250px, 1fr))', gap: 12 }}>
-          <div style={{ padding: 14, background: '#0a1018', borderRadius: 10, borderLeft: '3px solid #10b981' }}>
-            <div style={{ fontSize: 11, color: '#10b981', fontWeight: 800, marginBottom: 6 }}>🎯 Best Performer</div>
-            <div style={{ fontSize: 13, color: '#e6e9ef', fontWeight: 700 }}>
-              {advancedMetrics.items.length > 0 ? 
-                advancedMetrics.items.reduce((max, item) => item.roi > max.roi ? item : max).name 
-                : 'N/A'}
-            </div>
-            <div style={{ fontSize: 11, color: '#7c92ab' }}>ROI: +{advancedMetrics.maxGain.toFixed(1)}%</div>
-          </div>
-
-          <div style={{ padding: 14, background: '#0a1018', borderRadius: 10, borderLeft: '3px solid #ef4444' }}>
-            <div style={{ fontSize: 11, color: '#ef4444', fontWeight: 800, marginBottom: 6 }}>⚠️ Needs Attention</div>
-            <div style={{ fontSize: 13, color: '#e6e9ef', fontWeight: 700 }}>
-              {advancedMetrics.items.length > 0 ? 
-                advancedMetrics.items.reduce((min, item) => item.roi < min.roi ? item : min).name 
-                : 'N/A'}
-            </div>
-            <div style={{ fontSize: 11, color: '#7c92ab' }}>ROI: {advancedMetrics.maxLoss.toFixed(1)}%</div>
-          </div>
-
-          <div style={{ padding: 14, background: '#0a1018', borderRadius: 10, borderLeft: '3px solid #f59e0b' }}>
-            <div style={{ fontSize: 11, color: '#f59e0b', fontWeight: 800, marginBottom: 6 }}>📊 Rebalance Needed</div>
-            <div style={{ fontSize: 13, color: '#e6e9ef', fontWeight: 700 }}>
-              {advancedMetrics.items.filter(i => Math.abs(i.deviation) > 20).length} positions
-            </div>
-            <div style={{ fontSize: 11, color: '#7c92ab' }}>Deviation &gt; 20%</div>
+              </tbody>
+            </table>
           </div>
         </div>
-      </div>
+      )}
+
+      {/* Holdings detail */}
+      {metrics.allItems.length > 0 && (
+        <div className="card-lg">
+          <div className="card-title">All Positions</div>
+          <div style={{ overflowX: 'auto' }}>
+            <table className="holdings-table">
+              <thead>
+                <tr>
+                  <th>Name</th>
+                  <th>Division</th>
+                  <th>Platform</th>
+                  <th className="right">Invested</th>
+                  <th className="right">Current</th>
+                  <th className="right">P/L</th>
+                  <th className="right">ROI</th>
+                  <th className="right">% of Portfolio</th>
+                </tr>
+              </thead>
+              <tbody>
+                {[...metrics.allItems].sort((a, b) => b.current - a.current).map((h, i) => {
+                  const PCLS = { kite: 'platform-kite', groww: 'platform-groww', indmoney: 'platform-indmoney', bank: 'platform-bank', other: 'platform-other' }
+                  const PLABELS = { kite: 'Kite', groww: 'Groww', indmoney: 'IndMoney', bank: 'Bank', other: 'Other' }
+                  return (
+                    <tr key={i}>
+                      <td style={{ fontWeight: 600 }}>{h.name}</td>
+                      <td className="text-sm text-muted">{h.parent}</td>
+                      <td><span className={`platform-badge ${PCLS[h.platform] || 'platform-other'}`}>{PLABELS[h.platform] || h.platform || 'Other'}</span></td>
+                      <td className="right num">{fmt(h.invested)}</td>
+                      <td className="right num" style={{ color: 'var(--purple)' }}>{fmt(h.current)}</td>
+                      <td className="right num"><span className={h.profit >= 0 ? 'pos' : 'neg'}>{h.profit >= 0 ? '+' : ''}{fmt(h.profit)}</span></td>
+                      <td className="right num"><span className={h.roi >= 0 ? 'pos' : 'neg'}>{h.roi >= 0 ? '+' : ''}{h.roi.toFixed(1)}%</span></td>
+                      <td className="right num text-muted">{h.currentPct.toFixed(1)}%</td>
+                    </tr>
+                  )
+                })}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
     </div>
   )
 }
