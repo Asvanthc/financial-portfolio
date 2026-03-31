@@ -236,6 +236,30 @@ app.get('/api/group', (req, res) => {
   }
 });
 
+// Stock/ETF ticker search via Yahoo Finance autocomplete
+app.get('/api/stock/search', async (req, res) => {
+  try {
+    const q = (req.query.q || '').trim()
+    if (!q) return res.json([])
+    const url = `https://query1.finance.yahoo.com/v1/finance/search?q=${encodeURIComponent(q)}&quotesCount=10&newsCount=0&listsCount=0`
+    const resp = await fetch(url, { headers: { 'User-Agent': 'Mozilla/5.0' } })
+    if (!resp.ok) return res.json([])
+    const data = await resp.json()
+    const quotes = (data?.quotes || [])
+      .filter(q => q.symbol && ['EQUITY', 'ETF', 'MUTUALFUND'].includes(q.quoteType))
+      .map(q => ({
+        symbol: q.symbol,
+        name: q.longname || q.shortname || q.symbol,
+        exchange: q.exchDisp || q.exchange || '',
+        type: q.quoteType,
+      }))
+      .slice(0, 10)
+    res.json(quotes)
+  } catch (e) {
+    res.status(500).json({ error: e.message })
+  }
+})
+
 // MF search via mfapi.in
 app.get('/api/mf/search', async (req, res) => {
   try {
@@ -281,15 +305,29 @@ app.post('/api/holdings/:hid/refresh-price', async (req, res) => {
     if (!found) return res.status(404).json({ error: 'holding not found' })
 
     let newPrice = null
+    let debugInfo = {}
     const at = found.assetType || 'stock'
 
     if (at === 'mf' && found.schemeCode) {
       const navs = await fetchMfNav([found.schemeCode])
       newPrice = navs[found.schemeCode]?.price ?? null
+      debugInfo = { source: 'AMFI', schemeCode: found.schemeCode, navResult: navs[found.schemeCode] || null }
     } else if (['stock', 'etf', 'foreign', 'gold'].includes(at) && found.ticker) {
-      const { quotes } = await fetchQuotes([found.ticker])
-      const q = quotes[found.ticker] || quotes[found.ticker.replace(/\.(NS|BO)$/i, '')]
+      const { quotes, missing } = await fetchQuotes([found.ticker])
+      // Try both original ticker and base (stripped of .NS/.BO)
+      const base = found.ticker.replace(/\.(NS|BO)$/i, '').toUpperCase()
+      const q = quotes[found.ticker] || quotes[base]
       newPrice = q?.price ?? null
+      debugInfo = {
+        source: 'Yahoo Finance',
+        tickerQueried: found.ticker,
+        found: !!q,
+        sourceSymbol: q?.sourceSymbol || null,
+        missing,
+        hint: !q ? `"${found.ticker}" not found on Yahoo Finance. Check NSE symbol — e.g. TATAMOTORS, INFY, RELIANCE` : null,
+      }
+    } else {
+      debugInfo = { reason: at === 'fd' ? 'FD has no live price — update manually' : 'No ticker or scheme code set on this holding' }
     }
 
     if (newPrice !== null) {
@@ -299,7 +337,7 @@ app.post('/api/holdings/:hid/refresh-price', async (req, res) => {
       await savePortfolio(p)
     }
 
-    res.json({ holding: found, newPrice })
+    res.json({ holding: found, newPrice, ...debugInfo })
   } catch (e) {
     res.status(500).json({ error: e.message })
   }

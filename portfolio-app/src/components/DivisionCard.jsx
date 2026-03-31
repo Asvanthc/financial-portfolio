@@ -427,33 +427,42 @@ function AddHoldingForm({ divisionId, subdivisionId, subdivisions, onSave, onCan
     units: '', buyPrice: '', currentPrice: '', invested: '', current: '',
     note: '', subdivisionId: subdivisionId || '',
   })
-  const [mfResults, setMfResults] = useState([])
+  const [searchResults, setSearchResults] = useState([])
   const [searching, setSearching] = useState(false)
   const [saving, setSaving] = useState(false)
-  const mfTimer = useRef(null)
+  const searchTimer = useRef(null)
 
   const set = (k, v) => setForm(f => ({ ...f, [k]: v }))
 
   const calcInvested = form.units && form.buyPrice ? Number(form.units) * Number(form.buyPrice) : null
   const calcCurrent = form.units && form.currentPrice ? Number(form.units) * Number(form.currentPrice) : null
 
-  function handleMfSearch(q) {
+  const isMf = form.assetType === 'mf'
+  const isFd = form.assetType === 'fd'
+  const isStock = ['stock', 'etf', 'foreign', 'gold'].includes(form.assetType)
+
+  function handleNameSearch(q) {
     set('name', q)
-    clearTimeout(mfTimer.current)
-    if (q.length < 2) { setMfResults([]); return }
+    clearTimeout(searchTimer.current)
+    if (q.length < 2) { setSearchResults([]); return }
     setSearching(true)
-    mfTimer.current = setTimeout(async () => {
+    searchTimer.current = setTimeout(async () => {
       try {
-        const res = await api.mfSearch(q)
-        setMfResults(res || [])
+        const res = isMf ? await api.mfSearch(q) : await api.stockSearch(q)
+        setSearchResults(res || [])
       } catch (_) {}
       setSearching(false)
     }, 350)
   }
 
   function selectMf(scheme) {
-    setForm(f => ({ ...f, name: scheme.schemeName, schemeCode: String(scheme.schemeCode) }))
-    setMfResults([])
+    setForm(f => ({ ...f, name: scheme.schemeName, schemeCode: String(scheme.schemeCode), ticker: '' }))
+    setSearchResults([])
+  }
+
+  function selectStock(stock) {
+    setForm(f => ({ ...f, name: stock.name, ticker: stock.symbol }))
+    setSearchResults([])
   }
 
   async function handleSave() {
@@ -476,9 +485,6 @@ function AddHoldingForm({ divisionId, subdivisionId, subdivisions, onSave, onCan
     finally { setSaving(false) }
   }
 
-  const isMf = form.assetType === 'mf'
-  const isFd = form.assetType === 'fd'
-
   return (
     <div>
       <div className="flex gap-2 flex-wrap items-end mb-2">
@@ -493,36 +499,44 @@ function AddHoldingForm({ divisionId, subdivisionId, subdivisions, onSave, onCan
         {/* Asset type */}
         <div className="form-group">
           <label className="form-label">Type</label>
-          <select className="input input-sm" style={{ width: 90 }} value={form.assetType} onChange={e => set('assetType', e.target.value)}>
+          <select className="input input-sm" style={{ width: 90 }} value={form.assetType} onChange={e => { set('assetType', e.target.value); setSearchResults([]) }}>
             {Object.entries(ASSET_TYPES).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
           </select>
         </div>
 
-        {/* Name / MF search */}
-        <div className="form-group relative" style={{ flex: 1, minWidth: 180 }}>
-          <label className="form-label">{isMf ? 'Search MF Name' : 'Name'}</label>
+        {/* Name with autocomplete (MF or Stock/ETF search) */}
+        <div className="form-group relative" style={{ flex: 1, minWidth: 200 }}>
+          <label className="form-label">
+            {isMf ? 'Search MF Name' : isStock ? 'Search Stock / ETF' : 'Name'}
+          </label>
           <input
             className="input input-sm"
-            placeholder={isMf ? 'e.g. Nippon Nifty 50' : 'Holding name'}
+            placeholder={isMf ? 'e.g. Nippon Nifty 50' : isStock ? 'e.g. Tata Motors, Infosys' : 'Holding name'}
             value={form.name}
-            onChange={e => isMf ? handleMfSearch(e.target.value) : set('name', e.target.value)}
+            onChange={e => (isMf || isStock) ? handleNameSearch(e.target.value) : set('name', e.target.value)}
             autoFocus
           />
-          {isMf && (mfResults.length > 0 || searching) && (
+          {(searchResults.length > 0 || searching) && (
             <div className="search-dropdown">
               {searching && <div className="search-item text-muted">Searching…</div>}
-              {mfResults.map(s => (
+              {isMf && searchResults.map(s => (
                 <div key={s.schemeCode} className="search-item" onClick={() => selectMf(s)}>
-                  <div style={{ fontWeight: 600 }}>{s.schemeName}</div>
+                  <div style={{ fontWeight: 600, fontSize: 12 }}>{s.schemeName}</div>
                   <div style={{ fontSize: 10, color: 'var(--text3)' }}>#{s.schemeCode}</div>
+                </div>
+              ))}
+              {isStock && searchResults.map(s => (
+                <div key={s.symbol} className="search-item" onClick={() => selectStock(s)}>
+                  <div style={{ fontWeight: 700, fontSize: 12 }}>{s.symbol} <span style={{ fontWeight: 400, color: 'var(--text2)' }}>— {s.name}</span></div>
+                  <div style={{ fontSize: 10, color: 'var(--text3)' }}>{s.exchange} · {s.type}</div>
                 </div>
               ))}
             </div>
           )}
         </div>
 
-        {/* Ticker or scheme code */}
-        {!isMf && !isFd && (
+        {/* Ticker (editable, auto-filled from search) */}
+        {isStock && (
           <div className="form-group">
             <label className="form-label">Ticker</label>
             <input className="input input-sm" style={{ width: 120 }} placeholder="e.g. INFY.NS" value={form.ticker} onChange={e => set('ticker', e.target.value)} />
@@ -530,8 +544,8 @@ function AddHoldingForm({ divisionId, subdivisionId, subdivisions, onSave, onCan
         )}
         {isMf && form.schemeCode && (
           <div className="form-group">
-            <label className="form-label">Scheme Code</label>
-            <input className="input input-sm" style={{ width: 100 }} value={form.schemeCode} onChange={e => set('schemeCode', e.target.value)} />
+            <label className="form-label">Scheme #</label>
+            <input className="input input-sm" style={{ width: 90 }} value={form.schemeCode} onChange={e => set('schemeCode', e.target.value)} />
           </div>
         )}
 
@@ -548,7 +562,7 @@ function AddHoldingForm({ divisionId, subdivisionId, subdivisions, onSave, onCan
       </div>
 
       <div className="flex gap-2 flex-wrap items-end">
-        {/* Units + prices (for stocks, ETF, MF, foreign, gold) */}
+        {/* Units + prices */}
         {!isFd && (
           <>
             <div className="form-group">
@@ -566,7 +580,7 @@ function AddHoldingForm({ divisionId, subdivisionId, subdivisions, onSave, onCan
           </>
         )}
 
-        {/* Or total amounts fallback */}
+        {/* Total amounts fallback */}
         {(isFd || !form.units || !form.buyPrice) && (
           <div className="form-group">
             <label className="form-label">Invested ₹</label>

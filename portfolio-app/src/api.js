@@ -38,4 +38,5 @@ export const api = {
   quotes: (symbols = []) => fetch(`${API_ROOT}/api/quotes?symbols=${encodeURIComponent(symbols.join(','))}`).then(r => r.json()),
   mfSearch: (q) => fetch(`${API_ROOT}/api/mf/search?q=${encodeURIComponent(q)}`).then(r => r.json()),
   mfNav: (codes = []) => fetch(`${API_ROOT}/api/mf/nav?codes=${encodeURIComponent(codes.join(','))}`).then(r => r.json()),
+  stockSearch: (q) => fetch(`${API_ROOT}/api/stock/search?q=${encodeURIComponent(q)}`).then(r => r.json()),
 }
