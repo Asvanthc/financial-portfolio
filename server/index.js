@@ -76,27 +76,89 @@ async function fetchMfNav(schemeCodes) {
   return results
 }
 
-// Fetch live quotes from Yahoo Finance (server-side to avoid CORS)
+// ── Yahoo Finance crumb/cookie session ──────────────────────────────────────
+const yfSession = { cookie: '', crumb: '', fetchedAt: 0, initInProgress: false }
+const YF_HEADERS = {
+  'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
+  'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+  'Accept-Language': 'en-US,en;q=0.9',
+}
+
+async function ensureYfSession() {
+  // Refresh session every 55 minutes
+  if (yfSession.crumb && Date.now() - yfSession.fetchedAt < 55 * 60 * 1000) return
+  // Prevent concurrent init calls
+  if (yfSession.initInProgress) return
+  yfSession.initInProgress = true
+
+  try {
+    // Step 1 – visit finance.yahoo.com to get session cookies
+    const r1 = await fetch('https://finance.yahoo.com/', { headers: YF_HEADERS })
+    // Parse Set-Cookie headers into a single cookie string
+    const setCookieHeader = r1.headers.getSetCookie ? r1.headers.getSetCookie() : []
+    const cookie = setCookieHeader
+      .map(c => c.split(';')[0].trim())
+      .filter(c => c.includes('='))
+      .join('; ')
+
+    // Step 2 – fetch crumb with those cookies (retry once on rate-limit)
+    let crumb = ''
+    for (let attempt = 0; attempt < 2; attempt++) {
+      if (attempt > 0) await new Promise(r => setTimeout(r, 3000))
+      const r2 = await fetch('https://query2.finance.yahoo.com/v1/test/getcrumb', {
+        headers: { ...YF_HEADERS, Accept: '*/*', Cookie: cookie },
+      })
+      crumb = (await r2.text()).trim()
+      if (crumb && !crumb.toLowerCase().includes('request') && crumb.length < 40) break
+    }
+
+    if (crumb && !crumb.toLowerCase().includes('request') && crumb.length < 40) {
+      yfSession.cookie = cookie
+      yfSession.crumb = crumb
+      yfSession.fetchedAt = Date.now()
+      console.log('[QUOTES] Yahoo Finance session ready, crumb length:', crumb.length)
+    } else {
+      console.warn('[QUOTES] Crumb fetch returned unexpected value:', crumb?.slice(0, 40))
+    }
+  } catch (e) {
+    console.error('[QUOTES] Session init failed:', e.message)
+  } finally {
+    yfSession.initInProgress = false
+  }
+}
+
+// Warm up session at startup
+ensureYfSession().catch(() => {})
+
+// Fetch live quotes from Yahoo Finance with crumb auth
 async function fetchQuotes(symbols) {
   const cleaned = symbols
     .map(s => (s || '').trim())
     .filter(Boolean)
-    .slice(0, 50) // cap to keep request reasonable
+    .slice(0, 50)
     .map(s => s.toUpperCase())
 
   if (cleaned.length === 0) return { quotes: {}, missing: [] }
 
-  // Try NSE first (.NS suffix) for all Indian stocks, then BSE (.BO) as fallback
+  await ensureYfSession()
+
+  // Build candidate list: if symbol already has exchange suffix, use as-is
+  // Otherwise try NSE (.NS) first, then BSE (.BO)
   const candidates = Array.from(new Set(cleaned.flatMap(sym => {
     if (sym.includes('.')) return [sym]
-    // Prefer NSE for Indian markets
-    return [`${sym}.NS`, `${sym}.BO`, sym]
+    return [`${sym}.NS`, `${sym}.BO`]
   })))
 
-  const url = `https://query1.finance.yahoo.com/v7/finance/quote?symbols=${encodeURIComponent(candidates.join(','))}`
+  const url = `https://query2.finance.yahoo.com/v7/finance/quote?symbols=${encodeURIComponent(candidates.join(','))}&crumb=${encodeURIComponent(yfSession.crumb)}`
   try {
-    const resp = await fetch(url)
-    if (!resp.ok) throw new Error(`Quote fetch failed ${resp.status}`)
+    const resp = await fetch(url, {
+      headers: { ...YF_HEADERS, 'Cookie': yfSession.cookie },
+    })
+    if (!resp.ok) {
+      // Session might be expired — force refresh next time
+      if (resp.status === 401 || resp.status === 403) yfSession.fetchedAt = 0
+      throw new Error(`Quote fetch failed ${resp.status}`)
+    }
     const data = await resp.json()
     const results = data?.quoteResponse?.result || []
     const priceMap = {}
@@ -104,15 +166,14 @@ async function fetchQuotes(symbols) {
     results.forEach(r => {
       const yahooSymbol = (r.symbol || '').toUpperCase()
       const base = yahooSymbol.replace(/\.(NS|BO)$/i, '')
-      const price = Number(r.regularMarketPrice ?? r.bid ?? r.ask ?? r.previousClose)
+      const price = Number(r.regularMarketPrice ?? r.regularMarketPreviousClose ?? r.previousClose)
       if (!Number.isFinite(price) || price <= 0) return
-      
-      // Prefer NSE quotes over BSE
-      const existingPriority = priceMap[base]?.sourceSymbol?.endsWith('.NS') ? 1 : 0
-      const newPriority = yahooSymbol.endsWith('.NS') ? 1 : 0
-      
-      if (!priceMap[base] || newPriority > existingPriority) {
-        priceMap[base] = { price, currency: r.currency || 'INR', sourceSymbol: yahooSymbol }
+
+      // Prefer NSE over BSE
+      const existingIsNSE = priceMap[base]?.sourceSymbol?.endsWith('.NS')
+      const newIsNSE = yahooSymbol.endsWith('.NS')
+      if (!priceMap[base] || (!existingIsNSE && newIsNSE)) {
+        priceMap[base] = { price, currency: r.currency || 'INR', sourceSymbol: yahooSymbol, name: r.longName || r.shortName || '' }
       }
     })
 
@@ -125,7 +186,7 @@ async function fetchQuotes(symbols) {
       else missing.push(sym)
     })
 
-    console.log('[QUOTES] Fetched', Object.keys(quotes).length, 'prices; missing:', missing.length)
+    console.log('[QUOTES] Fetched', Object.keys(quotes).length, '/', cleaned.length, '; missing:', missing)
     return { quotes, missing }
   } catch (e) {
     console.error('[QUOTES] fetch failed:', e.message)
@@ -241,8 +302,9 @@ app.get('/api/stock/search', async (req, res) => {
   try {
     const q = (req.query.q || '').trim()
     if (!q) return res.json([])
-    const url = `https://query1.finance.yahoo.com/v1/finance/search?q=${encodeURIComponent(q)}&quotesCount=10&newsCount=0&listsCount=0`
-    const resp = await fetch(url, { headers: { 'User-Agent': 'Mozilla/5.0' } })
+    await ensureYfSession()
+    const url = `https://query2.finance.yahoo.com/v1/finance/search?q=${encodeURIComponent(q)}&quotesCount=10&newsCount=0&listsCount=0&crumb=${encodeURIComponent(yfSession.crumb)}`
+    const resp = await fetch(url, { headers: { ...YF_HEADERS, 'Cookie': yfSession.cookie } })
     if (!resp.ok) return res.json([])
     const data = await resp.json()
     const quotes = (data?.quotes || [])
