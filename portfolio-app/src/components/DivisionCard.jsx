@@ -206,6 +206,7 @@ export default function DivisionCard({ division, analytics, onUpdate }) {
 
 function SubdivisionBlock({ subdivision, divisionId, analytics, divisionCurrent, totalPortfolioCurrent, onUpdate, onRefresh, refreshingId, editingHolding, setEditingHolding }) {
   const [editMode, setEditMode] = useState(false)
+  const [expanded, setExpanded] = useState(true)
   const [name, setName] = useState(subdivision.name)
   const [targetPct, setTargetPct] = useState(subdivision.targetPercent)
   const [showAdd, setShowAdd] = useState(false)
@@ -238,6 +239,9 @@ function SubdivisionBlock({ subdivision, divisionId, analytics, divisionCurrent,
   return (
     <div style={{ borderBottom:'1px solid var(--border)' }}>
       <div className="sub-row flex items-center gap-2" style={{ padding:'8px 16px', background:'rgba(255,255,255,0.02)', flexWrap:'wrap' }}>
+        <button className="btn-icon" style={{ fontSize:11, padding:'2px 4px', color:'var(--text3)' }} onClick={() => setExpanded(e => !e)}>
+          {expanded ? '▾' : '▸'}
+        </button>
         <span style={{ fontSize:11, color:'var(--text3)', fontWeight:700 }}>↳</span>
         {editMode ? (
           <>
@@ -305,7 +309,7 @@ function SubdivisionBlock({ subdivision, divisionId, analytics, divisionCurrent,
         </div>
       </div>
 
-      {showAdd && (
+      {expanded && showAdd && (
         <div className="add-holding-panel" style={{ paddingLeft:32 }}>
           <AddHoldingForm divisionId={divisionId} subdivisionId={subdivision.id} subdivisions={[]}
             onSave={() => { setShowAdd(false); onUpdate?.() }}
@@ -313,7 +317,7 @@ function SubdivisionBlock({ subdivision, divisionId, analytics, divisionCurrent,
         </div>
       )}
 
-      {sortedHoldings.length > 0 && (
+      {expanded && sortedHoldings.length > 0 && (
         <HoldingsTable holdings={sortedHoldings} onUpdate={onUpdate}
           onRefresh={onRefresh} refreshingId={refreshingId}
           editingHolding={editingHolding} setEditingHolding={setEditingHolding}
