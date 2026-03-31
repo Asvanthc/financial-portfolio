@@ -174,7 +174,8 @@ export default function DivisionCard({ division, analytics, onUpdate }) {
           {allDirectHoldings.length > 0 && (
             <HoldingsTable holdings={allDirectHoldings} onUpdate={onUpdate}
               onRefresh={refreshPrice} refreshingId={refreshingId}
-              editingHolding={editingHolding} setEditingHolding={setEditingHolding} />
+              editingHolding={editingHolding} setEditingHolding={setEditingHolding}
+              parentCurrent={current} totalCurrent={totalPortfolioCurrent} />
           )}
 
           {showAddHolding ? (
@@ -315,13 +316,14 @@ function SubdivisionBlock({ subdivision, divisionId, analytics, divisionCurrent,
       {sortedHoldings.length > 0 && (
         <HoldingsTable holdings={sortedHoldings} onUpdate={onUpdate}
           onRefresh={onRefresh} refreshingId={refreshingId}
-          editingHolding={editingHolding} setEditingHolding={setEditingHolding} indent />
+          editingHolding={editingHolding} setEditingHolding={setEditingHolding}
+          parentCurrent={subCurrent} totalCurrent={totalPortfolioCurrent} indent />
       )}
     </div>
   )
 }
 
-function HoldingsTable({ holdings, onUpdate, onRefresh, refreshingId, editingHolding, setEditingHolding, indent }) {
+function HoldingsTable({ holdings, onUpdate, onRefresh, refreshingId, editingHolding, setEditingHolding, indent, parentCurrent, totalCurrent }) {
   return (
     <div style={{ overflowX:'auto', paddingLeft: indent ? 16 : 0 }}>
       <table className="holdings-table">
@@ -338,7 +340,7 @@ function HoldingsTable({ holdings, onUpdate, onRefresh, refreshingId, editingHol
             editingHolding === h.id
               ? <EditHoldingRow key={h.id} holding={h} onSave={() => { setEditingHolding(null); onUpdate?.() }} onCancel={() => setEditingHolding(null)} />
               : <HoldingRow key={h.id} holding={h} onEdit={() => setEditingHolding(h.id)} onRefresh={onRefresh}
-                  refreshing={refreshingId === h.id}
+                  refreshing={refreshingId === h.id} parentCurrent={parentCurrent} totalCurrent={totalCurrent}
                   onDelete={async () => { if (confirm(`Delete "${h.name}"?`)) { await api.deleteHolding(h.id); onUpdate?.() } }} />
           ))}
         </tbody>
@@ -347,11 +349,13 @@ function HoldingsTable({ holdings, onUpdate, onRefresh, refreshingId, editingHol
   )
 }
 
-function HoldingRow({ holding: h, onEdit, onRefresh, refreshing, onDelete }) {
+function HoldingRow({ holding: h, onEdit, onRefresh, refreshing, onDelete, parentCurrent, totalCurrent }) {
   const profit    = (h.current||0) - (h.invested||0)
   const profitPct = h.invested > 0 ? (profit / h.invested) * 100 : 0
   const platform  = PLATFORMS[h.platform] || PLATFORMS.other
   const canRefresh = h.ticker || h.schemeCode
+  const pctOfParent = parentCurrent > 0 && h.current > 0 ? (h.current / parentCurrent * 100) : 0
+  const pctOfTotal  = totalCurrent  > 0 && h.current > 0 ? (h.current / totalCurrent  * 100) : 0
 
   return (
     <tr>
@@ -374,7 +378,16 @@ function HoldingRow({ holding: h, onEdit, onRefresh, refreshing, onDelete }) {
         ) : '—'}
       </td>
       <td className="right num" style={{ color:'var(--text2)' }}>{fmt(h.invested)}</td>
-      <td className="right num" style={{ color:'var(--purple)' }}>{fmt(h.current)}</td>
+      <td className="right num">
+        <div style={{ color:'var(--purple)' }}>{fmt(h.current)}</div>
+        {(pctOfParent > 0 || pctOfTotal > 0) && (
+          <div style={{ fontSize:10, marginTop:2, lineHeight:1.4 }}>
+            {pctOfParent > 0 && <span style={{ color:'var(--cyan)' }}>{pctOfParent.toFixed(1)}% grp</span>}
+            {pctOfParent > 0 && pctOfTotal > 0 && <span style={{ color:'var(--text3)' }}> · </span>}
+            {pctOfTotal  > 0 && <span style={{ color:'var(--indigo)' }}>{pctOfTotal.toFixed(1)}% all</span>}
+          </div>
+        )}
+      </td>
       <td className="right num">
         <span className={profit>=0?'pos':'neg'}>
           {profit>=0?'+':''}{fmt(profit)}<br />
