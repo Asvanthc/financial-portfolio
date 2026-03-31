@@ -218,45 +218,82 @@ function SubdivisionBlock({ subdivision, divisionId, analytics, divisionCurrent,
     await api.deleteSubdivision(subdivision.id); onUpdate?.()
   }
 
-  const subCurrent = analytics.current || 0
-  const profit     = analytics.profit  || 0
-  const count      = (subdivision.holdings || []).length
-  const pctOfDiv   = divisionCurrent > 0 ? (subCurrent / divisionCurrent * 100) : 0
-  const pctOfTotal = totalPortfolioCurrent > 0 ? (subCurrent / totalPortfolioCurrent * 100) : 0
+  const subCurrent  = analytics.current  || 0
+  const subInvested = analytics.invested || 0
+  const profit      = analytics.profit   || 0
+  const profitPct   = subInvested > 0 ? (profit / subInvested * 100) : 0
+  const count       = (subdivision.holdings || []).length
+  const pctOfDiv    = divisionCurrent     > 0 ? (subCurrent / divisionCurrent     * 100) : 0
+  const pctOfTotal  = totalPortfolioCurrent > 0 ? (subCurrent / totalPortfolioCurrent * 100) : 0
+  const targetOfDiv = Number(subdivision.targetPercent) || 0
+  const divGap      = targetOfDiv - pctOfDiv   // positive = under-weight vs division target
+  const needed      = targetOfDiv > 0 && divisionCurrent > 0
+    ? Math.max(0, (targetOfDiv / 100) * (divisionCurrent + Math.max(0, divGap / 100 * divisionCurrent)) - subCurrent)
+    : 0
 
   // Sort holdings by current value desc
   const sortedHoldings = [...(subdivision.holdings||[])].sort((a,b) => (b.current||0)-(a.current||0))
 
   return (
     <div style={{ borderBottom:'1px solid var(--border)' }}>
-      <div className="flex items-center gap-2" style={{ padding:'8px 16px', background:'rgba(255,255,255,0.02)' }}>
-        <span style={{ fontSize:11, color:'var(--text3)', fontWeight:700, textTransform:'uppercase', letterSpacing:'0.5px' }}>↳</span>
+      <div className="sub-row flex items-center gap-2" style={{ padding:'8px 16px', background:'rgba(255,255,255,0.02)', flexWrap:'wrap' }}>
+        <span style={{ fontSize:11, color:'var(--text3)', fontWeight:700 }}>↳</span>
         {editMode ? (
           <>
             <input className="input input-sm" style={{ width:150 }} value={name} onChange={e => setName(e.target.value)} autoFocus />
-            <input className="input input-sm" style={{ width:65 }} type="number" placeholder="%" value={targetPct} onChange={e => setTargetPct(e.target.value)} />
+            <input className="input input-sm" style={{ width:65 }} type="number" placeholder="Target % of div" value={targetPct} onChange={e => setTargetPct(e.target.value)} />
             <button className="btn btn-primary btn-xs" onClick={save}>Save</button>
             <button className="btn btn-secondary btn-xs" onClick={() => setEditMode(false)}>Cancel</button>
           </>
         ) : (
           <>
             <span style={{ fontWeight:700, color:'var(--text)', fontSize:13 }}>{subdivision.name}</span>
-            {subdivision.targetPercent > 0 && <span className="text-xs text-dim">Target: {subdivision.targetPercent}%</span>}
-            <span className="text-xs" style={{ color:'var(--purple)' }}>{fmt(subCurrent)}</span>
-            {profit !== 0 && <span className={`text-xs ${profit>=0?'pos':'neg'}`}>{profit>=0?'+':''}{fmt(profit)}</span>}
-            {/* Count + percentages */}
-            <span style={{ fontSize:11, color:'var(--text3)' }}>{count} holding{count!==1?'s':''}</span>
-            {subCurrent > 0 && (
-              <span style={{ fontSize:11, color:'var(--text3)' }}>
-                <span style={{ color:'var(--cyan)' }}>{pctOfDiv.toFixed(1)}%</span>
-                <span style={{ color:'var(--text3)' }}> of div · </span>
-                <span style={{ color:'var(--indigo)' }}>{pctOfTotal.toFixed(1)}%</span>
-                <span style={{ color:'var(--text3)' }}> of portfolio</span>
+
+            {/* Value */}
+            <span style={{ fontWeight:700, fontSize:13, color:'var(--purple)' }}>{fmt(subCurrent)}</span>
+
+            {/* P/L */}
+            {profit !== 0 && (
+              <span className={`text-xs ${profit>=0?'pos':'neg'}`}>
+                {profit>=0?'+':''}{fmt(profit)} ({profitPct>=0?'+':''}{profitPct.toFixed(1)}%)
               </span>
             )}
+
+            {/* Holdings count */}
+            <span style={{ fontSize:11, color:'var(--text3)', background:'var(--surface2)', padding:'1px 6px', borderRadius:4 }}>
+              {count} {count===1?'holding':'holdings'}
+            </span>
+
+            {/* Portfolio % */}
+            {subCurrent > 0 && (
+              <span style={{ fontSize:11 }}>
+                <span style={{ color:'var(--indigo)' }}>{pctOfTotal.toFixed(1)}%</span>
+                <span style={{ color:'var(--text3)' }}> portfolio</span>
+              </span>
+            )}
+
+            {/* Division % vs target */}
+            {subCurrent > 0 && (
+              <span style={{ fontSize:11 }}>
+                <span style={{ color:'var(--cyan)' }}>{pctOfDiv.toFixed(1)}%</span>
+                {targetOfDiv > 0 && (
+                  <>
+                    <span style={{ color:'var(--text3)' }}> / </span>
+                    <span style={{ color:'var(--green)' }}>{targetOfDiv}%</span>
+                    <span style={{ color:'var(--text3)' }}> div target</span>
+                    {Math.abs(divGap) > 0.5 && (
+                      <span style={{ color: divGap > 0 ? 'var(--orange)' : 'var(--text3)', marginLeft:4 }}>
+                        {divGap > 0 ? `↑ ${fmt(needed)} needed` : `↓ ${Math.abs(divGap).toFixed(1)}% over`}
+                      </span>
+                    )}
+                  </>
+                )}
+              </span>
+            )}
+
             <div className="action-group">
-              <button className="btn-icon" onClick={() => setEditMode(true)}>✏️</button>
-              <button className="btn-icon" onClick={del}>🗑️</button>
+              <button className="btn-icon" title="Edit" onClick={() => setEditMode(true)}>✏️</button>
+              <button className="btn-icon" title="Delete" onClick={del}>🗑️</button>
             </div>
           </>
         )}
