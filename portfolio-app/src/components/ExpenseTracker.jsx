@@ -41,10 +41,12 @@ function aggregateMonths(expenses, months) {
 }
 
 const PERIODS = [
-  { id: '3m',  label: '3M',   months: 3  },
-  { id: '6m',  label: '6M',   months: 6  },
-  { id: 'ytd', label: 'YTD',  months: null },
-  { id: '12m', label: '12M',  months: 12 },
+  { id: '3m',     label: '3M',      months: 3  },
+  { id: '6m',     label: '6M',      months: 6  },
+  { id: 'ytd',    label: 'YTD',     months: null },
+  { id: '12m',    label: '12M',     months: 12 },
+  { id: 'all',    label: 'All',     months: null },
+  { id: 'custom', label: 'Custom',  months: null },
 ]
 
 export default function ExpenseTracker({ expenses = [], onUpdate }) {
@@ -60,6 +62,8 @@ export default function ExpenseTracker({ expenses = [], onUpdate }) {
   const [saving,  setSaving]  = useState(false)
   const [view,    setView]    = useState('entry')
   const [period,  setPeriod]  = useState('6m')
+  const [customFrom, setCustomFrom] = useState({ year: curYear, month: 1 })
+  const [customTo,   setCustomTo]   = useState({ year: curYear, month: curMonth })
   const [newCatType, setNewCatType] = useState('expense')
   const [newCatName, setNewCatName] = useState('')
   const [addingCat,  setAddingCat]  = useState(false)
@@ -110,10 +114,30 @@ export default function ExpenseTracker({ expenses = [], onUpdate }) {
   const years = [curYear-2, curYear-1, curYear, curYear+1]
 
   // ── Summary calculations ──────────────────────────────────────────────────
-  // Period months
+  // All unique {year,month} combos present in expenses
+  const allExpenseMonths = (() => {
+    const seen = new Set()
+    const out = []
+    expenses.forEach(e => {
+      const k = `${e.year}-${e.month}`
+      if (!seen.has(k)) { seen.add(k); out.push({ year: e.year, month: e.month }) }
+    })
+    return out.sort((a, b) => a.year !== b.year ? a.year - b.year : a.month - b.month)
+  })()
+
   const summaryMonths = (() => {
-    if (period === 'ytd') {
-      return Array.from({ length: curMonth }, (_, i) => ({ year: curYear, month: i + 1 }))
+    if (period === 'ytd') return Array.from({ length: curMonth }, (_, i) => ({ year: curYear, month: i + 1 }))
+    if (period === 'all') return allExpenseMonths.length ? allExpenseMonths : [{ year: curYear, month: curMonth }]
+    if (period === 'custom') {
+      const from = customFrom.year * 100 + customFrom.month
+      const to   = customTo.year   * 100 + customTo.month
+      const months = []
+      let y = customFrom.year, m = customFrom.month
+      while (y * 100 + m <= to) {
+        months.push({ year: y, month: m })
+        m++; if (m > 12) { m = 1; y++ }
+      }
+      return months
     }
     const p = PERIODS.find(p => p.id === period)
     return lastNMonths(curYear, curMonth, p.months)
@@ -216,17 +240,46 @@ export default function ExpenseTracker({ expenses = [], onUpdate }) {
       {view === 'summary' && (
         <div>
           {/* Period selector */}
-          <div style={{ display:'flex', alignItems:'center', gap:8, marginBottom:18, flexWrap:'wrap' }}>
+          <div style={{ display:'flex', alignItems:'center', gap:8, marginBottom: period==='custom' ? 10 : 18, flexWrap:'wrap' }}>
             <span style={{ fontSize:12, color:'var(--text3)', fontWeight:700 }}>Period:</span>
             {PERIODS.map(p => (
               <button key={p.id} className={`btn btn-sm ${period===p.id?'btn-primary':'btn-secondary'}`} onClick={() => setPeriod(p.id)}>
                 {p.label}
               </button>
             ))}
-            <span style={{ fontSize:12, color:'var(--text3)', marginLeft:8 }}>
-              {summaryMonths[0] && `${monthLabel(summaryMonths[0].year, summaryMonths[0].month)} – ${monthLabel(summaryMonths[nMonths-1].year, summaryMonths[nMonths-1].month)}`}
-            </span>
+            {period !== 'custom' && summaryMonths[0] && (
+              <span style={{ fontSize:12, color:'var(--text3)', marginLeft:4 }}>
+                {nMonths > 1
+                  ? `${monthLabel(summaryMonths[0].year, summaryMonths[0].month)} – ${monthLabel(summaryMonths[nMonths-1].year, summaryMonths[nMonths-1].month)}`
+                  : monthLabel(summaryMonths[0].year, summaryMonths[0].month)}
+              </span>
+            )}
           </div>
+
+          {/* Custom range picker */}
+          {period === 'custom' && (
+            <div style={{ display:'flex', alignItems:'center', gap:10, marginBottom:18, flexWrap:'wrap', background:'var(--surface2)', padding:'10px 14px', borderRadius:'var(--radius-sm)' }}>
+              <span style={{ fontSize:12, color:'var(--text3)', fontWeight:700 }}>From:</span>
+              <select className="input input-sm" style={{ width:80 }} value={customFrom.month} onChange={e => setCustomFrom(f => ({ ...f, month: Number(e.target.value) }))}>
+                {MS.map((m,i) => <option key={i} value={i+1}>{m}</option>)}
+              </select>
+              <select className="input input-sm" style={{ width:75 }} value={customFrom.year} onChange={e => setCustomFrom(f => ({ ...f, year: Number(e.target.value) }))}>
+                {years.map(y => <option key={y} value={y}>{y}</option>)}
+              </select>
+              <span style={{ fontSize:12, color:'var(--text3)', fontWeight:700 }}>To:</span>
+              <select className="input input-sm" style={{ width:80 }} value={customTo.month} onChange={e => setCustomTo(f => ({ ...f, month: Number(e.target.value) }))}>
+                {MS.map((m,i) => <option key={i} value={i+1}>{m}</option>)}
+              </select>
+              <select className="input input-sm" style={{ width:75 }} value={customTo.year} onChange={e => setCustomTo(f => ({ ...f, year: Number(e.target.value) }))}>
+                {years.map(y => <option key={y} value={y}>{y}</option>)}
+              </select>
+              {summaryMonths.length > 0 && (
+                <span style={{ fontSize:12, color:'var(--cyan)' }}>
+                  {nMonths} month{nMonths!==1?'s':''}
+                </span>
+              )}
+            </div>
+          )}
 
           {/* KPI bar */}
           <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fit,minmax(150px,1fr))', gap:12, marginBottom:20 }}>
