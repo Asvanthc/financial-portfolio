@@ -76,7 +76,72 @@ async function fetchMfNav(schemeCodes) {
   return results
 }
 
-// ── Yahoo Finance crumb/cookie session ──────────────────────────────────────
+// ── NSE India session (cookie required for their API) ───────────────────────
+const nseSession = { cookie: '', fetchedAt: 0, initInProgress: false }
+const NSE_HEADERS = {
+  'User-Agent': 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
+  'Accept': 'application/json, text/plain, */*',
+  'Accept-Language': 'en-US,en;q=0.9',
+  'Referer': 'https://www.nseindia.com/',
+}
+
+async function ensureNseSession() {
+  if (nseSession.cookie && Date.now() - nseSession.fetchedAt < 30 * 60 * 1000) return
+  if (nseSession.initInProgress) {
+    for (let i = 0; i < 20; i++) {
+      await new Promise(r => setTimeout(r, 500))
+      if (!nseSession.initInProgress) return
+    }
+    return
+  }
+  nseSession.initInProgress = true
+  try {
+    const r = await fetch('https://www.nseindia.com/', {
+      headers: { ...NSE_HEADERS, Accept: 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8' },
+    })
+    const setCookies = r.headers.getSetCookie ? r.headers.getSetCookie() : []
+    const cookie = setCookies.map(c => c.split(';')[0].trim()).filter(c => c.includes('=')).join('; ')
+    if (cookie) {
+      nseSession.cookie = cookie
+      nseSession.fetchedAt = Date.now()
+      console.log('[NSE] Session ready, cookies:', cookie.length, 'chars')
+    } else {
+      console.warn('[NSE] No cookies received from homepage')
+    }
+  } catch (e) {
+    console.error('[NSE] Session init failed:', e.message)
+  } finally {
+    nseSession.initInProgress = false
+  }
+}
+
+async function fetchNsePrice(symbol) {
+  // NSE uses bare symbol without exchange suffix
+  const nseSymbol = symbol.replace(/\.(NS|BO|NSE|BSE)$/i, '').toUpperCase()
+  await ensureNseSession()
+  try {
+    const r = await fetch(`https://www.nseindia.com/api/quote-equity?symbol=${encodeURIComponent(nseSymbol)}`, {
+      headers: { ...NSE_HEADERS, Cookie: nseSession.cookie },
+    })
+    if (!r.ok) {
+      if (r.status === 401 || r.status === 403) nseSession.fetchedAt = 0
+      console.warn(`[NSE] ${nseSymbol} → HTTP ${r.status}`)
+      return null
+    }
+    const data = await r.json()
+    const price = Number(data?.priceInfo?.lastPrice)
+    if (Number.isFinite(price) && price > 0) {
+      console.log(`[NSE] ${nseSymbol} → ₹${price}`)
+      return price
+    }
+    return null
+  } catch (e) {
+    console.error('[NSE] fetchNsePrice error:', nseSymbol, e.message)
+    return null
+  }
+}
+
+// Yahoo Finance — used only for foreign stocks (no .NS/.BO suffix expected)
 const yfSession = { cookie: '', crumb: '', fetchedAt: 0, initInProgress: false }
 const YF_HEADERS = {
   'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
@@ -85,23 +150,13 @@ const YF_HEADERS = {
 }
 
 async function ensureYfSession() {
-  // Refresh session every 55 minutes
   if (yfSession.crumb && Date.now() - yfSession.fetchedAt < 55 * 60 * 1000) return
-  // Prevent concurrent init calls
   if (yfSession.initInProgress) return
   yfSession.initInProgress = true
-
   try {
-    // Step 1 – visit finance.yahoo.com to get session cookies
     const r1 = await fetch('https://finance.yahoo.com/', { headers: YF_HEADERS })
-    // Parse Set-Cookie headers into a single cookie string
     const setCookieHeader = r1.headers.getSetCookie ? r1.headers.getSetCookie() : []
-    const cookie = setCookieHeader
-      .map(c => c.split(';')[0].trim())
-      .filter(c => c.includes('='))
-      .join('; ')
-
-    // Step 2 – fetch crumb with those cookies (retry once on rate-limit)
+    const cookie = setCookieHeader.map(c => c.split(';')[0].trim()).filter(c => c.includes('=')).join('; ')
     let crumb = ''
     for (let attempt = 0; attempt < 2; attempt++) {
       if (attempt > 0) await new Promise(r => setTimeout(r, 3000))
@@ -111,87 +166,81 @@ async function ensureYfSession() {
       crumb = (await r2.text()).trim()
       if (crumb && !crumb.toLowerCase().includes('request') && crumb.length < 40) break
     }
-
     if (crumb && !crumb.toLowerCase().includes('request') && crumb.length < 40) {
       yfSession.cookie = cookie
       yfSession.crumb = crumb
       yfSession.fetchedAt = Date.now()
-      console.log('[QUOTES] Yahoo Finance session ready, crumb length:', crumb.length)
-    } else {
-      console.warn('[QUOTES] Crumb fetch returned unexpected value:', crumb?.slice(0, 40))
+      console.log('[YF] Session ready, crumb length:', crumb.length)
     }
   } catch (e) {
-    console.error('[QUOTES] Session init failed:', e.message)
+    console.error('[YF] Session init failed:', e.message)
   } finally {
     yfSession.initInProgress = false
   }
 }
 
-// Warm up session at startup
-ensureYfSession().catch(() => {})
-
-// Fetch live quotes from Yahoo Finance with crumb auth
-async function fetchQuotes(symbols) {
-  const cleaned = symbols
-    .map(s => (s || '').trim())
-    .filter(Boolean)
-    .slice(0, 50)
-    .map(s => s.toUpperCase())
-
-  if (cleaned.length === 0) return { quotes: {}, missing: [] }
-
+async function fetchYfPrice(symbol) {
   await ensureYfSession()
-
-  // Build candidate list: if symbol already has exchange suffix, use as-is
-  // Otherwise try NSE (.NS) first, then BSE (.BO)
-  const candidates = Array.from(new Set(cleaned.flatMap(sym => {
-    if (sym.includes('.')) return [sym]
-    return [`${sym}.NS`, `${sym}.BO`]
-  })))
-
-  const url = `https://query2.finance.yahoo.com/v7/finance/quote?symbols=${encodeURIComponent(candidates.join(','))}&crumb=${encodeURIComponent(yfSession.crumb)}`
+  if (!yfSession.crumb) return null
   try {
-    const resp = await fetch(url, {
-      headers: { ...YF_HEADERS, 'Cookie': yfSession.cookie },
-    })
+    const url = `https://query2.finance.yahoo.com/v7/finance/quote?symbols=${encodeURIComponent(symbol)}&crumb=${encodeURIComponent(yfSession.crumb)}`
+    const resp = await fetch(url, { headers: { ...YF_HEADERS, Cookie: yfSession.cookie } })
     if (!resp.ok) {
-      // Session might be expired — force refresh next time
       if (resp.status === 401 || resp.status === 403) yfSession.fetchedAt = 0
-      throw new Error(`Quote fetch failed ${resp.status}`)
+      return null
     }
     const data = await resp.json()
-    const results = data?.quoteResponse?.result || []
-    const priceMap = {}
-
-    results.forEach(r => {
-      const yahooSymbol = (r.symbol || '').toUpperCase()
-      const base = yahooSymbol.replace(/\.(NS|BO)$/i, '')
-      const price = Number(r.regularMarketPrice ?? r.regularMarketPreviousClose ?? r.previousClose)
-      if (!Number.isFinite(price) || price <= 0) return
-
-      // Prefer NSE over BSE
-      const existingIsNSE = priceMap[base]?.sourceSymbol?.endsWith('.NS')
-      const newIsNSE = yahooSymbol.endsWith('.NS')
-      if (!priceMap[base] || (!existingIsNSE && newIsNSE)) {
-        priceMap[base] = { price, currency: r.currency || 'INR', sourceSymbol: yahooSymbol, name: r.longName || r.shortName || '' }
-      }
-    })
-
-    const quotes = {}
-    const missing = []
-    cleaned.forEach(sym => {
-      const key = sym.replace(/\.(NS|BO)$/i, '').toUpperCase()
-      const q = priceMap[key]
-      if (q) quotes[sym] = q
-      else missing.push(sym)
-    })
-
-    console.log('[QUOTES] Fetched', Object.keys(quotes).length, '/', cleaned.length, '; missing:', missing)
-    return { quotes, missing }
+    const r = data?.quoteResponse?.result?.[0]
+    if (!r) return null
+    const price = Number(r.regularMarketPrice ?? r.regularMarketPreviousClose)
+    return (Number.isFinite(price) && price > 0) ? price : null
   } catch (e) {
-    console.error('[QUOTES] fetch failed:', e.message)
-    return { quotes: {}, missing: cleaned }
+    console.error('[YF] fetchYfPrice error:', symbol, e.message)
+    return null
   }
+}
+
+// Warm up NSE session at startup
+ensureNseSession().catch(() => {})
+
+// Fetch live quotes — NSE primary for Indian stocks, Yahoo Finance for foreign
+async function fetchQuotes(symbols) {
+  const cleaned = symbols.map(s => (s || '').trim()).filter(Boolean).slice(0, 50)
+  if (cleaned.length === 0) return { quotes: {}, missing: [] }
+
+  const results = await Promise.all(cleaned.map(async sym => {
+    const upper = sym.toUpperCase()
+    const isIndian = !upper.includes('.') || /\.(NS|BO)$/i.test(upper)
+    let price = null
+    let source = null
+
+    if (isIndian) {
+      price = await fetchNsePrice(upper)
+      source = 'NSE'
+      // NSE failed — try BSE/equity ETF variant if plain symbol
+      if (price === null && !/\.(NS|BO)$/i.test(upper)) {
+        price = await fetchNsePrice(upper + '.BO')
+        source = 'NSE/BSE'
+      }
+    } else {
+      price = await fetchYfPrice(upper)
+      source = 'Yahoo Finance'
+    }
+
+    return { sym, price, source }
+  }))
+
+  const quotes = {}
+  const missing = []
+  results.forEach(({ sym, price, source }) => {
+    if (price !== null) quotes[sym] = { price, currency: isIndian(sym) ? 'INR' : 'USD', source }
+    else missing.push(sym)
+  })
+
+  function isIndian(s) { return !s.includes('.') || /\.(NS|BO)$/i.test(s) }
+
+  console.log('[QUOTES] Fetched', Object.keys(quotes).length, '/', cleaned.length, '; missing:', missing)
+  return { quotes, missing }
 }
 
 function readWorkbook(filePath) {
@@ -376,17 +425,14 @@ app.post('/api/holdings/:hid/refresh-price', async (req, res) => {
       debugInfo = { source: 'AMFI', schemeCode: found.schemeCode, navResult: navs[found.schemeCode] || null }
     } else if (['stock', 'etf', 'foreign', 'gold'].includes(at) && found.ticker) {
       const { quotes, missing } = await fetchQuotes([found.ticker])
-      // Try both original ticker and base (stripped of .NS/.BO)
-      const base = found.ticker.replace(/\.(NS|BO)$/i, '').toUpperCase()
-      const q = quotes[found.ticker] || quotes[base]
+      const q = quotes[found.ticker]
       newPrice = q?.price ?? null
       debugInfo = {
-        source: 'Yahoo Finance',
+        source: q?.source || 'NSE',
         tickerQueried: found.ticker,
         found: !!q,
-        sourceSymbol: q?.sourceSymbol || null,
         missing,
-        hint: !q ? `"${found.ticker}" not found on Yahoo Finance. Check NSE symbol — e.g. TATAMOTORS, INFY, RELIANCE` : null,
+        hint: !q ? `"${found.ticker}" not found. For Indian stocks use the NSE symbol e.g. INFY, RELIANCE, TMPV. For foreign stocks use Yahoo ticker e.g. AAPL, VOO.` : null,
       }
     } else {
       debugInfo = { reason: at === 'fd' ? 'FD has no live price — update manually' : 'No ticker or scheme code set on this holding' }
