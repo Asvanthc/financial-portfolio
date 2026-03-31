@@ -351,21 +351,22 @@ app.get('/api/stock/search', async (req, res) => {
   try {
     const q = (req.query.q || '').trim()
     if (!q) return res.json([])
-    await ensureYfSession()
-    const url = `https://query2.finance.yahoo.com/v1/finance/search?q=${encodeURIComponent(q)}&quotesCount=10&newsCount=0&listsCount=0&crumb=${encodeURIComponent(yfSession.crumb)}`
-    const resp = await fetch(url, { headers: { ...YF_HEADERS, 'Cookie': yfSession.cookie } })
+    await ensureNseSession()
+    const url = `https://www.nseindia.com/api/search/autocomplete?q=${encodeURIComponent(q)}`
+    const resp = await fetch(url, { headers: { ...NSE_HEADERS, Cookie: nseSession.cookie } })
     if (!resp.ok) return res.json([])
     const data = await resp.json()
-    const quotes = (data?.quotes || [])
-      .filter(q => q.symbol && ['EQUITY', 'ETF', 'MUTUALFUND'].includes(q.quoteType))
-      .map(q => ({
-        symbol: q.symbol,
-        name: q.longname || q.shortname || q.symbol,
-        exchange: q.exchDisp || q.exchange || '',
-        type: q.quoteType,
+    // NSE returns { symbols: [{symbol, name, ...}] }
+    const items = (data?.symbols || [])
+      .filter(x => x.symbol)
+      .map(x => ({
+        symbol: x.symbol,
+        name: x.symbol_info || x.company_name || x.name || x.symbol,
+        exchange: 'NSE',
+        type: x.result_sub_type || x.type || 'EQUITY',
       }))
-      .slice(0, 10)
-    res.json(quotes)
+      .slice(0, 12)
+    res.json(items)
   } catch (e) {
     res.status(500).json({ error: e.message })
   }
