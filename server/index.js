@@ -603,37 +603,63 @@ async function fetchIndexConstituents(indexName) {
   } catch (_) { return [] }
 }
 
-// Infer the NSE index an MF tracks from its scheme name (for index/ETF-FoF schemes)
+// Infer the NSE index an MF/ETF-via-MF-route tracks from its scheme name
+// Called for ALL mf-type holdings (many ETFs bought via MF route have schemeCode, not ticker)
 function inferMfIndex(schemeName = '', schemeCategory = '') {
-  const n = schemeName.toLowerCase()
-  const isIndex = schemeCategory.toLowerCase().includes('index') || n.includes('index') || n.includes('etf')
-  if (!isIndex) return null
-  if (n.includes('nifty next 50') || n.includes('junior') || n.includes('next 50')) return 'NIFTY NEXT 50'
-  if (n.includes('nifty 500'))  return 'NIFTY 500'
-  if (n.includes('nifty 200'))  return 'NIFTY 200'
-  if (n.includes('nifty 100'))  return 'NIFTY 100'
-  if (n.includes('nifty 50') || n.includes('nifty50')) return 'NIFTY 50'
-  if (n.includes('sensex'))     return null // BSE — NSE API won't have it
-  if (n.includes('midcap 150')) return 'NIFTY MIDCAP 150'
-  if (n.includes('midcap 100')) return 'NIFTY MIDCAP 100'
-  if (n.includes('midcap'))     return 'NIFTY MIDCAP 150'
+  const n  = schemeName.toLowerCase()
+  const sc = schemeCategory.toLowerCase()
+  // Skip BSE-tracking schemes up front
+  if (n.includes('sensex') || n.includes('bse')) return null
+  // Skip gold/silver/debt/liquid/overnight
+  if (n.includes('gold') || n.includes('silver') || n.includes('liquid') ||
+      n.includes('overnight') || n.includes('debt') || n.includes('gilt') ||
+      n.includes('credit risk') || n.includes('banking and psu') || n.includes('arbitrage')) return null
+  // Skip international/US/nasdaq/hang seng
+  if (n.includes('nasdaq') || n.includes('s&p') || n.includes('sp500') ||
+      n.includes('hang seng') || n.includes('global') || n.includes('us equity') ||
+      n.includes('japan') || n.includes('europe') || n.includes('china') || n.includes('world')) return null
+
+  // Only process index funds and ETFs (covers "Other Scheme - ETF", "Equity Scheme - Index Funds", etc.)
+  const isIndexOrEtf = sc.includes('index') || sc.includes('etf') || n.includes('index') || n.includes('etf')
+  if (!isIndexOrEtf) return null
+
+  // ── Specific index detection — order matters (most specific first) ──────────
+  if (n.includes('nifty next 50') || n.includes('junior') || n.includes('nifty junior')) return 'NIFTY NEXT 50'
+  if (n.includes('nifty 500'))    return 'NIFTY 500'
+  if (n.includes('nifty 200'))    return 'NIFTY 200'
+  if (n.includes('nifty 100'))    return 'NIFTY 100'
+  if (n.includes('nifty 50') || n.includes('nifty50') || (n.includes('nifty') && n.includes(' 50'))) return 'NIFTY 50'
+  // Midcap
+  if (n.includes('midcap 150'))   return 'NIFTY MIDCAP 150'
+  if (n.includes('midcap 100'))   return 'NIFTY MIDCAP 100'
+  if (n.includes('midsmallcap') || n.includes('mid small')) return 'NIFTY MIDCAP 150'
+  if (n.includes('midcap'))       return 'NIFTY MIDCAP 150'
+  // Smallcap
   if (n.includes('smallcap 250')) return 'NIFTY SMALLCAP 250'
   if (n.includes('smallcap 100')) return 'NIFTY SMALLCAP 100'
-  if (n.includes('smallcap'))   return 'NIFTY SMALLCAP 250'
-  if (n.includes('bank'))       return 'NIFTY BANK'
-  if (n.includes('it fund') || n.includes('information technology')) return 'NIFTY IT'
-  if (n.includes('pharma'))     return 'NIFTY PHARMA'
-  if (n.includes('auto'))       return 'NIFTY AUTO'
-  if (n.includes('fmcg'))       return 'NIFTY FMCG'
-  if (n.includes('healthcare')) return 'NIFTY HEALTHCARE INDEX'
-  if (n.includes('infrastructure')) return 'NIFTY INFRASTRUCTURE'
-  if (n.includes('momentum'))   return 'NIFTY200 MOMENTUM 50'
-  if (n.includes('quality'))    return 'NIFTY QUALITY 30'
-  if (n.includes('alpha'))      return 'NIFTY ALPHA 50'
-  if (n.includes('value'))      return 'NIFTY500 VALUE 50'
-  if (n.includes('cpse') || n.includes('psu')) return 'NIFTY CPSE INDEX'
-  if (n.includes('consumption')) return 'NIFTY INDIA CONSUMPTION'
-  if (n.includes('energy'))     return 'NIFTY ENERGY'
+  if (n.includes('smallcap'))     return 'NIFTY SMALLCAP 250'
+  // Sectoral — must come before generic 'bank' check
+  if (n.includes('psu bank') || n.includes('public sector bank')) return 'NIFTY PSU BANK'
+  if (n.includes('nifty bank') || n.includes('banking')) return 'NIFTY BANK'
+  if (n.includes('nifty it') || n.includes(' it etf') || n.includes('information technology')) return 'NIFTY IT'
+  if (n.includes('nifty pharma') || n.includes('pharma')) return 'NIFTY PHARMA'
+  if (n.includes('nifty auto') || n.includes('automobile')) return 'NIFTY AUTO'
+  if (n.includes('nifty fmcg') || n.includes('fmcg')) return 'NIFTY FMCG'
+  if (n.includes('nifty metal') || n.includes(' metal')) return 'NIFTY METAL'
+  if (n.includes('nifty realty') || n.includes('real estate')) return 'NIFTY REALTY'
+  if (n.includes('healthcare'))   return 'NIFTY HEALTHCARE INDEX'
+  if (n.includes('defence') || n.includes('defense')) return 'NIFTY INDIA DEFENCE'
+  if (n.includes('infrastructure') || n.includes('infra')) return 'NIFTY INFRASTRUCTURE'
+  if (n.includes('energy'))       return 'NIFTY ENERGY'
+  if (n.includes('consumption'))  return 'NIFTY INDIA CONSUMPTION'
+  if (n.includes('cpse'))         return 'NIFTY CPSE INDEX'
+  if (n.includes('psu'))          return 'NIFTY CPSE INDEX'
+  // Factor / smart beta
+  if (n.includes('momentum'))     return 'NIFTY200 MOMENTUM 50'
+  if (n.includes('quality'))      return 'NIFTY QUALITY 30'
+  if (n.includes('alpha'))        return 'NIFTY ALPHA 50'
+  if (n.includes('low vol') || n.includes('low volatility')) return 'NIFTY100 LOW VOLATILITY 30'
+  if (n.includes('value'))        return 'NIFTY500 VALUE 50'
   return null
 }
 
@@ -668,19 +694,25 @@ app.get('/api/portfolio/overlap', async (req, res) => {
       }
     }))
 
-    // Fetch MF scheme info + infer index for index funds
+    // Fetch MF scheme info + infer index for index funds / ETF-via-MF-route
     const mfData = {}
     await Promise.all(mfHoldings.map(async mf => {
       try {
-        const r = await fetch(`https://api.mfapi.in/mf/${mf.schemeCode}`)
+        const ctrl = new AbortController()
+        const timer = setTimeout(() => ctrl.abort(), 8000)
+        const r = await fetch(`https://api.mfapi.in/mf/${mf.schemeCode}`, { signal: ctrl.signal })
+        clearTimeout(timer)
         const d = await r.json()
         const meta = d?.meta || {}
-        const inferredIndex = inferMfIndex(meta.scheme_name || mf.name || '', meta.scheme_category || '')
+        // Try scheme name from API first, fall back to stored name
+        const nameForInfer = meta.scheme_name || mf.name || ''
+        const catForInfer  = meta.scheme_category || ''
+        const inferredIndex = inferMfIndex(nameForInfer, catForInfer)
         let constituents = []
         if (inferredIndex) {
           constituents = await fetchIndexConstituents(inferredIndex)
         }
-        mfData[mf.schemeCode] = { ...meta, inferredIndex, constituents }
+        mfData[mf.schemeCode] = { ...meta, nameUsed: nameForInfer, inferredIndex, constituents }
       } catch (_) { mfData[mf.schemeCode] = { inferredIndex: null, constituents: [] } }
     }))
 

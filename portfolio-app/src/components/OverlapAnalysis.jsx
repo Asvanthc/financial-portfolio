@@ -312,7 +312,16 @@ export default function OverlapAnalysis({ analytics }) {
                     {catInfo.tag === 'Focused' && '⚠ Max 30 stocks. Concentrated bets. Higher risk, higher potential alpha.'}
                     {catInfo.tag === 'Hybrid' && '⚖ Mix of equity and debt. Lower downside but capped upside.'}
                     {!['Large Cap','Mid Cap','Small Cap','Flexi Cap','Multi Cap','Index','ELSS (Tax)','Sectoral','Focused','Hybrid'].includes(catInfo.tag) && (info.scheme_category || 'Category details not available.')}
-                    {!mfData[mf.schemeCode]?.inferredIndex && ' Holdings breakdown requires AMFI monthly disclosure (not available via free API).'}
+                    {!mfData[mf.schemeCode]?.inferredIndex && (
+                      <span style={{ color: 'var(--text3)' }}>
+                        {' '}Holdings breakdown not available via free API.
+                        {mfData[mf.schemeCode]?.nameUsed && (
+                          <span style={{ fontSize: 10, display: 'block', marginTop: 2, color: 'var(--text3)', opacity: 0.6 }}>
+                            Matched name: "{mfData[mf.schemeCode].nameUsed}"
+                          </span>
+                        )}
+                      </span>
+                    )}
                   </div>
 
                   {/* Index MF: show constituent chips */}
