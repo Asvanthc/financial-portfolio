@@ -132,12 +132,6 @@ export default function App() {
 
         {activeTab === 'overview' && (
           <div className="section">
-            {/* Goal Seek Summary */}
-            <GoalSeekPanel analytics={analytics} totalCurrent={totalCurrent} minRequired={minRequired} subdivisionGoalSeek={subdivisionGoalSeek} portfolio={portfolio} budget={budget} setBudget={setBudget} />
-
-            {/* Charts */}
-            <PortfolioCharts divisions={portfolio.divisions} analytics={analytics} />
-
             {/* Division cards */}
             <div className="section-header" style={{ marginTop: 8 }}>
               <h2 className="section-title">Divisions</h2>
@@ -158,6 +152,12 @@ export default function App() {
                 No divisions yet. Click "Add Division" to get started.
               </div>
             )}
+
+            {/* Goal Seek Summary */}
+            <GoalSeekPanel analytics={analytics} totalCurrent={totalCurrent} minRequired={minRequired} subdivisionGoalSeek={subdivisionGoalSeek} portfolio={portfolio} budget={budget} setBudget={setBudget} />
+
+            {/* Charts */}
+            <PortfolioCharts divisions={portfolio.divisions} analytics={analytics} />
           </div>
         )}
 
