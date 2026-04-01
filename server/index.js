@@ -556,8 +556,8 @@ const ETF_INDEX_MAP = {
   REALTYBEES:'NIFTY REALTY',
 
   // ── NIFTY INFRA / DEFENCE ─────────────────────────────────────────────────
-  INFRAIETF:'NIFTY INDIA DEFENCE', DEFENCEIETF:'NIFTY INDIA DEFENCE',
-  INDIAINF:'NIFTY INFRASTRUCTURE',
+  INFRAIETF:'NIFTY INFRASTRUCTURE', INDIAINF:'NIFTY INFRASTRUCTURE',
+  DEFENCEIETF:'NIFTY INDIA DEFENCE', INDIANDEF:'NIFTY INDIA DEFENCE',
 
   // ── NIFTY MOMENTUM / FACTOR ───────────────────────────────────────────────
   MOM50:'NIFTY200 MOMENTUM 50', MOMENTUM:'NIFTY200 MOMENTUM 50',
@@ -597,9 +597,24 @@ async function fetchIndexConstituents(indexName) {
     })
     if (!r.ok) return []
     const data = await r.json()
+    const total = data?.data?.reduce((s, x) => s + (Number(x.totalTradedValue) || 0), 0) || 0
     return (data?.data || [])
       .filter(s => s.symbol && !s.symbol.includes(' '))
-      .map(s => ({ symbol: s.symbol, name: s.meta?.companyName || s.symbol, sector: s.meta?.industry || null }))
+      .map((s, i) => {
+        // NSE returns weightPercentage for some indices; fall back to rank order
+        const weight = s.weightPercentage != null
+          ? Number(s.weightPercentage)
+          : s.totalTradedValue && total > 0
+            ? Number(((s.totalTradedValue / total) * 100).toFixed(2))
+            : null
+        return {
+          symbol: s.symbol,
+          name: s.meta?.companyName || s.symbol,
+          sector: s.meta?.industry || null,
+          weight,          // % weight in the index (best effort)
+          rank: i + 1,
+        }
+      })
   } catch (_) { return [] }
 }
 

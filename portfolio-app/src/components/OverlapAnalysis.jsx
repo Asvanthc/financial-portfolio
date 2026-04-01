@@ -30,13 +30,13 @@ function categoryInfo(cat) {
   return MF_CATEGORY_RISK[cat] || { risk: '—', tag: cat?.split(' - ').pop() || 'Unknown', color: 'var(--text3)' }
 }
 
-export default function OverlapAnalysis({ analytics }) {
+export default function OverlapAnalysis({ totalCurrent }) {
   const [data, setData] = useState(null)
   const [loading, setLoading] = useState(false)
   const [activeSection, setActiveSection] = useState('overlap')
   const [expandedEtf, setExpandedEtf] = useState({})
 
-  const totalPortfolio = analytics?.totals?.current || 0
+  const totalPortfolio = totalCurrent || 0
 
   async function load() {
     setLoading(true)
@@ -66,16 +66,17 @@ export default function OverlapAnalysis({ analytics }) {
   const directOnlyStocks = companyExposure.filter(c => c.directValue > 0 && c.etfCount === 0 && c.mfCount === 0)
   const indexMfs = mfHoldings.filter(m => mfData[m.schemeCode]?.inferredIndex)
 
-  // Sector grouping from ETF/MF index constituents (sector is on the company object, not the source)
+  // Sector grouping from ETF/MF index constituents
   const sectorMap = {}
   companyExposure.forEach(c => {
     const sector = c.sector || null
-    if (!sector) return  // skip unknown-sector companies entirely
-    if (!sectorMap[sector]) sectorMap[sector] = { sector, count: 0, hasDirectHolding: false }
+    if (!sector) return
+    if (!sectorMap[sector]) sectorMap[sector] = { sector, count: 0, hasDirectHolding: false, companies: [] }
     sectorMap[sector].count++
+    sectorMap[sector].companies.push(c)
     if (c.directValue > 0) sectorMap[sector].hasDirectHolding = true
   })
-  const topSectors = Object.values(sectorMap).sort((a,b) => b.count - a.count).slice(0, 14)
+  const topSectors = Object.values(sectorMap).sort((a,b) => b.count - a.count)
 
   // MF holdings that are actually ETFs (bought via MF route — have schemeCode, name contains ETF)
   const etfViaMf = mfHoldings.filter(m => {
@@ -225,20 +226,9 @@ export default function OverlapAnalysis({ analytics }) {
             </div>
           </div>
 
-          {/* Sector spread from ETF indices */}
+          {/* Sector spread — expandable */}
           {topSectors.length > 0 && (
-            <div className="card">
-              <div style={{ fontWeight: 700, marginBottom: 12 }}>Sector Spread (via ETF / index MF)</div>
-              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
-                {topSectors.map(s => (
-                  <div key={s.sector} style={{ padding: '4px 10px', borderRadius: 6, background: s.hasDirectHolding ? 'var(--orange-dim)' : 'var(--surface2)', border: `1px solid ${s.hasDirectHolding ? 'rgba(251,146,60,0.3)' : 'var(--border)'}`, fontSize: 12 }}>
-                    <span style={{ color: s.hasDirectHolding ? 'var(--orange)' : 'var(--text2)' }}>{s.sector}</span>
-                    <span style={{ color: 'var(--text3)', marginLeft: 6 }}>{s.count}</span>
-                    {s.hasDirectHolding && <span style={{ marginLeft: 4, fontSize: 10, color: 'var(--orange)' }}>★ direct</span>}
-                  </div>
-                ))}
-              </div>
-            </div>
+            <SectorSpread sectors={topSectors} />
           )}
         </div>
       )}
@@ -287,31 +277,69 @@ export default function OverlapAnalysis({ analytics }) {
                   </div>
                 )}
                 {overlap.length > 0 && (
-                  <div style={{ marginTop: 10, padding: '8px 10px', background: 'var(--orange-dim)', borderRadius: 6, fontSize: 12 }}>
-                    <span style={{ color: 'var(--orange)', fontWeight: 700 }}>⚠ {overlap.length} overlap with direct holdings: </span>
-                    {overlap.map(c => c.symbol).join(', ')}
+                  <div style={{ marginTop: 10, borderRadius: 6, overflow: 'hidden', border: '1px solid rgba(251,146,60,0.3)' }}>
+                    <div style={{ padding: '6px 10px', background: 'var(--orange-dim)', fontSize: 12, fontWeight: 700, color: 'var(--orange)' }}>
+                      ⚠ {overlap.length} stocks held directly AND in this index
+                    </div>
+                    <table style={{ width: '100%', fontSize: 12, borderCollapse: 'collapse' }}>
+                      <thead><tr style={{ background: 'var(--surface2)', fontSize: 11, color: 'var(--text3)' }}>
+                        <th style={{ textAlign: 'left', padding: '4px 10px' }}>Stock</th>
+                        <th style={{ textAlign: 'right', padding: '4px 10px' }}>Index Weight</th>
+                        <th style={{ textAlign: 'right', padding: '4px 10px' }}>Your Direct Value</th>
+                        <th style={{ textAlign: 'right', padding: '4px 10px' }}>% Portfolio</th>
+                      </tr></thead>
+                      <tbody>
+                        {overlap.map(c => {
+                          const h = directStocks.find(h => h.ticker?.replace(/\.(NS|BO)$/i,'').toUpperCase() === c.symbol)
+                          return (
+                            <tr key={c.symbol} style={{ borderTop: '1px solid var(--border)' }}>
+                              <td style={{ padding: '5px 10px' }}>
+                                <span style={{ fontWeight: 600 }}>{c.symbol}</span>
+                                <span style={{ fontSize: 10, color: 'var(--text3)', marginLeft: 6 }}>{c.name}</span>
+                              </td>
+                              <td style={{ textAlign: 'right', padding: '5px 10px', color: 'var(--cyan)', fontWeight: 700 }}>
+                                {c.weight != null ? `${c.weight.toFixed(2)}%` : `#${c.rank}`}
+                              </td>
+                              <td style={{ textAlign: 'right', padding: '5px 10px', color: 'var(--purple)' }}>{fmt(h?.current)}</td>
+                              <td style={{ textAlign: 'right', padding: '5px 10px', color: 'var(--text3)' }}>{pct(h?.current || 0, totalPortfolio)}</td>
+                            </tr>
+                          )
+                        })}
+                      </tbody>
+                    </table>
                   </div>
                 )}
 
                 {expanded && info.constituents?.length > 0 && (
-                  <div style={{ marginTop: 12, maxHeight: 260, overflowY: 'auto' }}>
+                  <div style={{ marginTop: 12, maxHeight: 300, overflowY: 'auto' }}>
                     <div style={{ fontSize: 11, color: 'var(--text3)', marginBottom: 6 }}>
                       {info.constituents.length} stocks in {info.indexName}
                       {overlap.length > 0 && <span style={{ color: 'var(--orange)', marginLeft: 8 }}>{overlap.length} in your direct holdings ★</span>}
                     </div>
-                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
-                      {info.constituents.map(c => (
-                        <span key={c.symbol} style={{
-                          padding: '2px 7px', borderRadius: 4, fontSize: 11,
-                          background: directSymbols.has(c.symbol) ? 'var(--orange-dim)' : 'var(--surface2)',
-                          color: directSymbols.has(c.symbol) ? 'var(--orange)' : 'var(--text2)',
-                          border: directSymbols.has(c.symbol) ? '1px solid rgba(251,146,60,0.3)' : '1px solid transparent',
-                          fontWeight: directSymbols.has(c.symbol) ? 700 : 400,
-                        }}>
-                          {c.symbol} {directSymbols.has(c.symbol) ? '★' : ''}
-                        </span>
-                      ))}
-                    </div>
+                    <table style={{ width: '100%', fontSize: 11, borderCollapse: 'collapse' }}>
+                      <thead><tr style={{ color: 'var(--text3)', borderBottom: '1px solid var(--border)' }}>
+                        <th style={{ textAlign: 'left', padding: '2px 6px' }}>Symbol</th>
+                        <th style={{ textAlign: 'left', padding: '2px 6px' }}>Name</th>
+                        <th style={{ textAlign: 'right', padding: '2px 6px' }}>Weight</th>
+                      </tr></thead>
+                      <tbody>
+                        {info.constituents.map(c => (
+                          <tr key={c.symbol} style={{
+                            background: directSymbols.has(c.symbol) ? 'rgba(251,146,60,0.07)' : 'transparent',
+                            borderBottom: '1px solid var(--border)',
+                          }}>
+                            <td style={{ padding: '3px 6px', fontWeight: directSymbols.has(c.symbol) ? 700 : 400,
+                              color: directSymbols.has(c.symbol) ? 'var(--orange)' : 'var(--text2)' }}>
+                              {c.symbol} {directSymbols.has(c.symbol) ? '★' : ''}
+                            </td>
+                            <td style={{ padding: '3px 6px', color: 'var(--text3)', fontSize: 10 }}>{c.name}</td>
+                            <td style={{ padding: '3px 6px', textAlign: 'right', color: 'var(--cyan)', fontWeight: 600 }}>
+                              {c.weight != null ? `${c.weight.toFixed(2)}%` : `#${c.rank}`}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
                   </div>
                 )}
               </div>
@@ -791,6 +819,59 @@ function InstrumentRow({ badge, badgeColor, name, sub, value, valueColor, totalS
           </table>
         </div>
       )}
+    </div>
+  )
+}
+
+function SectorSpread({ sectors }) {
+  const [expanded, setExpanded] = React.useState({})
+  return (
+    <div className="card">
+      <div style={{ fontWeight: 700, marginBottom: 12 }}>
+        Sector Spread ({sectors.length} sectors via ETF / index MF)
+      </div>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+        {sectors.map(s => {
+          const isOpen = expanded[s.sector]
+          const direct = s.companies.filter(c => c.directValue > 0)
+          return (
+            <div key={s.sector} style={{ borderRadius: 6, overflow: 'hidden', border: `1px solid ${s.hasDirectHolding ? 'rgba(251,146,60,0.3)' : 'var(--border)'}` }}>
+              <div
+                onClick={() => setExpanded(e => ({ ...e, [s.sector]: !e[s.sector] }))}
+                style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '6px 10px', cursor: 'pointer',
+                  background: s.hasDirectHolding ? 'var(--orange-dim)' : 'var(--surface2)' }}
+              >
+                <span style={{ flex: 1, fontWeight: s.hasDirectHolding ? 700 : 400, fontSize: 13,
+                  color: s.hasDirectHolding ? 'var(--orange)' : 'var(--text2)' }}>{s.sector}</span>
+                <span style={{ fontSize: 12, color: 'var(--text3)' }}>{s.count} stocks</span>
+                {s.hasDirectHolding && (
+                  <span style={{ fontSize: 11, color: 'var(--orange)' }}>★ {direct.length} direct</span>
+                )}
+                <span style={{ fontSize: 11, color: 'var(--text3)' }}>{isOpen ? '▲' : '▼'}</span>
+              </div>
+              {isOpen && (
+                <div style={{ padding: '8px 10px', background: 'var(--surface1,var(--surface2))', display: 'flex', flexWrap: 'wrap', gap: 4 }}>
+                  {s.companies.sort((a,b) => (b.directValue||0)-(a.directValue||0)).map(c => {
+                    const isDirect = c.directValue > 0
+                    return (
+                      <span key={c.symbol} style={{
+                        padding: '2px 8px', borderRadius: 4, fontSize: 11,
+                        background: isDirect ? 'var(--orange-dim)' : 'var(--surface2)',
+                        color: isDirect ? 'var(--orange)' : 'var(--text2)',
+                        fontWeight: isDirect ? 700 : 400,
+                        border: `1px solid ${isDirect ? 'rgba(251,146,60,0.3)' : 'transparent'}`,
+                      }}>
+                        {c.symbol}{isDirect ? ' ★' : ''}
+                        {c.weight != null && <span style={{ marginLeft: 4, fontSize: 9, color: isDirect ? 'var(--orange)' : 'var(--text3)' }}>{c.weight.toFixed(1)}%</span>}
+                      </span>
+                    )
+                  })}
+                </div>
+              )}
+            </div>
+          )
+        })}
+      </div>
     </div>
   )
 }
