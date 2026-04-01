@@ -170,10 +170,90 @@ export default function OverlapAnalysis({ analytics }) {
             </div>
           )}
 
+          {/* Index instruments summary — ETFs + index MFs */}
+          <div className="card" style={{ marginBottom: 16 }}>
+            <div style={{ fontWeight: 700, marginBottom: 14 }}>Your Index Instruments</div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+
+              {/* ETF-type holdings (ticker-based) */}
+              {etfHoldings.map(etf => {
+                const sym = etf.ticker?.replace(/\.(NS|BO)$/i,'').toUpperCase()
+                const info = etfData[sym] || {}
+                const overlapCount = (info.constituents || []).filter(c => directSymbols.has(c.symbol)).length
+                return (
+                  <div key={etf.id} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 10px', background: 'var(--surface2)', borderRadius: 8, flexWrap: 'wrap' }}>
+                    <span style={{ padding: '2px 7px', borderRadius: 4, fontSize: 10, fontWeight: 700, background: 'var(--purple)22', color: 'var(--purple)' }}>ETF</span>
+                    <div style={{ flex: 1, minWidth: 160 }}>
+                      <div style={{ fontWeight: 600, fontSize: 13 }}>{etf.name}</div>
+                      <div style={{ fontSize: 11, color: 'var(--text3)' }}>
+                        {sym} ·{' '}
+                        {info.indexName ? `Tracks ${info.indexName}` :
+                         info.etfType === 'gold' ? '🥇 Gold ETF' :
+                         info.etfType === 'silver' ? '🥈 Silver ETF' :
+                         info.etfType === 'international' ? '🌐 International ETF' : 'Index unknown'}
+                      </div>
+                    </div>
+                    <div style={{ textAlign: 'right', fontSize: 12 }}>
+                      <div style={{ color: 'var(--purple)', fontWeight: 700 }}>{fmt(etf.current)}</div>
+                      {info.constituents?.length > 0 && (
+                        <div style={{ color: 'var(--text3)' }}>{info.constituents.length} stocks in index</div>
+                      )}
+                    </div>
+                    {overlapCount > 0 && (
+                      <span style={{ padding: '2px 8px', borderRadius: 99, fontSize: 11, background: 'var(--orange-dim)', color: 'var(--orange)', fontWeight: 700 }}>
+                        ⚠ {overlapCount} overlap
+                      </span>
+                    )}
+                  </div>
+                )
+              })}
+
+              {/* MF-type holdings — index MFs and ETF-via-MF-route */}
+              {mfHoldings.map(mf => {
+                const md = mfData[mf.schemeCode] || {}
+                const overlapCount = (md.constituents || []).filter(c => directSymbols.has(c.symbol)).length
+                const isIndex = !!md.inferredIndex
+                return (
+                  <div key={mf.id} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 10px', background: 'var(--surface2)', borderRadius: 8, flexWrap: 'wrap' }}>
+                    <span style={{ padding: '2px 7px', borderRadius: 4, fontSize: 10, fontWeight: 700,
+                      background: isIndex ? 'var(--indigo)22' : 'var(--surface3,var(--surface2))',
+                      color: isIndex ? 'var(--indigo)' : 'var(--text3)' }}>
+                      {isIndex ? 'IDX MF' : 'MF'}
+                    </span>
+                    <div style={{ flex: 1, minWidth: 160 }}>
+                      <div style={{ fontWeight: 600, fontSize: 13 }}>{mf.name}</div>
+                      <div style={{ fontSize: 11, color: 'var(--text3)' }}>
+                        #{mf.schemeCode} ·{' '}
+                        {md.inferredIndex ? `Tracks ${md.inferredIndex}` : (md.scheme_category || 'Active fund — no index data')}
+                      </div>
+                    </div>
+                    <div style={{ textAlign: 'right', fontSize: 12 }}>
+                      <div style={{ color: 'var(--indigo)', fontWeight: 700 }}>{fmt(mf.current)}</div>
+                      {md.constituents?.length > 0 && (
+                        <div style={{ color: 'var(--text3)' }}>{md.constituents.length} stocks in index</div>
+                      )}
+                    </div>
+                    {overlapCount > 0 && (
+                      <span style={{ padding: '2px 8px', borderRadius: 99, fontSize: 11, background: 'var(--orange-dim)', color: 'var(--orange)', fontWeight: 700 }}>
+                        ⚠ {overlapCount} overlap
+                      </span>
+                    )}
+                    {isIndex && overlapCount === 0 && (
+                      <span style={{ padding: '2px 8px', borderRadius: 99, fontSize: 11, background: 'var(--green)22', color: 'var(--green)' }}>
+                        ✓ no overlap
+                      </span>
+                    )}
+                  </div>
+                )
+              })}
+
+            </div>
+          </div>
+
           {/* Sector spread from ETF indices */}
           {topSectors.length > 0 && (
             <div className="card">
-              <div style={{ fontWeight: 700, marginBottom: 12 }}>Sector Spread (via ETF indices)</div>
+              <div style={{ fontWeight: 700, marginBottom: 12 }}>Sector Spread (via ETF / index MF)</div>
               <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
                 {topSectors.map(s => (
                   <div key={s.sector} style={{ padding: '4px 10px', borderRadius: 6, background: s.hasDirectHolding ? 'var(--orange-dim)' : 'var(--surface2)', border: `1px solid ${s.hasDirectHolding ? 'rgba(251,146,60,0.3)' : 'var(--border)'}`, fontSize: 12 }}>
