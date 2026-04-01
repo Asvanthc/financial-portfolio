@@ -7,10 +7,12 @@ import MonthlyPlanner from './components/MonthlyPlanner'
 import DeepAnalytics from './components/DeepAnalytics'
 import ExpenseTracker from './components/ExpenseTracker'
 import FIRECalculator from './components/FIRECalculator'
+import OverlapAnalysis from './components/OverlapAnalysis'
 
 const TABS = [
   { id: 'overview', label: 'Overview' },
   { id: 'analytics', label: 'Analytics' },
+  { id: 'overlap', label: 'Overlap' },
   { id: 'expenses', label: 'Expenses' },
   { id: 'fire', label: 'FIRE' },
   { id: 'planner', label: 'Planner' },
@@ -27,6 +29,8 @@ export default function App() {
   const [showAddDivision, setShowAddDivision] = useState(false)
   const [activeTab, setActiveTab] = useState('overview')
   const [expenses, setExpenses] = useState([])
+  const [syncing, setSyncing] = useState(false)
+  const [syncResult, setSyncResult] = useState(null)
 
   async function refreshAll() {
     const [p, a, sgs, exp] = await Promise.all([
@@ -39,6 +43,20 @@ export default function App() {
     setAnalytics(a)
     setSubdivisionGoalSeek(sgs)
     setExpenses(exp)
+  }
+
+  async function syncAllPrices() {
+    setSyncing(true)
+    setSyncResult(null)
+    try {
+      const result = await api.refreshAll()
+      setSyncResult(result)
+      await refreshAll()
+    } catch (e) {
+      setSyncResult({ error: e.message })
+    } finally {
+      setSyncing(false)
+    }
   }
 
   useEffect(() => { refreshAll() }, [])
@@ -61,6 +79,25 @@ export default function App() {
               </button>
             ))}
           </nav>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginLeft: 'auto' }}>
+            {syncResult && !syncResult.error && (
+              <span style={{ fontSize: 11, color: 'var(--green)' }}>
+                ✓ {syncResult.updated} updated
+                {syncResult.failed > 0 && <span style={{ color: 'var(--red)' }}>, {syncResult.failed} failed</span>}
+              </span>
+            )}
+            {syncResult?.error && (
+              <span style={{ fontSize: 11, color: 'var(--red)' }}>✗ {syncResult.error}</span>
+            )}
+            <button
+              className="btn btn-sm"
+              style={{ background: syncing ? 'var(--surface2)' : 'var(--indigo)', color: '#fff', minWidth: 90 }}
+              onClick={syncAllPrices}
+              disabled={syncing}
+            >
+              {syncing ? '⟳ Syncing…' : '⟳ Sync All'}
+            </button>
+          </div>
         </div>
       </header>
 
@@ -126,6 +163,10 @@ export default function App() {
 
         {activeTab === 'analytics' && (
           <DeepAnalytics divisions={portfolio.divisions} analytics={analytics} />
+        )}
+
+        {activeTab === 'overlap' && (
+          <OverlapAnalysis divisions={portfolio.divisions} totalCurrent={totalCurrent} />
         )}
 
         {activeTab === 'expenses' && (
