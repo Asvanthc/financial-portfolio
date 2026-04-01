@@ -589,6 +589,34 @@ const ETF_NON_EQUITY = {
   MIRAE:'international',
 }
 
+// Fetch active MF portfolio from AMFI monthly disclosure (best-effort, may be a month old)
+async function fetchAmfiPortfolio(schemeCode) {
+  try {
+    // AMFI portfolio API used by mfapi.in — returns holdings for some schemes
+    const ctrl = new AbortController()
+    const timer = setTimeout(() => ctrl.abort(), 8000)
+    const r = await fetch(`https://api.mfapi.in/mf/${schemeCode}/portfolio`, { signal: ctrl.signal })
+    clearTimeout(timer)
+    if (!r.ok) return []
+    const d = await r.json()
+    // Expected: { portfolio: [ { isin, name, market_value, percentage, ... } ] }
+    if (Array.isArray(d?.portfolio)) {
+      return d.portfolio
+        .filter(p => p.isin || p.name)
+        .map(p => ({
+          symbol: (p.nseSymbol || p.bseCode || p.isin || p.name || '').toString().toUpperCase(),
+          name: p.name || p.schemeName || '',
+          sector: p.sector || null,
+          weight: p.percentage != null ? Number(p.percentage) : null,
+          rank: null,
+          isin: p.isin || null,
+        }))
+        .filter(p => p.symbol)
+    }
+    return []
+  } catch (_) { return [] }
+}
+
 async function fetchIndexConstituents(indexName) {
   await ensureNseSession()
   try {
@@ -726,36 +754,58 @@ app.get('/api/portfolio/overlap', async (req, res) => {
         let constituents = []
         if (inferredIndex) {
           constituents = await fetchIndexConstituents(inferredIndex)
+        } else {
+          // Try AMFI portfolio disclosure for active MFs
+          constituents = await fetchAmfiPortfolio(mf.schemeCode)
         }
-        mfData[mf.schemeCode] = { ...meta, nameUsed: nameForInfer, inferredIndex, constituents }
+        mfData[mf.schemeCode] = { ...meta, nameUsed: nameForInfer, inferredIndex, constituents, fromAmfi: !inferredIndex && constituents.length > 0 }
       } catch (_) { mfData[mf.schemeCode] = { inferredIndex: null, constituents: [] } }
     }))
 
-    // Company exposure map
+    // Company exposure map — tracks direct value + estimated value from ETF/MF weights
     const exposure = {}
-    const addExposure = (symbol, name, sector, source, value) => {
+    const addExposure = (symbol, name, sector, source, directVal, estimatedVal) => {
       const key = symbol.toUpperCase()
-      if (!exposure[key]) exposure[key] = { symbol: key, name, sector, directValue: 0, etfCount: 0, mfCount: 0, sources: [] }
-      if (source.type === 'stock') exposure[key].directValue += value || 0
-      if (source.type === 'etf')   exposure[key].etfCount++
-      if (source.type === 'mf')    exposure[key].mfCount++
-      exposure[key].sources.push(source)
+      if (!exposure[key]) exposure[key] = {
+        symbol: key, name, sector,
+        directValue: 0, estimatedEtfValue: 0, estimatedMfValue: 0,
+        etfCount: 0, mfCount: 0, sources: [],
+      }
+      if (source.type === 'stock') exposure[key].directValue += directVal || 0
+      if (source.type === 'etf') { exposure[key].etfCount++; exposure[key].estimatedEtfValue += estimatedVal || 0 }
+      if (source.type === 'mf')  { exposure[key].mfCount++;  exposure[key].estimatedMfValue  += estimatedVal || 0 }
+      // Merge sector if missing
+      if (!exposure[key].sector && sector) exposure[key].sector = sector
+      exposure[key].sources.push({ ...source, estimatedVal })
     }
 
     directStocks.forEach(h => {
       const sym = h.ticker.replace(/\.(NS|BO)$/i, '').toUpperCase()
-      addExposure(sym, h.name, null, { type: 'stock', name: h.name, value: h.current || 0, holding: h }, h.current || 0)
+      addExposure(sym, h.name, null, { type: 'stock', name: h.name }, h.current || 0, 0)
     })
-    Object.entries(etfData).forEach(([etfSym, { indexName, constituents }]) => {
-      constituents.forEach(c => addExposure(c.symbol, c.name, c.sector, { type: 'etf', etf: etfSym, index: indexName }, null))
+    Object.entries(etfData).forEach(([etfSym, etfInfo]) => {
+      const holdingCurrent = etfInfo.holding?.current || 0
+      ;(etfInfo.constituents || []).forEach(c => {
+        const est = c.weight != null ? (c.weight / 100) * holdingCurrent : 0
+        addExposure(c.symbol, c.name, c.sector, { type: 'etf', etf: etfSym, index: etfInfo.indexName, weight: c.weight, rank: c.rank }, 0, est)
+      })
     })
     Object.entries(mfData).forEach(([code, info]) => {
-      if (info.inferredIndex && info.constituents?.length) {
-        const mfHolding = mfHoldings.find(m => m.schemeCode == code)
-        const mfLabel = info.scheme_name || mfHolding?.name || code
-        info.constituents.forEach(c => addExposure(c.symbol, c.name, c.sector, { type: 'mf', mf: mfLabel, index: info.inferredIndex }, null))
-      }
+      if (!info.constituents?.length) return
+      const mfHolding = mfHoldings.find(m => m.schemeCode == code)
+      const holdingCurrent = mfHolding?.current || 0
+      const mfLabel = info.scheme_name || mfHolding?.name || code
+      info.constituents.forEach(c => {
+        const est = c.weight != null ? (c.weight / 100) * holdingCurrent : 0
+        addExposure(c.symbol, c.name, c.sector, { type: 'mf', mf: mfLabel, index: info.inferredIndex, weight: c.weight, rank: c.rank }, 0, est)
+      })
     })
+
+    // Sort by total estimated exposure descending
+    const companyExposure = Object.values(exposure).map(c => ({
+      ...c,
+      totalExposure: c.directValue + c.estimatedEtfValue + c.estimatedMfValue,
+    })).sort((a, b) => b.totalExposure - a.totalExposure)
 
     res.json({
       directStocks,
@@ -763,7 +813,7 @@ app.get('/api/portfolio/overlap', async (req, res) => {
       mfHoldings:  mfHoldings.map(m  => ({ ...m, schemeInfo: mfData[m.schemeCode] || {} })),
       etfData,
       mfData,
-      companyExposure: Object.values(exposure).sort((a, b) => (b.directValue + b.etfCount + b.mfCount) - (a.directValue + a.etfCount + a.mfCount)),
+      companyExposure,
     })
   } catch (e) { res.status(500).json({ error: e.message }) }
 })

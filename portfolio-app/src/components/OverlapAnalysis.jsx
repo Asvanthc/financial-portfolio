@@ -513,92 +513,59 @@ export default function OverlapAnalysis({ totalCurrent }) {
       {/* ── COMPANIES ─────────────────────────────────────────────────── */}
       {activeSection === 'companies' && (
         <div>
-          <div style={{ fontSize: 12, color: 'var(--text3)', marginBottom: 14 }}>
-            All companies you have exposure to — directly, via ETF index, or via index MF. Orange = double exposure. Index MF constituents shown only for mapped index funds.
+          <div style={{ fontSize: 12, color: 'var(--text3)', marginBottom: 10 }}>
+            All companies across direct stocks, ETF indices, and MF holdings — sorted by total estimated exposure.
+            ETF/MF values are estimated as <em>index weight × holding value</em>. Orange = you also hold directly.
           </div>
           <div style={{ overflowX: 'auto' }}>
             <table className="holdings-table">
               <thead>
                 <tr>
+                  <th>#</th>
                   <th>Company</th>
                   <th>Sector</th>
-                  <th className="right">Direct Value</th>
+                  <th className="right">Total Exposure</th>
+                  <th className="right">Direct</th>
+                  <th className="right">via ETF</th>
+                  <th className="right">via MF</th>
                   <th className="right">% Portfolio</th>
-                  <th>Via ETF</th>
-                  <th>Via MF</th>
                 </tr>
               </thead>
               <tbody>
-                {directStocks.map(h => {
-                  const sym = h.ticker?.replace(/\.(NS|BO)$/i,'').toUpperCase()
-                  const c = companyExposure.find(x => x.symbol === sym)
-                  const hasOverlap = c && (c.etfCount > 0 || c.mfCount > 0)
+                {companyExposure.map((c, i) => {
+                  const isDirect = c.directValue > 0
+                  const isOverlap = isDirect && (c.etfCount > 0 || c.mfCount > 0)
+                  const etfSources = [...new Set(c.sources.filter(s=>s.type==='etf').map(s=>s.etf))]
+                  const mfSources  = [...new Set(c.sources.filter(s=>s.type==='mf').map(s=>s.index?.replace('NIFTY ','') || s.mf?.split(' ').slice(-3).join(' ')))]
                   return (
-                    <tr key={h.id} style={{ background: hasOverlap ? 'rgba(251,146,60,0.04)' : 'transparent' }}>
+                    <tr key={c.symbol} style={{ background: isOverlap ? 'rgba(251,146,60,0.04)' : 'transparent' }}>
+                      <td style={{ fontSize: 11, color: 'var(--text3)', width: 28 }}>{i+1}</td>
                       <td>
-                        <div style={{ fontWeight: 600 }}>{h.name}</div>
-                        <div style={{ fontSize: 11, color: 'var(--text3)' }}>{sym}</div>
+                        <div style={{ fontWeight: isDirect ? 700 : 500, fontSize: 13, color: isOverlap ? 'var(--orange)' : isDirect ? 'var(--text1,var(--text2))' : 'var(--text2)' }}>
+                          {c.name || c.symbol}
+                        </div>
+                        <div style={{ fontSize: 10, color: 'var(--text3)' }}>{c.symbol}</div>
                       </td>
-                      <td style={{ fontSize: 12, color: 'var(--text3)' }}>{c?.sector || '—'}</td>
-                      <td className="right num" style={{ color: 'var(--cyan)' }}>{fmt(h.current)}</td>
-                      <td className="right" style={{ fontSize: 12, color: 'var(--purple)' }}>{pct(h.current, totalPortfolio)}</td>
-                      <td style={{ fontSize: 11 }}>
-                        {c?.etfCount > 0
-                          ? c.sources.filter(s=>s.type==='etf').map((s,i) => (
-                              <span key={i} style={{ marginRight: 4, padding: '1px 5px', background: 'var(--orange-dim)', color: 'var(--orange)', borderRadius: 4 }}>{s.etf}</span>
-                            ))
+                      <td style={{ fontSize: 11, color: 'var(--text3)' }}>{c.sector || '—'}</td>
+                      <td className="right num" style={{ fontWeight: 700, color: isOverlap ? 'var(--orange)' : isDirect ? 'var(--cyan)' : 'var(--text3)' }}>
+                        {fmt(c.totalExposure)}
+                        {isOverlap && <div style={{ fontSize: 9, color: 'var(--orange)', fontWeight: 400 }}>double exp.</div>}
+                      </td>
+                      <td className="right num" style={{ color: 'var(--cyan)' }}>{isDirect ? fmt(c.directValue) : <span className="text-dim">—</span>}</td>
+                      <td className="right" style={{ fontSize: 11 }}>
+                        {c.estimatedEtfValue > 0
+                          ? <span style={{ color: 'var(--purple)' }}>{fmt(c.estimatedEtfValue)}<div style={{ fontSize: 9, color: 'var(--text3)' }}>{etfSources.join(', ')}</div></span>
                           : <span className="text-dim">—</span>}
                       </td>
-                      <td style={{ fontSize: 11 }}>
-                        {c?.mfCount > 0
-                          ? <span style={{ padding: '1px 5px', background: 'var(--indigo)22', color: 'var(--indigo)', borderRadius: 4 }}>
-                              {[...new Set(c.sources.filter(s=>s.type==='mf').map(s=>s.index?.replace('NIFTY ','')))].join(', ')}
-                            </span>
+                      <td className="right" style={{ fontSize: 11 }}>
+                        {c.estimatedMfValue > 0
+                          ? <span style={{ color: 'var(--indigo)' }}>{fmt(c.estimatedMfValue)}<div style={{ fontSize: 9, color: 'var(--text3)' }}>{mfSources.slice(0,2).join(', ')}</div></span>
                           : <span className="text-dim">—</span>}
                       </td>
+                      <td className="right" style={{ fontSize: 12, color: 'var(--text3)' }}>{pct(c.totalExposure, totalPortfolio)}</td>
                     </tr>
                   )
                 })}
-
-                {etfOnlyStocks.length > 0 && (
-                  <tr><td colSpan={6} style={{ paddingTop: 10, paddingBottom: 4, fontSize: 11, fontWeight: 700, color: 'var(--text3)' }}>
-                    Via ETF index only ({etfOnlyStocks.length} companies)
-                  </td></tr>
-                )}
-                {etfOnlyStocks.slice(0, 50).map(c => (
-                  <tr key={c.symbol} style={{ opacity: 0.55 }}>
-                    <td><div style={{ fontSize: 12 }}>{c.name}</div><div style={{ fontSize: 11, color: 'var(--text3)' }}>{c.symbol}</div></td>
-                    <td style={{ fontSize: 12, color: 'var(--text3)' }}>{c.sector || '—'}</td>
-                    <td className="right" style={{ fontSize: 12, color: 'var(--text3)' }}>—</td>
-                    <td className="right" style={{ fontSize: 12, color: 'var(--text3)' }}>—</td>
-                    <td style={{ fontSize: 11 }}>
-                      {c.sources.filter(s=>s.type==='etf').map((s,i) => (
-                        <span key={i} style={{ marginRight: 4, padding: '1px 5px', background: 'var(--purple-dim)', color: 'var(--purple)', borderRadius: 4 }}>{s.etf}</span>
-                      ))}
-                    </td>
-                    <td style={{ fontSize: 11, color: 'var(--text3)' }}>—</td>
-                  </tr>
-                ))}
-
-                {mfOnlyStocks.length > 0 && (
-                  <tr><td colSpan={6} style={{ paddingTop: 10, paddingBottom: 4, fontSize: 11, fontWeight: 700, color: 'var(--text3)' }}>
-                    Via index MF only ({mfOnlyStocks.length} companies)
-                  </td></tr>
-                )}
-                {mfOnlyStocks.slice(0, 50).map(c => (
-                  <tr key={c.symbol} style={{ opacity: 0.55 }}>
-                    <td><div style={{ fontSize: 12 }}>{c.name}</div><div style={{ fontSize: 11, color: 'var(--text3)' }}>{c.symbol}</div></td>
-                    <td style={{ fontSize: 12, color: 'var(--text3)' }}>{c.sector || '—'}</td>
-                    <td className="right" style={{ fontSize: 12, color: 'var(--text3)' }}>—</td>
-                    <td className="right" style={{ fontSize: 12, color: 'var(--text3)' }}>—</td>
-                    <td style={{ fontSize: 11, color: 'var(--text3)' }}>—</td>
-                    <td style={{ fontSize: 11 }}>
-                      {[...new Set(c.sources.filter(s=>s.type==='mf').map(s=>s.index?.replace('NIFTY ','')))].map((idx,i) => (
-                        <span key={i} style={{ marginRight: 4, padding: '1px 5px', background: 'var(--indigo)22', color: 'var(--indigo)', borderRadius: 4 }}>{idx}</span>
-                      ))}
-                    </td>
-                  </tr>
-                ))}
               </tbody>
             </table>
           </div>
