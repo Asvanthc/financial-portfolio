@@ -453,6 +453,141 @@ app.post('/api/holdings/:hid/refresh-price', async (req, res) => {
   }
 })
 
+// ── Batch refresh all holdings ──────────────────────────────────────────────
+app.post('/api/holdings/refresh-all', async (req, res) => {
+  try {
+    const p = await loadPortfolio()
+    const allH = []
+    p.divisions.forEach(d => {
+      ;(d.holdings || []).forEach(h => allH.push(h))
+      ;(d.subdivisions || []).forEach(sd => (sd.holdings || []).forEach(h => allH.push(h)))
+    })
+
+    const stocks = allH.filter(h => h.ticker && ['stock','etf','foreign','gold'].includes(h.assetType))
+    const mfs    = allH.filter(h => h.schemeCode && h.assetType === 'mf')
+
+    const [quotesRes, navsRes] = await Promise.all([
+      stocks.length ? fetchQuotes([...new Set(stocks.map(h => h.ticker))]) : Promise.resolve({ quotes: {}, missing: [] }),
+      mfs.length    ? fetchMfNav([...new Set(mfs.map(h => h.schemeCode))]) : Promise.resolve({}),
+    ])
+
+    let updated = 0, failed = 0, skipped = 0
+    const today = new Date().toISOString().split('T')[0]
+
+    stocks.forEach(h => {
+      const q = quotesRes.quotes[h.ticker]
+      if (q?.price) {
+        h.currentPrice = q.price; h.priceDate = today
+        if (h.units > 0) h.current = Math.round(h.units * q.price * 100) / 100
+        updated++
+      } else failed++
+    })
+    mfs.forEach(h => {
+      const nav = navsRes[h.schemeCode]?.price
+      if (nav) {
+        h.currentPrice = nav; h.priceDate = today
+        if (h.units > 0) h.current = Math.round(h.units * nav * 100) / 100
+        updated++
+      } else failed++
+    })
+    allH.filter(h => !h.ticker && !h.schemeCode).forEach(() => skipped++)
+
+    await savePortfolio(p)
+    res.json({ updated, failed, skipped, total: stocks.length + mfs.length })
+  } catch (e) { res.status(500).json({ error: e.message }) }
+})
+
+// ── ETF → Index mapping ──────────────────────────────────────────────────────
+const ETF_INDEX_MAP = {
+  NIFTYBEES:'NIFTY 50', SETFNIF50:'NIFTY 50', NIF100BEES:'NIFTY 100',
+  JUNIORBEES:'NIFTY NEXT 50', SETFNN50:'NIFTY NEXT 50', N50IETF:'NIFTY 50',
+  NIFTYMID150BEES:'NIFTY MIDCAP 150', MIDCAPETF:'NIFTY MIDCAP 100',
+  SMALLCAPBEES:'NIFTY SMALLCAP 250', SMALLCAP:'NIFTY SMALLCAP 250',
+  BANKBEES:'NIFTY BANK', BANKETF:'NIFTY BANK',
+  ITBEES:'NIFTY IT', ITETF:'NIFTY IT',
+  MOM50:'NIFTY200 MOMENTUM 50', MOMENTUM:'NIFTY200 MOMENTUM 50',
+  INFRAIETF:'NIFTY INDIA DEFENCE', PHARMABEES:'NIFTY PHARMA',
+}
+
+async function fetchIndexConstituents(indexName) {
+  await ensureNseSession()
+  try {
+    const r = await fetch(`https://www.nseindia.com/api/equity-stockIndices?index=${encodeURIComponent(indexName)}`, {
+      headers: { ...NSE_HEADERS, Cookie: nseSession.cookie }
+    })
+    if (!r.ok) return []
+    const data = await r.json()
+    return (data?.data || [])
+      .filter(s => s.symbol && !s.symbol.includes(' '))
+      .map(s => ({ symbol: s.symbol, name: s.meta?.companyName || s.symbol, sector: s.meta?.industry || null }))
+  } catch (_) { return [] }
+}
+
+// ── Portfolio overlap analysis ───────────────────────────────────────────────
+app.get('/api/portfolio/overlap', async (req, res) => {
+  try {
+    const portfolio = await loadPortfolio()
+    const allH = []
+    portfolio.divisions.forEach(d => {
+      ;(d.holdings || []).forEach(h => allH.push({ ...h, divName: d.name, subName: null }))
+      ;(d.subdivisions || []).forEach(sd => (sd.holdings || []).forEach(h => allH.push({ ...h, divName: d.name, subName: sd.name })))
+    })
+
+    const directStocks = allH.filter(h => h.assetType === 'stock' && h.ticker)
+    const etfHoldings  = allH.filter(h => h.assetType === 'etf'   && h.ticker)
+    const mfHoldings   = allH.filter(h => h.assetType === 'mf'    && h.schemeCode)
+
+    // Fetch index constituents for each ETF
+    const etfData = {}
+    await Promise.all(etfHoldings.map(async etf => {
+      const sym = etf.ticker.replace(/\.(NS|BO)$/i, '').toUpperCase()
+      const indexName = ETF_INDEX_MAP[sym]
+      if (indexName) {
+        const constituents = await fetchIndexConstituents(indexName)
+        etfData[sym] = { indexName, constituents, holding: etf }
+      } else {
+        etfData[sym] = { indexName: null, constituents: [], holding: etf }
+      }
+    }))
+
+    // Fetch MF scheme info from mfapi.in
+    const mfData = {}
+    await Promise.all(mfHoldings.map(async mf => {
+      try {
+        const r = await fetch(`https://api.mfapi.in/mf/${mf.schemeCode}`)
+        const d = await r.json()
+        mfData[mf.schemeCode] = d?.meta || {}
+      } catch (_) { mfData[mf.schemeCode] = {} }
+    }))
+
+    // Company exposure map
+    const exposure = {}
+    const addExposure = (symbol, name, sector, source, value) => {
+      const key = symbol.toUpperCase()
+      if (!exposure[key]) exposure[key] = { symbol: key, name, sector, directValue: 0, etfCount: 0, sources: [] }
+      if (source.type === 'stock') exposure[key].directValue += value || 0
+      if (source.type === 'etf')   exposure[key].etfCount++
+      exposure[key].sources.push(source)
+    }
+
+    directStocks.forEach(h => {
+      const sym = h.ticker.replace(/\.(NS|BO)$/i, '').toUpperCase()
+      addExposure(sym, h.name, null, { type: 'stock', name: h.name, value: h.current || 0, holding: h }, h.current || 0)
+    })
+    Object.entries(etfData).forEach(([etfSym, { indexName, constituents }]) => {
+      constituents.forEach(c => addExposure(c.symbol, c.name, c.sector, { type: 'etf', etf: etfSym, index: indexName }, null))
+    })
+
+    res.json({
+      directStocks,
+      etfHoldings: etfHoldings.map(e => ({ ...e, ...etfData[e.ticker?.replace(/\.(NS|BO)$/i,'').toUpperCase()] })),
+      mfHoldings:  mfHoldings.map(m  => ({ ...m, schemeInfo: mfData[m.schemeCode] || {} })),
+      etfData,
+      companyExposure: Object.values(exposure).sort((a, b) => (b.directValue + b.etfCount) - (a.directValue + a.etfCount)),
+    })
+  } catch (e) { res.status(500).json({ error: e.message }) }
+})
+
 // Live quotes endpoint
 app.get('/api/quotes', async (req, res) => {
   try {

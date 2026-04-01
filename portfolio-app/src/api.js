@@ -40,4 +40,6 @@ export const api = {
   mfSearch: (q) => fetch(`${API_ROOT}/api/mf/search?q=${encodeURIComponent(q)}`).then(r => r.json()),
   mfNav: (codes = []) => fetch(`${API_ROOT}/api/mf/nav?codes=${encodeURIComponent(codes.join(','))}`).then(r => r.json()),
   stockSearch: (q) => fetch(`${API_ROOT}/api/stock/search?q=${encodeURIComponent(q)}`).then(r => r.json()),
+  refreshAll: () => json('POST', '/api/holdings/refresh-all'),
+  portfolioOverlap: () => fetch(`${API_ROOT}/api/portfolio/overlap`).then(r => r.json()),
 }
