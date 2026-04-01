@@ -625,24 +625,31 @@ async function fetchIndexConstituents(indexName) {
     })
     if (!r.ok) return []
     const data = await r.json()
-    const total = data?.data?.reduce((s, x) => s + (Number(x.totalTradedValue) || 0), 0) || 0
-    return (data?.data || [])
-      .filter(s => s.symbol && !s.symbol.includes(' '))
-      .map((s, i) => {
-        // NSE returns weightPercentage for some indices; fall back to rank order
-        const weight = s.weightPercentage != null
-          ? Number(s.weightPercentage)
-          : s.totalTradedValue && total > 0
-            ? Number(((s.totalTradedValue / total) * 100).toFixed(2))
-            : null
-        return {
-          symbol: s.symbol,
-          name: s.meta?.companyName || s.symbol,
-          sector: s.meta?.industry || null,
-          weight,          // % weight in the index (best effort)
-          rank: i + 1,
-        }
-      })
+    const stocks = (data?.data || []).filter(s => s.symbol && !s.symbol.includes(' '))
+    // Index weights are based on free-float market cap (ffmCap), not traded volume.
+    // Use ffmCap if available, else marketCap, else totalTradedValue as last resort.
+    const totalFfm = stocks.reduce((s, x) => s + (Number(x.ffmCap) || 0), 0)
+    const totalMktCap = stocks.reduce((s, x) => s + (Number(x.marketCap) || 0), 0)
+    const totalTraded = stocks.reduce((s, x) => s + (Number(x.totalTradedValue) || 0), 0)
+    return stocks.map((s, i) => {
+      let weight = null
+      if (s.weightPercentage != null) {
+        weight = Number(s.weightPercentage)
+      } else if (s.ffmCap && totalFfm > 0) {
+        weight = Number(((Number(s.ffmCap) / totalFfm) * 100).toFixed(2))
+      } else if (s.marketCap && totalMktCap > 0) {
+        weight = Number(((Number(s.marketCap) / totalMktCap) * 100).toFixed(2))
+      } else if (s.totalTradedValue && totalTraded > 0) {
+        weight = Number(((Number(s.totalTradedValue) / totalTraded) * 100).toFixed(2))
+      }
+      return {
+        symbol: s.symbol,
+        name: s.meta?.companyName || s.symbol,
+        sector: s.meta?.industry || null,
+        weight,
+        rank: i + 1,
+      }
+    })
   } catch (_) { return [] }
 }
 
