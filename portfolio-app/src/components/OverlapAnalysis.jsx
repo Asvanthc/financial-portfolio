@@ -179,71 +179,38 @@ export default function OverlapAnalysis({ analytics }) {
               {etfHoldings.map(etf => {
                 const sym = etf.ticker?.replace(/\.(NS|BO)$/i,'').toUpperCase()
                 const info = etfData[sym] || {}
-                const overlapCount = (info.constituents || []).filter(c => directSymbols.has(c.symbol)).length
+                const overlapStocks = (info.constituents || []).filter(c => directSymbols.has(c.symbol))
                 return (
-                  <div key={etf.id} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 10px', background: 'var(--surface2)', borderRadius: 8, flexWrap: 'wrap' }}>
-                    <span style={{ padding: '2px 7px', borderRadius: 4, fontSize: 10, fontWeight: 700, background: 'var(--purple)22', color: 'var(--purple)' }}>ETF</span>
-                    <div style={{ flex: 1, minWidth: 160 }}>
-                      <div style={{ fontWeight: 600, fontSize: 13 }}>{etf.name}</div>
-                      <div style={{ fontSize: 11, color: 'var(--text3)' }}>
-                        {sym} ·{' '}
-                        {info.indexName ? `Tracks ${info.indexName}` :
-                         info.etfType === 'gold' ? '🥇 Gold ETF' :
-                         info.etfType === 'silver' ? '🥈 Silver ETF' :
-                         info.etfType === 'international' ? '🌐 International ETF' : 'Index unknown'}
-                      </div>
-                    </div>
-                    <div style={{ textAlign: 'right', fontSize: 12 }}>
-                      <div style={{ color: 'var(--purple)', fontWeight: 700 }}>{fmt(etf.current)}</div>
-                      {info.constituents?.length > 0 && (
-                        <div style={{ color: 'var(--text3)' }}>{info.constituents.length} stocks in index</div>
-                      )}
-                    </div>
-                    {overlapCount > 0 && (
-                      <span style={{ padding: '2px 8px', borderRadius: 99, fontSize: 11, background: 'var(--orange-dim)', color: 'var(--orange)', fontWeight: 700 }}>
-                        ⚠ {overlapCount} overlap
-                      </span>
-                    )}
-                  </div>
+                  <InstrumentRow key={etf.id}
+                    badge="ETF" badgeColor="var(--purple)"
+                    name={etf.name}
+                    sub={`${sym} · ${info.indexName ? `Tracks ${info.indexName}` : info.etfType === 'gold' ? '🥇 Gold ETF' : info.etfType === 'silver' ? '🥈 Silver ETF' : info.etfType === 'international' ? '🌐 International ETF' : 'Index unknown'}`}
+                    value={etf.current} valueColor="var(--purple)"
+                    totalStocks={info.constituents?.length || 0}
+                    overlapStocks={overlapStocks}
+                    directStocks={directStocks}
+                    totalPortfolio={totalPortfolio}
+                  />
                 )
               })}
 
               {/* MF-type holdings — index MFs and ETF-via-MF-route */}
               {mfHoldings.map(mf => {
                 const md = mfData[mf.schemeCode] || {}
-                const overlapCount = (md.constituents || []).filter(c => directSymbols.has(c.symbol)).length
+                const overlapStocks = (md.constituents || []).filter(c => directSymbols.has(c.symbol))
                 const isIndex = !!md.inferredIndex
                 return (
-                  <div key={mf.id} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 10px', background: 'var(--surface2)', borderRadius: 8, flexWrap: 'wrap' }}>
-                    <span style={{ padding: '2px 7px', borderRadius: 4, fontSize: 10, fontWeight: 700,
-                      background: isIndex ? 'var(--indigo)22' : 'var(--surface3,var(--surface2))',
-                      color: isIndex ? 'var(--indigo)' : 'var(--text3)' }}>
-                      {isIndex ? 'IDX MF' : 'MF'}
-                    </span>
-                    <div style={{ flex: 1, minWidth: 160 }}>
-                      <div style={{ fontWeight: 600, fontSize: 13 }}>{mf.name}</div>
-                      <div style={{ fontSize: 11, color: 'var(--text3)' }}>
-                        #{mf.schemeCode} ·{' '}
-                        {md.inferredIndex ? `Tracks ${md.inferredIndex}` : (md.scheme_category || 'Active fund — no index data')}
-                      </div>
-                    </div>
-                    <div style={{ textAlign: 'right', fontSize: 12 }}>
-                      <div style={{ color: 'var(--indigo)', fontWeight: 700 }}>{fmt(mf.current)}</div>
-                      {md.constituents?.length > 0 && (
-                        <div style={{ color: 'var(--text3)' }}>{md.constituents.length} stocks in index</div>
-                      )}
-                    </div>
-                    {overlapCount > 0 && (
-                      <span style={{ padding: '2px 8px', borderRadius: 99, fontSize: 11, background: 'var(--orange-dim)', color: 'var(--orange)', fontWeight: 700 }}>
-                        ⚠ {overlapCount} overlap
-                      </span>
-                    )}
-                    {isIndex && overlapCount === 0 && (
-                      <span style={{ padding: '2px 8px', borderRadius: 99, fontSize: 11, background: 'var(--green)22', color: 'var(--green)' }}>
-                        ✓ no overlap
-                      </span>
-                    )}
-                  </div>
+                  <InstrumentRow key={mf.id}
+                    badge={isIndex ? 'IDX MF' : 'MF'} badgeColor={isIndex ? 'var(--indigo)' : 'var(--text3)'}
+                    name={mf.name}
+                    sub={`#${mf.schemeCode} · ${md.inferredIndex ? `Tracks ${md.inferredIndex}` : (md.scheme_category || 'Active fund')}`}
+                    value={mf.current} valueColor="var(--indigo)"
+                    totalStocks={md.constituents?.length || 0}
+                    overlapStocks={overlapStocks}
+                    directStocks={directStocks}
+                    isActive={!isIndex}
+                    totalPortfolio={totalPortfolio}
+                  />
                 )
               })}
 
@@ -687,6 +654,71 @@ function generateInsights(directStocks, etfHoldings, mfHoldings, overlappingStoc
   }
 
   return insights
+}
+
+function InstrumentRow({ badge, badgeColor, name, sub, value, valueColor, totalStocks, overlapStocks, directStocks, isActive, totalPortfolio }) {
+  const [expanded, setExpanded] = React.useState(false)
+  return (
+    <div style={{ background: 'var(--surface2)', borderRadius: 8, overflow: 'hidden' }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 10px', flexWrap: 'wrap' }}>
+        <span style={{ padding: '2px 7px', borderRadius: 4, fontSize: 10, fontWeight: 700, background: `${badgeColor}22`, color: badgeColor, flexShrink: 0 }}>
+          {badge}
+        </span>
+        <div style={{ flex: 1, minWidth: 140 }}>
+          <div style={{ fontWeight: 600, fontSize: 13 }}>{name}</div>
+          <div style={{ fontSize: 11, color: 'var(--text3)', marginTop: 1 }}>{sub}</div>
+        </div>
+        <div style={{ textAlign: 'right', fontSize: 12, flexShrink: 0 }}>
+          <div style={{ color: valueColor, fontWeight: 700 }}>{fmt(value)}</div>
+          {totalStocks > 0 && <div style={{ color: 'var(--text3)' }}>{totalStocks} stocks in index</div>}
+          {isActive && <div style={{ color: 'var(--text3)', fontSize: 11 }}>Active fund</div>}
+        </div>
+        {overlapStocks.length > 0 ? (
+          <button
+            onClick={() => setExpanded(x => !x)}
+            style={{ padding: '3px 10px', borderRadius: 99, fontSize: 11, background: 'var(--orange-dim)', color: 'var(--orange)', fontWeight: 700, border: 'none', cursor: 'pointer', flexShrink: 0 }}
+          >
+            ⚠ {overlapStocks.length} overlap {expanded ? '▲' : '▼'}
+          </button>
+        ) : totalStocks > 0 ? (
+          <span style={{ padding: '2px 8px', borderRadius: 99, fontSize: 11, background: 'var(--green)22', color: 'var(--green)', flexShrink: 0 }}>✓ no overlap</span>
+        ) : null}
+      </div>
+      {expanded && overlapStocks.length > 0 && (
+        <div style={{ borderTop: '1px solid var(--border)', padding: '10px 12px' }}>
+          <div style={{ fontSize: 11, color: 'var(--text3)', marginBottom: 8 }}>
+            These stocks are in the index AND you hold them directly — your real exposure is higher than it looks:
+          </div>
+          <table style={{ width: '100%', fontSize: 12, borderCollapse: 'collapse' }}>
+            <thead>
+              <tr style={{ color: 'var(--text3)', fontSize: 11 }}>
+                <th style={{ textAlign: 'left', paddingBottom: 4 }}>Stock</th>
+                <th style={{ textAlign: 'right', paddingBottom: 4 }}>Direct Value</th>
+                <th style={{ textAlign: 'right', paddingBottom: 4 }}>% of Portfolio</th>
+              </tr>
+            </thead>
+            <tbody>
+              {overlapStocks.map(c => {
+                const holding = directStocks.find(h => h.ticker?.replace(/\.(NS|BO)$/i,'').toUpperCase() === c.symbol)
+                return (
+                  <tr key={c.symbol}>
+                    <td style={{ paddingBottom: 4 }}>
+                      <span style={{ fontWeight: 600 }}>{c.name || c.symbol}</span>
+                      <span style={{ color: 'var(--text3)', marginLeft: 6, fontSize: 11 }}>{c.symbol}</span>
+                    </td>
+                    <td style={{ textAlign: 'right', color: 'var(--cyan)', fontWeight: 600 }}>{fmt(holding?.current || 0)}</td>
+                    <td style={{ textAlign: 'right', color: 'var(--purple)' }}>
+                      {holding?.current ? pct(holding.current, totalPortfolio || 1) : '—'}
+                    </td>
+                  </tr>
+                )
+              })}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </div>
+  )
 }
 
 function Kpi({ label, value, color, sub }) {
