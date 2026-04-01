@@ -66,16 +66,24 @@ export default function OverlapAnalysis({ analytics }) {
   const directOnlyStocks = companyExposure.filter(c => c.directValue > 0 && c.etfCount === 0 && c.mfCount === 0)
   const indexMfs = mfHoldings.filter(m => mfData[m.schemeCode]?.inferredIndex)
 
-  // Sector grouping from ETF constituents
+  // Sector grouping from ETF/MF index constituents (sector is on the company object, not the source)
   const sectorMap = {}
   companyExposure.forEach(c => {
-    const src = c.sources.find(s => s.type === 'etf' || s.sector)
-    const sector = src?.sector || 'Unknown'
+    const sector = c.sector || null
+    if (!sector) return  // skip unknown-sector companies entirely
     if (!sectorMap[sector]) sectorMap[sector] = { sector, count: 0, hasDirectHolding: false }
     sectorMap[sector].count++
     if (c.directValue > 0) sectorMap[sector].hasDirectHolding = true
   })
-  const topSectors = Object.values(sectorMap).sort((a,b) => b.count - a.count).slice(0, 12)
+  const topSectors = Object.values(sectorMap).sort((a,b) => b.count - a.count).slice(0, 14)
+
+  // MF holdings that are actually ETFs (bought via MF route — have schemeCode, name contains ETF)
+  const etfViaMf = mfHoldings.filter(m => {
+    const md = mfData[m.schemeCode] || {}
+    const nameHasEtf = (md.scheme_name || m.name || '').toLowerCase().includes('etf')
+    const catIsEtf = (md.scheme_category || '').toLowerCase().includes('etf')
+    return nameHasEtf || catIsEtf
+  })
 
   // Insights
   const insights = generateInsights(directStocks, etfHoldings, mfHoldings, overlappingStocks, totalPortfolio, data)
@@ -309,6 +317,72 @@ export default function OverlapAnalysis({ analytics }) {
               </div>
             )
           })}
+
+          {/* ETFs bought via MF route (schemeCode, no ticker) */}
+          {etfViaMf.length > 0 && (
+            <div style={{ marginTop: etfHoldings.length > 0 ? 8 : 0 }}>
+              {etfHoldings.length > 0 && (
+                <div style={{ fontSize: 11, color: 'var(--text3)', marginBottom: 8, marginTop: 4 }}>
+                  ↓ ETFs held via MF route (schemeCode, no exchange ticker)
+                </div>
+              )}
+              {etfViaMf.map(mf => {
+                const md = mfData[mf.schemeCode] || {}
+                const overlap = (md.constituents || []).filter(c => directSymbols.has(c.symbol))
+                const expanded = expandedEtf[mf.schemeCode]
+                return (
+                  <div key={mf.id} className="card" style={{ marginBottom: 12 }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
+                      <div style={{ flex: 1 }}>
+                        <div style={{ fontWeight: 700, fontSize: 14 }}>{mf.name}</div>
+                        <div style={{ fontSize: 12, color: 'var(--text3)', marginTop: 2 }}>
+                          #{mf.schemeCode} · {md.inferredIndex ? `Tracks ${md.inferredIndex}` : 'Index unknown'}
+                        </div>
+                      </div>
+                      <div style={{ textAlign: 'right' }}>
+                        <div style={{ fontWeight: 800, color: 'var(--purple)' }}>{fmt(mf.current)}</div>
+                        <div style={{ fontSize: 11, color: 'var(--text3)' }}>{pct(mf.current, totalPortfolio)} of portfolio</div>
+                      </div>
+                      {md.constituents?.length > 0 && (
+                        <button className="btn btn-ghost btn-sm" onClick={() => setExpandedEtf(e => ({ ...e, [mf.schemeCode]: !e[mf.schemeCode] }))}>
+                          {expanded ? 'Hide' : `Show ${md.constituents.length} stocks ▾`}
+                        </button>
+                      )}
+                    </div>
+
+                    {overlap.length > 0 && (
+                      <div style={{ marginTop: 10, padding: '8px 10px', background: 'var(--orange-dim)', borderRadius: 6, fontSize: 12 }}>
+                        <span style={{ color: 'var(--orange)', fontWeight: 700 }}>⚠ {overlap.length} overlap with direct holdings: </span>
+                        {overlap.map(c => c.symbol).join(', ')}
+                      </div>
+                    )}
+
+                    {expanded && md.constituents?.length > 0 && (
+                      <div style={{ marginTop: 12, maxHeight: 260, overflowY: 'auto' }}>
+                        <div style={{ fontSize: 11, color: 'var(--text3)', marginBottom: 6 }}>
+                          {md.constituents.length} stocks in {md.inferredIndex}
+                          {overlap.length > 0 && <span style={{ color: 'var(--orange)', marginLeft: 8 }}>{overlap.length} in your direct holdings ★</span>}
+                        </div>
+                        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
+                          {md.constituents.map(c => (
+                            <span key={c.symbol} style={{
+                              padding: '2px 7px', borderRadius: 4, fontSize: 11,
+                              background: directSymbols.has(c.symbol) ? 'var(--orange-dim)' : 'var(--surface2)',
+                              color: directSymbols.has(c.symbol) ? 'var(--orange)' : 'var(--text2)',
+                              border: directSymbols.has(c.symbol) ? '1px solid rgba(251,146,60,0.3)' : '1px solid transparent',
+                              fontWeight: directSymbols.has(c.symbol) ? 700 : 400,
+                            }}>
+                              {c.symbol} {directSymbols.has(c.symbol) ? '★' : ''}
+                            </span>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                )
+              })}
+            </div>
+          )}
         </div>
       )}
 
@@ -317,7 +391,7 @@ export default function OverlapAnalysis({ analytics }) {
         <div>
           {mfHoldings.length === 0 && <div className="card" style={{ color: 'var(--text3)' }}>No MF holdings found. Add MFs with asset type "MF" and scheme code.</div>}
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(300px,1fr))', gap: 12 }}>
-            {mfHoldings.map(mf => {
+            {mfHoldings.filter(mf => !etfViaMf.find(e => e.id === mf.id)).map(mf => {
               const info = mf.schemeInfo || {}
               const catInfo = categoryInfo(info.scheme_category)
               const profit = (mf.current || 0) - (mf.invested || 0)
