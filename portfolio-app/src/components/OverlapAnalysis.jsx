@@ -573,20 +573,84 @@ export default function OverlapAnalysis({ totalCurrent }) {
                   const sumDirect = companyExposure.reduce((s, c) => s + (c.directValue || 0), 0)
                   const sumEtf    = companyExposure.reduce((s, c) => s + (c.estimatedEtfValue || 0), 0)
                   const sumMf     = companyExposure.reduce((s, c) => s + (c.estimatedMfValue || 0), 0)
+                  const totalEtfHeld = etfHoldings.reduce((s,h)=>s+(h.current||0),0)
+                  const totalMfHeld  = mfHoldings.reduce((s,h)=>s+(h.current||0),0)
+                  const etfGap = totalEtfHeld - sumEtf
+                  const mfGap  = totalMfHeld  - sumMf
+
+                  // ETFs that contributed nothing to companies (non-equity: gold/silver/intl, or unknown ticker)
+                  const noContribEtfs = etfHoldings.filter(h => {
+                    const sym = h.ticker?.replace(/\.(NS|BO)$/i,'').toUpperCase()
+                    const info = etfData[sym] || {}
+                    return !info.constituents?.length
+                  })
+                  // MFs that contributed nothing (no index inferred + AMFI fetch returned nothing)
+                  const noContribMfs = mfHoldings.filter(h => {
+                    const info = mfData[h.schemeCode] || {}
+                    return !info.constituents?.length
+                  })
+
                   return (
-                    <tr style={{ borderTop: '2px solid var(--border)', fontWeight: 700, background: 'var(--surface2)' }}>
-                      <td colSpan={3} style={{ fontSize: 12, color: 'var(--text2)', paddingLeft: 8 }}>
-                        TOTAL ({companyExposure.length} companies)
-                        <div style={{ fontSize: 10, fontWeight: 400, color: 'var(--text3)', marginTop: 2 }}>
-                          ETF holdings: {fmt(etfHoldings.reduce((s,h)=>s+(h.current||0),0))} · MF holdings: {fmt(mfHoldings.reduce((s,h)=>s+(h.current||0),0))}
-                        </div>
-                      </td>
-                      <td className="right num" style={{ color: 'var(--orange)' }}>{fmt(sumTotal)}</td>
-                      <td className="right num" style={{ color: 'var(--cyan)' }}>{fmt(sumDirect)}</td>
-                      <td className="right num" style={{ color: 'var(--purple)' }}>{fmt(sumEtf)}</td>
-                      <td className="right num" style={{ color: 'var(--indigo)' }}>{fmt(sumMf)}</td>
-                      <td className="right" style={{ fontSize: 12, color: 'var(--text3)' }}>{pct(sumTotal, totalPortfolio)}</td>
-                    </tr>
+                    <>
+                      <tr style={{ borderTop: '2px solid var(--border)', fontWeight: 700, background: 'var(--surface2)' }}>
+                        <td colSpan={3} style={{ fontSize: 12, color: 'var(--text2)', paddingLeft: 8 }}>
+                          TOTAL ({companyExposure.length} companies)
+                          <div style={{ fontSize: 10, fontWeight: 400, color: 'var(--text3)', marginTop: 2 }}>
+                            ETF held: {fmt(totalEtfHeld)} · distributed: {fmt(sumEtf)}
+                            {etfGap > 100 && <span style={{ color: 'var(--orange)' }}> · gap: {fmt(etfGap)}</span>}
+                          </div>
+                          <div style={{ fontSize: 10, fontWeight: 400, color: 'var(--text3)' }}>
+                            MF held: {fmt(totalMfHeld)} · distributed: {fmt(sumMf)}
+                            {mfGap > 100 && <span style={{ color: 'var(--orange)' }}> · gap: {fmt(mfGap)}</span>}
+                          </div>
+                        </td>
+                        <td className="right num" style={{ color: 'var(--orange)' }}>{fmt(sumTotal)}</td>
+                        <td className="right num" style={{ color: 'var(--cyan)' }}>{fmt(sumDirect)}</td>
+                        <td className="right num" style={{ color: 'var(--purple)' }}>{fmt(sumEtf)}</td>
+                        <td className="right num" style={{ color: 'var(--indigo)' }}>{fmt(sumMf)}</td>
+                        <td className="right" style={{ fontSize: 12, color: 'var(--text3)' }}>{pct(sumTotal, totalPortfolio)}</td>
+                      </tr>
+                      {(noContribEtfs.length > 0 || noContribMfs.length > 0) && (
+                        <tr style={{ background: 'rgba(251,146,60,0.06)' }}>
+                          <td colSpan={8} style={{ padding: '10px 8px', fontSize: 11 }}>
+                            <div style={{ fontWeight: 600, color: 'var(--orange)', marginBottom: 6 }}>
+                              ⚠ Holdings with no constituent data (not included above)
+                            </div>
+                            {noContribEtfs.length > 0 && (
+                              <div style={{ marginBottom: 6 }}>
+                                <span style={{ color: 'var(--purple)', fontWeight: 600 }}>ETFs ({noContribEtfs.length}): </span>
+                                {noContribEtfs.map(h => {
+                                  const sym = h.ticker?.replace(/\.(NS|BO)$/i,'').toUpperCase()
+                                  const info = etfData[sym] || {}
+                                  const reason = info.etfType && info.etfType !== 'equity' && info.etfType !== 'unknown'
+                                    ? info.etfType
+                                    : info.etfType === 'unknown' ? 'unknown index' : 'no data'
+                                  return (
+                                    <span key={sym} style={{ display: 'inline-block', marginRight: 10, color: 'var(--text2)' }}>
+                                      <strong>{sym}</strong> ({fmt(h.current || 0)}, {reason})
+                                    </span>
+                                  )
+                                })}
+                              </div>
+                            )}
+                            {noContribMfs.length > 0 && (
+                              <div>
+                                <span style={{ color: 'var(--indigo)', fontWeight: 600 }}>MFs ({noContribMfs.length}): </span>
+                                {noContribMfs.map(h => {
+                                  const info = mfData[h.schemeCode] || {}
+                                  const reason = info.inferredIndex ? 'index fetch failed' : 'active fund, no portfolio data'
+                                  return (
+                                    <span key={h.schemeCode} style={{ display: 'inline-block', marginRight: 10, color: 'var(--text2)' }}>
+                                      <strong>{h.name || h.schemeCode}</strong> ({fmt(h.current || 0)}, {reason})
+                                    </span>
+                                  )
+                                })}
+                              </div>
+                            )}
+                          </td>
+                        </tr>
+                      )}
+                    </>
                   )
                 })()}
               </tfoot>
