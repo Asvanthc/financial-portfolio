@@ -195,7 +195,13 @@ export default function OverlapAnalysis({ analytics }) {
                   <div style={{ flex: 1 }}>
                     <div style={{ fontWeight: 700, fontSize: 14 }}>{etf.name}</div>
                     <div style={{ fontSize: 12, color: 'var(--text3)', marginTop: 2 }}>
-                      {sym} · {info.indexName ? `Tracks ${info.indexName}` : 'Index unknown'}
+                      {sym} ·{' '}
+                      {info.indexName
+                        ? `Tracks ${info.indexName}`
+                        : info.etfType === 'gold' ? '🥇 Gold ETF — tracks gold price'
+                        : info.etfType === 'silver' ? '🥈 Silver ETF — tracks silver price'
+                        : info.etfType === 'international' ? '🌐 International ETF — foreign index'
+                        : `Index unknown (${sym}) — add to ETF_INDEX_MAP`}
                     </div>
                   </div>
                   <div style={{ textAlign: 'right' }}>
@@ -209,6 +215,14 @@ export default function OverlapAnalysis({ analytics }) {
                   )}
                 </div>
 
+                {info.etfType && info.etfType !== 'equity' && (
+                  <div style={{ marginTop: 10, padding: '8px 10px', background: 'var(--surface2)', borderRadius: 6, fontSize: 12, color: 'var(--text3)' }}>
+                    {info.etfType === 'gold' && '🥇 Gold ETF — no equity overlap analysis applicable. Tracks spot gold price (MCX).'}
+                    {info.etfType === 'silver' && '🥈 Silver ETF — no equity overlap applicable. Tracks spot silver price.'}
+                    {info.etfType === 'international' && '🌐 International ETF — tracks a foreign index. No NSE constituent data available.'}
+                    {info.etfType === 'unknown' && `⚠ Ticker "${info.rawTicker}" not in index map. No constituent data available. Please raise an issue to add this ETF.`}
+                  </div>
+                )}
                 {overlap.length > 0 && (
                   <div style={{ marginTop: 10, padding: '8px 10px', background: 'var(--orange-dim)', borderRadius: 6, fontSize: 12 }}>
                     <span style={{ color: 'var(--orange)', fontWeight: 700 }}>⚠ {overlap.length} overlap with direct holdings: </span>

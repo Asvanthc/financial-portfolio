@@ -499,14 +499,94 @@ app.post('/api/holdings/refresh-all', async (req, res) => {
 
 // ── ETF → Index mapping ──────────────────────────────────────────────────────
 const ETF_INDEX_MAP = {
-  NIFTYBEES:'NIFTY 50', SETFNIF50:'NIFTY 50', NIF100BEES:'NIFTY 100',
-  JUNIORBEES:'NIFTY NEXT 50', SETFNN50:'NIFTY NEXT 50', N50IETF:'NIFTY 50',
+  // ── NIFTY 50 ──────────────────────────────────────────────────────────────
+  NIFTYBEES:'NIFTY 50', SETFNIF50:'NIFTY 50', N50IETF:'NIFTY 50',
+  HDFCNIFETF:'NIFTY 50', ICICINIFTY:'NIFTY 50', KOTAKNIFTY:'NIFTY 50',
+  AXISN50ETF:'NIFTY 50', SBIETFNIFTY:'NIFTY 50', BSLNIFTY:'NIFTY 50',
+  UTINIFTETF:'NIFTY 50', LICNFNHGP:'NIFTY 50', ABSLBANETF:'NIFTY 50',
+  EDELWEISSETF:'NIFTY 50',
+
+  // ── NIFTY NEXT 50 ─────────────────────────────────────────────────────────
+  JUNIORBEES:'NIFTY NEXT 50', SETFNN50:'NIFTY NEXT 50',
+  ICICINN50:'NIFTY NEXT 50', HDFCNEXT50:'NIFTY NEXT 50',
+  KOTAKNXT50:'NIFTY NEXT 50', SBIETFQLTY:'NIFTY NEXT 50',
+  UTINEXT50:'NIFTY NEXT 50',
+
+  // ── NIFTY 100 ─────────────────────────────────────────────────────────────
+  NIF100BEES:'NIFTY 100', LICNETF100:'NIFTY 100',
+  ICICINF100:'NIFTY 100', KOTAKNIF100:'NIFTY 100',
+
+  // ── NIFTY 200 / 500 ───────────────────────────────────────────────────────
+  SETFNIF200:'NIFTY 200',
+
+  // ── NIFTY MIDCAP ──────────────────────────────────────────────────────────
   NIFTYMID150BEES:'NIFTY MIDCAP 150', MIDCAPETF:'NIFTY MIDCAP 100',
+  LICNMID100:'NIFTY MIDCAP 100', ICICINMID150:'NIFTY MIDCAP 150',
+  HDFCMID150:'NIFTY MIDCAP 150', KOTAKMIDCAP:'NIFTY MIDCAP 100',
+  MID150BEES:'NIFTY MIDCAP 150', MAFSETFMID:'NIFTY MIDCAP 150',
+
+  // ── NIFTY SMALLCAP ────────────────────────────────────────────────────────
   SMALLCAPBEES:'NIFTY SMALLCAP 250', SMALLCAP:'NIFTY SMALLCAP 250',
+  SETFNIFSMCP:'NIFTY SMALLCAP 100', ICICISMLCAP:'NIFTY SMALLCAP 250',
+
+  // ── NIFTY BANK ────────────────────────────────────────────────────────────
   BANKBEES:'NIFTY BANK', BANKETF:'NIFTY BANK',
+  HDFCBANKSETF:'NIFTY BANK', KOTAKBKETF:'NIFTY BANK',
+  ICICIBANK:'NIFTY BANK', PSUBNKETF:'NIFTY PSU BANK',
+  SETFBANKIB:'NIFTY BANK', LICNFBANK:'NIFTY BANK',
+
+  // ── NIFTY IT ──────────────────────────────────────────────────────────────
   ITBEES:'NIFTY IT', ITETF:'NIFTY IT',
+  HDFCIT:'NIFTY IT', ICICIIT:'NIFTY IT', KOTAKIT:'NIFTY IT',
+
+  // ── NIFTY PHARMA ──────────────────────────────────────────────────────────
+  PHARMABEES:'NIFTY PHARMA', PHARMIETF:'NIFTY PHARMA',
+  HDFCPHARMA:'NIFTY PHARMA', ICICIPHARM:'NIFTY PHARMA',
+
+  // ── NIFTY AUTO ────────────────────────────────────────────────────────────
+  AUTOBEES:'NIFTY AUTO', AUTOIETF:'NIFTY AUTO',
+
+  // ── NIFTY FMCG ────────────────────────────────────────────────────────────
+  FMCGIETF:'NIFTY FMCG', HDFCFMCG:'NIFTY FMCG',
+
+  // ── NIFTY METAL ───────────────────────────────────────────────────────────
+  METALIETF:'NIFTY METAL', HDFCMETAL:'NIFTY METAL',
+
+  // ── NIFTY REALTY ──────────────────────────────────────────────────────────
+  REALTYBEES:'NIFTY REALTY',
+
+  // ── NIFTY INFRA / DEFENCE ─────────────────────────────────────────────────
+  INFRAIETF:'NIFTY INDIA DEFENCE', DEFENCEIETF:'NIFTY INDIA DEFENCE',
+  INDIAINF:'NIFTY INFRASTRUCTURE',
+
+  // ── NIFTY MOMENTUM / FACTOR ───────────────────────────────────────────────
   MOM50:'NIFTY200 MOMENTUM 50', MOMENTUM:'NIFTY200 MOMENTUM 50',
-  INFRAIETF:'NIFTY INDIA DEFENCE', PHARMABEES:'NIFTY PHARMA',
+  MOMNIFTY:'NIFTY200 MOMENTUM 50', ALPHAETF:'NIFTY ALPHA 50',
+  QUAL30IETF:'NIFTY QUALITY 30', LOWVOLIETF:'NIFTY100 LOW VOLATILITY 30',
+
+  // ── NIFTY PSU / CPSE ──────────────────────────────────────────────────────
+  CPSEETF:'NIFTY CPSE INDEX', LICNFCPSE:'NIFTY CPSE INDEX',
+
+  // ── NIFTY CONSUMPTION / ENERGY ────────────────────────────────────────────
+  CONSUMBEES:'NIFTY INDIA CONSUMPTION', ENERGYIETF:'NIFTY ENERGY',
+
+  // ── NIFTY HEALTHCARE ──────────────────────────────────────────────────────
+  HEALTHIETF:'NIFTY HEALTHCARE INDEX',
+}
+
+// ETFs that track non-equity or international indices (no NSE constituent lookup possible)
+const ETF_NON_EQUITY = {
+  // Gold
+  GOLDBEES:'gold', SBIGOLD:'gold', HDFCGOLD:'gold', AXISGOLD:'gold',
+  KOTAKGOLD:'gold', NIPGOLD:'gold', ICICIGOLD:'gold', UTINIFGOLD:'gold',
+  MGOLD:'gold', BSLGOLDETF:'gold', LICNFGOLD:'gold', QGOLDHALF:'gold',
+  // Silver
+  SILVERBEES:'silver', SILVERIETF:'silver',
+  // International
+  MON100:'international', MAFANG:'international', HNGSNGBEES:'international',
+  NASDAQ100:'international', MOGSEC:'international', NIFTYBEES50:'international',
+  N100:'international', ENEXT100:'international', MOGS:'international',
+  MIRAE:'international',
 }
 
 async function fetchIndexConstituents(indexName) {
@@ -542,11 +622,15 @@ app.get('/api/portfolio/overlap', async (req, res) => {
     await Promise.all(etfHoldings.map(async etf => {
       const sym = etf.ticker.replace(/\.(NS|BO)$/i, '').toUpperCase()
       const indexName = ETF_INDEX_MAP[sym]
+      const nonEquityType = ETF_NON_EQUITY[sym]
       if (indexName) {
         const constituents = await fetchIndexConstituents(indexName)
-        etfData[sym] = { indexName, constituents, holding: etf }
+        etfData[sym] = { indexName, constituents, holding: etf, etfType: 'equity' }
+      } else if (nonEquityType) {
+        etfData[sym] = { indexName: null, constituents: [], holding: etf, etfType: nonEquityType }
       } else {
-        etfData[sym] = { indexName: null, constituents: [], holding: etf }
+        // Unknown — store ticker so frontend can display it
+        etfData[sym] = { indexName: null, constituents: [], holding: etf, etfType: 'unknown', rawTicker: sym }
       }
     }))
 
