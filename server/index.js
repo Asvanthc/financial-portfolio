@@ -603,6 +603,40 @@ async function fetchIndexConstituents(indexName) {
   } catch (_) { return [] }
 }
 
+// Infer the NSE index an MF tracks from its scheme name (for index/ETF-FoF schemes)
+function inferMfIndex(schemeName = '', schemeCategory = '') {
+  const n = schemeName.toLowerCase()
+  const isIndex = schemeCategory.toLowerCase().includes('index') || n.includes('index') || n.includes('etf')
+  if (!isIndex) return null
+  if (n.includes('nifty next 50') || n.includes('junior') || n.includes('next 50')) return 'NIFTY NEXT 50'
+  if (n.includes('nifty 500'))  return 'NIFTY 500'
+  if (n.includes('nifty 200'))  return 'NIFTY 200'
+  if (n.includes('nifty 100'))  return 'NIFTY 100'
+  if (n.includes('nifty 50') || n.includes('nifty50')) return 'NIFTY 50'
+  if (n.includes('sensex'))     return null // BSE — NSE API won't have it
+  if (n.includes('midcap 150')) return 'NIFTY MIDCAP 150'
+  if (n.includes('midcap 100')) return 'NIFTY MIDCAP 100'
+  if (n.includes('midcap'))     return 'NIFTY MIDCAP 150'
+  if (n.includes('smallcap 250')) return 'NIFTY SMALLCAP 250'
+  if (n.includes('smallcap 100')) return 'NIFTY SMALLCAP 100'
+  if (n.includes('smallcap'))   return 'NIFTY SMALLCAP 250'
+  if (n.includes('bank'))       return 'NIFTY BANK'
+  if (n.includes('it fund') || n.includes('information technology')) return 'NIFTY IT'
+  if (n.includes('pharma'))     return 'NIFTY PHARMA'
+  if (n.includes('auto'))       return 'NIFTY AUTO'
+  if (n.includes('fmcg'))       return 'NIFTY FMCG'
+  if (n.includes('healthcare')) return 'NIFTY HEALTHCARE INDEX'
+  if (n.includes('infrastructure')) return 'NIFTY INFRASTRUCTURE'
+  if (n.includes('momentum'))   return 'NIFTY200 MOMENTUM 50'
+  if (n.includes('quality'))    return 'NIFTY QUALITY 30'
+  if (n.includes('alpha'))      return 'NIFTY ALPHA 50'
+  if (n.includes('value'))      return 'NIFTY500 VALUE 50'
+  if (n.includes('cpse') || n.includes('psu')) return 'NIFTY CPSE INDEX'
+  if (n.includes('consumption')) return 'NIFTY INDIA CONSUMPTION'
+  if (n.includes('energy'))     return 'NIFTY ENERGY'
+  return null
+}
+
 // ── Portfolio overlap analysis ───────────────────────────────────────────────
 app.get('/api/portfolio/overlap', async (req, res) => {
   try {
@@ -634,23 +668,30 @@ app.get('/api/portfolio/overlap', async (req, res) => {
       }
     }))
 
-    // Fetch MF scheme info from mfapi.in
+    // Fetch MF scheme info + infer index for index funds
     const mfData = {}
     await Promise.all(mfHoldings.map(async mf => {
       try {
         const r = await fetch(`https://api.mfapi.in/mf/${mf.schemeCode}`)
         const d = await r.json()
-        mfData[mf.schemeCode] = d?.meta || {}
-      } catch (_) { mfData[mf.schemeCode] = {} }
+        const meta = d?.meta || {}
+        const inferredIndex = inferMfIndex(meta.scheme_name || mf.name || '', meta.scheme_category || '')
+        let constituents = []
+        if (inferredIndex) {
+          constituents = await fetchIndexConstituents(inferredIndex)
+        }
+        mfData[mf.schemeCode] = { ...meta, inferredIndex, constituents }
+      } catch (_) { mfData[mf.schemeCode] = { inferredIndex: null, constituents: [] } }
     }))
 
     // Company exposure map
     const exposure = {}
     const addExposure = (symbol, name, sector, source, value) => {
       const key = symbol.toUpperCase()
-      if (!exposure[key]) exposure[key] = { symbol: key, name, sector, directValue: 0, etfCount: 0, sources: [] }
+      if (!exposure[key]) exposure[key] = { symbol: key, name, sector, directValue: 0, etfCount: 0, mfCount: 0, sources: [] }
       if (source.type === 'stock') exposure[key].directValue += value || 0
       if (source.type === 'etf')   exposure[key].etfCount++
+      if (source.type === 'mf')    exposure[key].mfCount++
       exposure[key].sources.push(source)
     }
 
@@ -661,13 +702,21 @@ app.get('/api/portfolio/overlap', async (req, res) => {
     Object.entries(etfData).forEach(([etfSym, { indexName, constituents }]) => {
       constituents.forEach(c => addExposure(c.symbol, c.name, c.sector, { type: 'etf', etf: etfSym, index: indexName }, null))
     })
+    Object.entries(mfData).forEach(([code, info]) => {
+      if (info.inferredIndex && info.constituents?.length) {
+        const mfHolding = mfHoldings.find(m => m.schemeCode == code)
+        const mfLabel = info.scheme_name || mfHolding?.name || code
+        info.constituents.forEach(c => addExposure(c.symbol, c.name, c.sector, { type: 'mf', mf: mfLabel, index: info.inferredIndex }, null))
+      }
+    })
 
     res.json({
       directStocks,
       etfHoldings: etfHoldings.map(e => ({ ...e, ...etfData[e.ticker?.replace(/\.(NS|BO)$/i,'').toUpperCase()] })),
       mfHoldings:  mfHoldings.map(m  => ({ ...m, schemeInfo: mfData[m.schemeCode] || {} })),
       etfData,
-      companyExposure: Object.values(exposure).sort((a, b) => (b.directValue + b.etfCount) - (a.directValue + a.etfCount)),
+      mfData,
+      companyExposure: Object.values(exposure).sort((a, b) => (b.directValue + b.etfCount + b.mfCount) - (a.directValue + a.etfCount + a.mfCount)),
     })
   } catch (e) { res.status(500).json({ error: e.message }) }
 })

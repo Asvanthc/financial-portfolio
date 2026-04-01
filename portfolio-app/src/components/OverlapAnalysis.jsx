@@ -56,13 +56,15 @@ export default function OverlapAnalysis({ analytics }) {
 
   if (!data) return <div style={{ padding: 20, color: 'var(--text3)' }}>No data loaded. <button className="btn btn-primary btn-sm" onClick={load}>Load Analysis</button></div>
 
-  const { directStocks, etfHoldings, mfHoldings, etfData, companyExposure } = data
+  const { directStocks, etfHoldings, mfHoldings, etfData, mfData = {}, companyExposure } = data
 
-  // Stocks that also appear in ETF indices
+  // Stocks that also appear in ETF or MF indices
   const directSymbols = new Set(directStocks.map(h => h.ticker?.replace(/\.(NS|BO)$/i,'').toUpperCase()))
-  const overlappingStocks = companyExposure.filter(c => c.directValue > 0 && c.etfCount > 0)
-  const etfOnlyStocks = companyExposure.filter(c => c.directValue === 0 && c.etfCount > 0)
-  const directOnlyStocks = companyExposure.filter(c => c.directValue > 0 && c.etfCount === 0)
+  const overlappingStocks = companyExposure.filter(c => c.directValue > 0 && (c.etfCount > 0 || c.mfCount > 0))
+  const etfOnlyStocks = companyExposure.filter(c => c.directValue === 0 && c.etfCount > 0 && c.mfCount === 0)
+  const mfOnlyStocks  = companyExposure.filter(c => c.directValue === 0 && c.etfCount === 0 && c.mfCount > 0)
+  const directOnlyStocks = companyExposure.filter(c => c.directValue > 0 && c.etfCount === 0 && c.mfCount === 0)
+  const indexMfs = mfHoldings.filter(m => mfData[m.schemeCode]?.inferredIndex)
 
   // Sector grouping from ETF constituents
   const sectorMap = {}
@@ -111,20 +113,21 @@ export default function OverlapAnalysis({ analytics }) {
         <div>
           {/* KPI summary */}
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(140px,1fr))', gap: 12, marginBottom: 20 }}>
-            <Kpi label="Direct Stocks"   value={directStocks.length}     color="var(--cyan)"   sub="individual picks" />
-            <Kpi label="ETFs"            value={etfHoldings.length}      color="var(--purple)" sub="index exposure" />
-            <Kpi label="Mutual Funds"    value={mfHoldings.length}       color="var(--indigo)" sub="managed funds" />
-            <Kpi label="Overlap"         value={overlappingStocks.length} color="var(--orange)" sub="stock + ETF index" />
-            <Kpi label="ETF Companies"   value={etfOnlyStocks.length}    color="var(--green)"  sub="via index only" />
+            <Kpi label="Direct Stocks"   value={directStocks.length}      color="var(--cyan)"   sub="individual picks" />
+            <Kpi label="ETFs"            value={etfHoldings.length}       color="var(--purple)" sub="index exposure" />
+            <Kpi label="Mutual Funds"    value={mfHoldings.length}        color="var(--indigo)" sub="managed funds" />
+            <Kpi label="Overlap"         value={overlappingStocks.length} color="var(--orange)" sub="stock + ETF/MF" />
+            <Kpi label="ETF Companies"   value={etfOnlyStocks.length}     color="var(--green)"  sub="via ETF index only" />
+            <Kpi label="MF Companies"    value={mfOnlyStocks.length}      color="var(--indigo)" sub="via index MF only" />
           </div>
 
           {overlappingStocks.length > 0 ? (
             <div className="card" style={{ marginBottom: 16 }}>
               <div style={{ fontWeight: 700, marginBottom: 12 }}>
-                ⚠️ Double Exposure — {overlappingStocks.length} stocks held directly AND via ETF index
+                ⚠️ Double Exposure — {overlappingStocks.length} stocks held directly AND via ETF/MF index
               </div>
               <div style={{ fontSize: 12, color: 'var(--text3)', marginBottom: 14 }}>
-                You own these individually AND they're constituents of your ETF(s). Your actual exposure to these companies is higher than the direct holding suggests.
+                You own these individually AND they're constituents of your ETF(s) or index MF(s). Your actual exposure is higher than the direct holding suggests.
               </div>
               <table className="holdings-table">
                 <thead>
@@ -132,7 +135,7 @@ export default function OverlapAnalysis({ analytics }) {
                     <th>Company</th>
                     <th className="right">Direct Value</th>
                     <th className="right">% Portfolio</th>
-                    <th>Also in ETF Indices</th>
+                    <th>Also via</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -144,10 +147,15 @@ export default function OverlapAnalysis({ analytics }) {
                       </td>
                       <td className="right num" style={{ color: 'var(--cyan)' }}>{fmt(c.directValue)}</td>
                       <td className="right" style={{ fontSize: 12, color: 'var(--purple)' }}>{pct(c.directValue, totalPortfolio)}</td>
-                      <td>
+                      <td style={{ fontSize: 11 }}>
                         {c.sources.filter(s => s.type === 'etf').map((s, i) => (
-                          <span key={i} style={{ display: 'inline-block', marginRight: 6, fontSize: 11, padding: '1px 6px', background: 'var(--purple-dim)', color: 'var(--purple)', borderRadius: 4 }}>
+                          <span key={`e${i}`} style={{ display: 'inline-block', marginRight: 4, marginBottom: 2, padding: '1px 6px', background: 'var(--purple-dim)', color: 'var(--purple)', borderRadius: 4 }}>
                             {s.etf} ({s.index?.replace('NIFTY ','')})
+                          </span>
+                        ))}
+                        {c.sources.filter(s => s.type === 'mf').map((s, i) => (
+                          <span key={`m${i}`} style={{ display: 'inline-block', marginRight: 4, marginBottom: 2, padding: '1px 6px', background: 'var(--indigo)22', color: 'var(--indigo)', borderRadius: 4 }}>
+                            MF · {s.index?.replace('NIFTY ','')}
                           </span>
                         ))}
                       </td>
@@ -304,8 +312,39 @@ export default function OverlapAnalysis({ analytics }) {
                     {catInfo.tag === 'Focused' && '⚠ Max 30 stocks. Concentrated bets. Higher risk, higher potential alpha.'}
                     {catInfo.tag === 'Hybrid' && '⚖ Mix of equity and debt. Lower downside but capped upside.'}
                     {!['Large Cap','Mid Cap','Small Cap','Flexi Cap','Multi Cap','Index','ELSS (Tax)','Sectoral','Focused','Hybrid'].includes(catInfo.tag) && (info.scheme_category || 'Category details not available.')}
-                    {' '}<span style={{ color: 'var(--text3)' }}>Holdings breakdown requires AMFI monthly disclosure (not available via free API).</span>
+                    {!mfData[mf.schemeCode]?.inferredIndex && ' Holdings breakdown requires AMFI monthly disclosure (not available via free API).'}
                   </div>
+
+                  {/* Index MF: show constituent chips */}
+                  {(() => {
+                    const md = mfData[mf.schemeCode] || {}
+                    if (!md.inferredIndex || !md.constituents?.length) return null
+                    const overlap = md.constituents.filter(c => directSymbols.has(c.symbol))
+                    return (
+                      <div style={{ marginTop: 10 }}>
+                        {overlap.length > 0 && (
+                          <div style={{ padding: '6px 10px', background: 'var(--orange-dim)', borderRadius: 6, fontSize: 12, marginBottom: 8 }}>
+                            <span style={{ color: 'var(--orange)', fontWeight: 700 }}>⚠ {overlap.length} overlap with your direct holdings: </span>
+                            {overlap.map(c => c.symbol).join(', ')}
+                          </div>
+                        )}
+                        <div style={{ fontSize: 11, color: 'var(--text3)', marginBottom: 6 }}>
+                          Tracks {md.inferredIndex} — {md.constituents.length} stocks
+                          {overlap.length > 0 && <span style={{ color: 'var(--orange)', marginLeft: 8 }}>{overlap.length} in your direct holdings ★</span>}
+                        </div>
+                        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, maxHeight: 120, overflowY: 'auto' }}>
+                          {md.constituents.map(c => (
+                            <span key={c.symbol} style={{
+                              padding: '2px 7px', borderRadius: 4, fontSize: 11,
+                              background: directSymbols.has(c.symbol) ? 'var(--orange-dim)' : 'var(--surface2)',
+                              color: directSymbols.has(c.symbol) ? 'var(--orange)' : 'var(--text2)',
+                              fontWeight: directSymbols.has(c.symbol) ? 700 : 400,
+                            }}>{c.symbol}{directSymbols.has(c.symbol) ? ' ★' : ''}</span>
+                          ))}
+                        </div>
+                      </div>
+                    )
+                  })()}
                 </div>
               )
             })}
@@ -317,7 +356,7 @@ export default function OverlapAnalysis({ analytics }) {
       {activeSection === 'companies' && (
         <div>
           <div style={{ fontSize: 12, color: 'var(--text3)', marginBottom: 14 }}>
-            All companies you have exposure to — directly held or via ETF index. Orange = double exposure.
+            All companies you have exposure to — directly, via ETF index, or via index MF. Orange = double exposure. Index MF constituents shown only for mapped index funds.
           </div>
           <div style={{ overflowX: 'auto' }}>
             <table className="holdings-table">
@@ -327,15 +366,17 @@ export default function OverlapAnalysis({ analytics }) {
                   <th>Sector</th>
                   <th className="right">Direct Value</th>
                   <th className="right">% Portfolio</th>
-                  <th>ETF Exposure</th>
+                  <th>Via ETF</th>
+                  <th>Via MF</th>
                 </tr>
               </thead>
               <tbody>
                 {directStocks.map(h => {
                   const sym = h.ticker?.replace(/\.(NS|BO)$/i,'').toUpperCase()
                   const c = companyExposure.find(x => x.symbol === sym)
+                  const hasOverlap = c && (c.etfCount > 0 || c.mfCount > 0)
                   return (
-                    <tr key={h.id} style={{ background: c?.etfCount > 0 ? 'rgba(251,146,60,0.04)' : 'transparent' }}>
+                    <tr key={h.id} style={{ background: hasOverlap ? 'rgba(251,146,60,0.04)' : 'transparent' }}>
                       <td>
                         <div style={{ fontWeight: 600 }}>{h.name}</div>
                         <div style={{ fontSize: 11, color: 'var(--text3)' }}>{sym}</div>
@@ -350,24 +391,52 @@ export default function OverlapAnalysis({ analytics }) {
                             ))
                           : <span className="text-dim">—</span>}
                       </td>
+                      <td style={{ fontSize: 11 }}>
+                        {c?.mfCount > 0
+                          ? <span style={{ padding: '1px 5px', background: 'var(--indigo)22', color: 'var(--indigo)', borderRadius: 4 }}>
+                              {[...new Set(c.sources.filter(s=>s.type==='mf').map(s=>s.index?.replace('NIFTY ','')))].join(', ')}
+                            </span>
+                          : <span className="text-dim">—</span>}
+                      </td>
                     </tr>
                   )
                 })}
-                {directStocks.length > 0 && etfOnlyStocks.length > 0 && (
-                  <tr><td colSpan={5} style={{ paddingTop: 8, paddingBottom: 4, fontSize: 11, fontWeight: 700, color: 'var(--text3)' }}>Via ETF indices only ({etfOnlyStocks.length} companies)</td></tr>
+
+                {etfOnlyStocks.length > 0 && (
+                  <tr><td colSpan={6} style={{ paddingTop: 10, paddingBottom: 4, fontSize: 11, fontWeight: 700, color: 'var(--text3)' }}>
+                    Via ETF index only ({etfOnlyStocks.length} companies)
+                  </td></tr>
                 )}
-                {etfOnlyStocks.slice(0, 30).map(c => (
-                  <tr key={c.symbol} style={{ opacity: 0.6 }}>
-                    <td>
-                      <div style={{ fontSize: 12 }}>{c.name}</div>
-                      <div style={{ fontSize: 11, color: 'var(--text3)' }}>{c.symbol}</div>
-                    </td>
+                {etfOnlyStocks.slice(0, 50).map(c => (
+                  <tr key={c.symbol} style={{ opacity: 0.55 }}>
+                    <td><div style={{ fontSize: 12 }}>{c.name}</div><div style={{ fontSize: 11, color: 'var(--text3)' }}>{c.symbol}</div></td>
                     <td style={{ fontSize: 12, color: 'var(--text3)' }}>{c.sector || '—'}</td>
                     <td className="right" style={{ fontSize: 12, color: 'var(--text3)' }}>—</td>
                     <td className="right" style={{ fontSize: 12, color: 'var(--text3)' }}>—</td>
                     <td style={{ fontSize: 11 }}>
                       {c.sources.filter(s=>s.type==='etf').map((s,i) => (
                         <span key={i} style={{ marginRight: 4, padding: '1px 5px', background: 'var(--purple-dim)', color: 'var(--purple)', borderRadius: 4 }}>{s.etf}</span>
+                      ))}
+                    </td>
+                    <td style={{ fontSize: 11, color: 'var(--text3)' }}>—</td>
+                  </tr>
+                ))}
+
+                {mfOnlyStocks.length > 0 && (
+                  <tr><td colSpan={6} style={{ paddingTop: 10, paddingBottom: 4, fontSize: 11, fontWeight: 700, color: 'var(--text3)' }}>
+                    Via index MF only ({mfOnlyStocks.length} companies)
+                  </td></tr>
+                )}
+                {mfOnlyStocks.slice(0, 50).map(c => (
+                  <tr key={c.symbol} style={{ opacity: 0.55 }}>
+                    <td><div style={{ fontSize: 12 }}>{c.name}</div><div style={{ fontSize: 11, color: 'var(--text3)' }}>{c.symbol}</div></td>
+                    <td style={{ fontSize: 12, color: 'var(--text3)' }}>{c.sector || '—'}</td>
+                    <td className="right" style={{ fontSize: 12, color: 'var(--text3)' }}>—</td>
+                    <td className="right" style={{ fontSize: 12, color: 'var(--text3)' }}>—</td>
+                    <td style={{ fontSize: 11, color: 'var(--text3)' }}>—</td>
+                    <td style={{ fontSize: 11 }}>
+                      {[...new Set(c.sources.filter(s=>s.type==='mf').map(s=>s.index?.replace('NIFTY ','')))].map((idx,i) => (
+                        <span key={i} style={{ marginRight: 4, padding: '1px 5px', background: 'var(--indigo)22', color: 'var(--indigo)', borderRadius: 4 }}>{idx}</span>
                       ))}
                     </td>
                   </tr>
