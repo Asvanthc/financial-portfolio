@@ -567,6 +567,29 @@ export default function OverlapAnalysis({ totalCurrent }) {
                   )
                 })}
               </tbody>
+              <tfoot>
+                {(() => {
+                  const sumTotal  = companyExposure.reduce((s, c) => s + (c.totalExposure || 0), 0)
+                  const sumDirect = companyExposure.reduce((s, c) => s + (c.directValue || 0), 0)
+                  const sumEtf    = companyExposure.reduce((s, c) => s + (c.estimatedEtfValue || 0), 0)
+                  const sumMf     = companyExposure.reduce((s, c) => s + (c.estimatedMfValue || 0), 0)
+                  return (
+                    <tr style={{ borderTop: '2px solid var(--border)', fontWeight: 700, background: 'var(--surface2)' }}>
+                      <td colSpan={3} style={{ fontSize: 12, color: 'var(--text2)', paddingLeft: 8 }}>
+                        TOTAL ({companyExposure.length} companies)
+                        <div style={{ fontSize: 10, fontWeight: 400, color: 'var(--text3)', marginTop: 2 }}>
+                          ETF holdings: {fmt(etfHoldings.reduce((s,h)=>s+(h.current||0),0))} · MF holdings: {fmt(mfHoldings.reduce((s,h)=>s+(h.current||0),0))}
+                        </div>
+                      </td>
+                      <td className="right num" style={{ color: 'var(--orange)' }}>{fmt(sumTotal)}</td>
+                      <td className="right num" style={{ color: 'var(--cyan)' }}>{fmt(sumDirect)}</td>
+                      <td className="right num" style={{ color: 'var(--purple)' }}>{fmt(sumEtf)}</td>
+                      <td className="right num" style={{ color: 'var(--indigo)' }}>{fmt(sumMf)}</td>
+                      <td className="right" style={{ fontSize: 12, color: 'var(--text3)' }}>{pct(sumTotal, totalPortfolio)}</td>
+                    </tr>
+                  )
+                })()}
+              </tfoot>
             </table>
           </div>
         </div>
