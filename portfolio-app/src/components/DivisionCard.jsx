@@ -598,12 +598,12 @@ function EditHoldingRow({ holding, onSave, onCancel }) {
             </div>
             <div className="form-group">
               <label className="form-label">
-                Avg Buy {currSym} {autoBuyPrice !== null && <span style={{ color:'var(--cyan)' }}>→ {autoBuyPrice.toFixed(4)}</span>}
+                Avg Buy <span style={{ fontSize:10, color:'var(--text3)' }}>(per unit)</span> {currSym} {autoBuyPrice !== null && <span style={{ color:'var(--cyan)' }}>→ {autoBuyPrice.toFixed(4)}</span>}
               </label>
               <input className="input input-sm" style={{ width:95 }} type="number" placeholder={`${currSym}/unit`} value={form.buyPrice} onChange={e => set('buyPrice', e.target.value)} />
             </div>
             <div className="form-group">
-              <label className="form-label">Cur Price {currSym}</label>
+              <label className="form-label">Cur Price <span style={{ fontSize:10, color:'var(--text3)' }}>(per unit)</span> {currSym}</label>
               <input className="input input-sm" style={{ width:95 }} type="number" placeholder={`${currSym}/unit`} value={form.currentPrice} onChange={e => set('currentPrice', e.target.value)} />
             </div>
             {!form.units && (
@@ -634,10 +634,11 @@ function EditHoldingRow({ holding, onSave, onCancel }) {
 
         {/* Auto-computed summary */}
         {(autoInvested || autoUnits || autoCurrent) && (
-          <div className="flex gap-3" style={{ padding:'2px 0', fontSize:11, color:'var(--cyan)' }}>
-            {autoInvested && <span>Invested: {isForeign ? `${currSym}${autoInvested.toFixed(2)}` : fmt(autoInvested)}</span>}
-            {autoUnits    && <span>Units: {autoUnits.toFixed(4)}</span>}
-            {autoCurrent  && <span>Current: {isForeign ? `${currSym}${autoCurrent.toFixed(2)}` : fmt(autoCurrent)}</span>}
+          <div className="flex gap-3 flex-wrap" style={{ padding:'4px 0 2px', fontSize:12, background:'rgba(34,211,238,0.06)', borderRadius:6, padding:'6px 10px', marginTop:2 }}>
+            {autoUnits    && <span style={{ color:'var(--cyan)' }}>Units: {autoUnits.toFixed(4)}</span>}
+            {autoInvested && <span style={{ color:'var(--cyan)' }}>Total Invested: <strong>{isForeign ? `${currSym}${autoInvested.toFixed(2)}` : fmt(autoInvested)}</strong></span>}
+            {autoCurrent  && <span style={{ color:'var(--cyan)' }}>Total Current: <strong>{isForeign ? `${currSym}${autoCurrent.toFixed(2)}` : fmt(autoCurrent)}</strong></span>}
+            {isForeign && autoCurrent && <span style={{ color:'var(--text3)', fontSize:11 }}>← verify this matches your platform's total</span>}
           </div>
         )}
 
@@ -825,12 +826,12 @@ function AddHoldingForm({ divisionId, subdivisionId, subdivisions, onSave, onCan
             </div>
             <div className="form-group">
               <label className="form-label">
-                Avg Buy {currSym} {autoBuyPrice !== null && <span style={{ color:'var(--cyan)' }}>→ {autoBuyPrice.toFixed(4)}</span>}
+                Avg Buy <span style={{ fontSize:10, color:'var(--text3)' }}>(per unit)</span> {currSym} {autoBuyPrice !== null && <span style={{ color:'var(--cyan)' }}>→ {autoBuyPrice.toFixed(4)}</span>}
               </label>
               <input className="input input-sm" style={{ width:90 }} type="number" placeholder="0" value={form.buyPrice} onChange={e => set('buyPrice', e.target.value)} />
             </div>
             <div className="form-group">
-              <label className="form-label">Cur Price {currSym}</label>
+              <label className="form-label">Cur Price <span style={{ fontSize:10, color:'var(--text3)' }}>(per unit)</span> {currSym}</label>
               <input className="input input-sm" style={{ width:90 }} type="number" placeholder="0" value={form.currentPrice} onChange={e => set('currentPrice', e.target.value)} />
             </div>
           </>
