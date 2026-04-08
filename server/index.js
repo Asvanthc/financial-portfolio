@@ -347,6 +347,21 @@ app.get('/api/group', (req, res) => {
   }
 });
 
+// Exchange rate: foreign currency → INR via Frankfurter API (ECB data, free, no key)
+app.get('/api/exchange-rate/:currency', async (req, res) => {
+  const currency = req.params.currency.toUpperCase()
+  try {
+    const r = await fetch(`https://api.frankfurter.app/latest?from=${currency}&to=INR`)
+    if (!r.ok) return res.status(502).json({ error: 'Exchange rate fetch failed' })
+    const data = await r.json()
+    const rate = data?.rates?.INR
+    if (!rate) return res.status(404).json({ error: `No INR rate for ${currency}` })
+    res.json({ currency, rateToInr: rate, date: data.date })
+  } catch (e) {
+    res.status(500).json({ error: e.message })
+  }
+})
+
 // Stock/ETF ticker search via Yahoo Finance autocomplete
 app.get('/api/stock/search', async (req, res) => {
   try {

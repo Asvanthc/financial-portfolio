@@ -10,6 +10,26 @@ const PLATFORMS = {
 }
 const ASSET_TYPES = { stock:'Stock', etf:'ETF', mf:'MF', fd:'FD', foreign:'Foreign', gold:'Gold' }
 
+const CURRENCIES = {
+  USD: { symbol: '$',   name: 'US Dollar' },
+  GBP: { symbol: '£',   name: 'British Pound' },
+  EUR: { symbol: '€',   name: 'Euro' },
+  SGD: { symbol: 'S$',  name: 'Singapore Dollar' },
+  AED: { symbol: 'د.إ', name: 'UAE Dirham' },
+  JPY: { symbol: '¥',   name: 'Japanese Yen' },
+  CHF: { symbol: 'Fr',  name: 'Swiss Franc' },
+  CAD: { symbol: 'C$',  name: 'Canadian Dollar' },
+  AUD: { symbol: 'A$',  name: 'Australian Dollar' },
+  HKD: { symbol: 'HK$', name: 'Hong Kong Dollar' },
+}
+
+async function fetchRateToInr(currency) {
+  try {
+    const data = await api.getExchangeRate(currency)
+    return data.rateToInr || null
+  } catch (_) { return null }
+}
+
 function fmt(n) {
   if (!n) return '₹0'
   return Math.abs(n) >= 1e7 ? `₹${(n/1e7).toFixed(2)}Cr`
@@ -372,18 +392,42 @@ function HoldingRow({ holding: h, onEdit, onRefresh, refreshing, onDelete, paren
       <td><span className={`platform-badge ${platform.cls}`}>{platform.icon} {platform.label}</span></td>
       <td><span className="asset-type">{ASSET_TYPES[h.assetType] || h.assetType || '—'}</span></td>
       <td className="right num">{h.units > 0 ? h.units.toLocaleString('en-IN',{maximumFractionDigits:4}) : '—'}</td>
-      <td className="right num" style={{ color:'var(--text2)' }}>{h.buyPrice > 0 ? `₹${h.buyPrice.toLocaleString('en-IN',{maximumFractionDigits:2})}` : '—'}</td>
+      <td className="right num" style={{ color:'var(--text2)' }}>
+        {h.buyPrice > 0 ? (
+          h.currency && h.foreignBuyPrice > 0
+            ? <div>
+                <div>{CURRENCIES[h.currency]?.symbol || h.currency}{h.foreignBuyPrice.toLocaleString('en-IN',{maximumFractionDigits:4})}</div>
+                <div style={{ fontSize:10, color:'var(--text3)' }}>₹{h.buyPrice.toLocaleString('en-IN',{maximumFractionDigits:2})}</div>
+              </div>
+            : `₹${h.buyPrice.toLocaleString('en-IN',{maximumFractionDigits:2})}`
+        ) : '—'}
+      </td>
       <td className="right num">
         {h.currentPrice > 0 ? (
           <div>
-            <div style={{ color:'var(--cyan)' }}>₹{h.currentPrice.toLocaleString('en-IN',{maximumFractionDigits:2})}</div>
+            {h.currency && h.foreignCurrentPrice > 0
+              ? <div style={{ color:'var(--cyan)' }}>{CURRENCIES[h.currency]?.symbol || h.currency}{h.foreignCurrentPrice.toLocaleString('en-IN',{maximumFractionDigits:4})}</div>
+              : <div style={{ color:'var(--cyan)' }}>₹{h.currentPrice.toLocaleString('en-IN',{maximumFractionDigits:2})}</div>}
+            {h.exchangeRate && <div style={{ fontSize:10, color:'var(--text3)' }}>@ ₹{h.exchangeRate.toFixed(2)}/{h.currency}</div>}
             {h.priceDate && <div style={{ fontSize:10, color:'var(--text3)' }}>{h.priceDate}</div>}
           </div>
         ) : '—'}
       </td>
-      <td className="right num" style={{ color:'var(--text2)' }}>{fmt(h.invested)}</td>
+      <td className="right num" style={{ color:'var(--text2)' }}>
+        {h.currency && h.foreignInvested > 0
+          ? <div>
+              <div>{CURRENCIES[h.currency]?.symbol || h.currency}{h.foreignInvested.toLocaleString('en-IN',{maximumFractionDigits:2})}</div>
+              <div style={{ fontSize:10, color:'var(--text3)' }}>{fmt(h.invested)}</div>
+            </div>
+          : fmt(h.invested)}
+      </td>
       <td className="right num">
-        <div style={{ color:'var(--purple)' }}>{fmt(h.current)}</div>
+        {h.currency && h.foreignCurrent > 0
+          ? <div>
+              <div style={{ color:'var(--purple)' }}>{CURRENCIES[h.currency]?.symbol || h.currency}{h.foreignCurrent.toLocaleString('en-IN',{maximumFractionDigits:2})}</div>
+              <div style={{ fontSize:10, color:'var(--text3)' }}>{fmt(h.current)} INR</div>
+            </div>
+          : <div style={{ color:'var(--purple)' }}>{fmt(h.current)}</div>}
         {(pctOfParent > 0 || pctOfTotal > 0) && (
           <div style={{ fontSize:10, marginTop:2, lineHeight:1.4 }}>
             {pctOfParent > 0 && <span style={{ color:'var(--cyan)' }}>{pctOfParent.toFixed(1)}% grp</span>}
@@ -414,11 +458,12 @@ function EditHoldingRow({ holding, onSave, onCancel }) {
     name: holding.name || '', platform: holding.platform || 'other', assetType: holding.assetType || 'stock',
     ticker: holding.ticker || '', schemeCode: holding.schemeCode || '',
     units: holding.units ? String(holding.units) : '',
-    buyPrice: holding.buyPrice ? String(holding.buyPrice) : '',
-    currentPrice: holding.currentPrice ? String(holding.currentPrice) : '',
-    invested: holding.invested ? String(holding.invested) : '',
-    current: holding.current ? String(holding.current) : '',
+    buyPrice: holding.foreignBuyPrice ? String(holding.foreignBuyPrice) : (holding.buyPrice ? String(holding.buyPrice) : ''),
+    currentPrice: holding.foreignCurrentPrice ? String(holding.foreignCurrentPrice) : (holding.currentPrice ? String(holding.currentPrice) : ''),
+    invested: holding.foreignInvested ? String(holding.foreignInvested) : (holding.invested ? String(holding.invested) : ''),
+    current: holding.foreignCurrent ? String(holding.foreignCurrent) : (holding.current ? String(holding.current) : ''),
     note: holding.note || '',
+    currency: holding.currency || 'USD',
   })
   const [saving, setSaving] = useState(false)
   const [buyMore, setBuyMore] = useState(false)
@@ -471,12 +516,31 @@ function EditHoldingRow({ holding, onSave, onCancel }) {
       const finalBuyPrice = autoBuyPrice !== null ? autoBuyPrice : p
       const finalInvested = autoInvested !== null ? autoInvested : inv
       const finalCurrent  = autoCurrent  !== null ? autoCurrent  : cur
-      await api.updateHolding(holding.id, {
+      const isForeignType = form.assetType === 'foreign'
+      let payload = {
         name: form.name, platform: form.platform, assetType: form.assetType,
         ticker: form.ticker, schemeCode: form.schemeCode,
         units: finalUnits, buyPrice: finalBuyPrice, currentPrice: cp || 0,
         invested: finalInvested, current: finalCurrent, note: form.note,
-      })
+      }
+      if (isForeignType) {
+        const rate = await fetchRateToInr(form.currency)
+        if (!rate) throw new Error(`Could not fetch ${form.currency}/INR rate`)
+        payload = {
+          ...payload,
+          currency: form.currency,
+          exchangeRate: rate,
+          foreignBuyPrice: finalBuyPrice,
+          foreignCurrentPrice: cp || 0,
+          foreignInvested: finalInvested,
+          foreignCurrent: finalCurrent,
+          buyPrice: Math.round(finalBuyPrice * rate * 100) / 100,
+          currentPrice: Math.round((cp || 0) * rate * 100) / 100,
+          invested: Math.round(finalInvested * rate * 100) / 100,
+          current: Math.round(finalCurrent * rate * 100) / 100,
+        }
+      }
+      await api.updateHolding(holding.id, payload)
       onSave()
     } catch (e) { alert('Save failed: ' + e.message) }
     finally { setSaving(false) }
@@ -484,6 +548,8 @@ function EditHoldingRow({ holding, onSave, onCancel }) {
 
   const isMf = form.assetType === 'mf'
   const isFd = form.assetType === 'fd'
+  const isForeign = form.assetType === 'foreign'
+  const currSym = isForeign ? (CURRENCIES[form.currency]?.symbol || form.currency) : '₹'
 
   return (
     <tr style={{ background:'rgba(34,211,238,0.04)' }}>
@@ -508,7 +574,18 @@ function EditHoldingRow({ holding, onSave, onCancel }) {
             ? <input className="input input-sm" style={{ width:95 }} placeholder="Scheme #" value={form.schemeCode} onChange={e => set('schemeCode', e.target.value)} />
             : <input className="input input-sm" style={{ width:110 }} placeholder="Ticker e.g. INFY" value={form.ticker} onChange={e => set('ticker', e.target.value)} />
           }
+          {isForeign && (
+            <select className="input input-sm" style={{ width:80 }} value={form.currency} onChange={e => set('currency', e.target.value)}>
+              {Object.entries(CURRENCIES).map(([k,v]) => <option key={k} value={k}>{k} {v.symbol}</option>)}
+            </select>
+          )}
         </div>
+
+        {isForeign && (
+          <div style={{ fontSize:11, color:'var(--indigo)', padding:'2px 0 4px', fontStyle:'italic' }}>
+            Enter amounts in {form.currency}. INR value will be computed using live exchange rate on save.
+          </div>
+        )}
 
         {/* Row 2: Price/value inputs */}
         {!isFd ? (
@@ -521,24 +598,24 @@ function EditHoldingRow({ holding, onSave, onCancel }) {
             </div>
             <div className="form-group">
               <label className="form-label">
-                Avg Buy ₹ {autoBuyPrice !== null && <span style={{ color:'var(--cyan)' }}>→ {autoBuyPrice.toFixed(2)}</span>}
+                Avg Buy {currSym} {autoBuyPrice !== null && <span style={{ color:'var(--cyan)' }}>→ {autoBuyPrice.toFixed(4)}</span>}
               </label>
-              <input className="input input-sm" style={{ width:95 }} type="number" placeholder="₹/unit" value={form.buyPrice} onChange={e => set('buyPrice', e.target.value)} />
+              <input className="input input-sm" style={{ width:95 }} type="number" placeholder={`${currSym}/unit`} value={form.buyPrice} onChange={e => set('buyPrice', e.target.value)} />
             </div>
             <div className="form-group">
-              <label className="form-label">Cur Price ₹</label>
-              <input className="input input-sm" style={{ width:95 }} type="number" placeholder="₹/unit" value={form.currentPrice} onChange={e => set('currentPrice', e.target.value)} />
+              <label className="form-label">Cur Price {currSym}</label>
+              <input className="input input-sm" style={{ width:95 }} type="number" placeholder={`${currSym}/unit`} value={form.currentPrice} onChange={e => set('currentPrice', e.target.value)} />
             </div>
             {!form.units && (
               <div className="form-group">
-                <label className="form-label">Invested ₹</label>
-                <input className="input input-sm" style={{ width:100 }} type="number" placeholder="₹ total" value={form.invested} onChange={e => set('invested', e.target.value)} />
+                <label className="form-label">Invested {currSym}</label>
+                <input className="input input-sm" style={{ width:100 }} type="number" placeholder={`${currSym} total`} value={form.invested} onChange={e => set('invested', e.target.value)} />
               </div>
             )}
             {!form.units && !form.currentPrice && (
               <div className="form-group">
-                <label className="form-label">Current ₹</label>
-                <input className="input input-sm" style={{ width:100 }} type="number" placeholder="₹ total" value={form.current} onChange={e => set('current', e.target.value)} />
+                <label className="form-label">Current {currSym}</label>
+                <input className="input input-sm" style={{ width:100 }} type="number" placeholder={`${currSym} total`} value={form.current} onChange={e => set('current', e.target.value)} />
               </div>
             )}
           </div>
@@ -558,9 +635,9 @@ function EditHoldingRow({ holding, onSave, onCancel }) {
         {/* Auto-computed summary */}
         {(autoInvested || autoUnits || autoCurrent) && (
           <div className="flex gap-3" style={{ padding:'2px 0', fontSize:11, color:'var(--cyan)' }}>
-            {autoInvested && <span>Invested: {fmt(autoInvested)}</span>}
+            {autoInvested && <span>Invested: {isForeign ? `${currSym}${autoInvested.toFixed(2)}` : fmt(autoInvested)}</span>}
             {autoUnits    && <span>Units: {autoUnits.toFixed(4)}</span>}
-            {autoCurrent  && <span>Current: {fmt(autoCurrent)}</span>}
+            {autoCurrent  && <span>Current: {isForeign ? `${currSym}${autoCurrent.toFixed(2)}` : fmt(autoCurrent)}</span>}
           </div>
         )}
 
@@ -609,7 +686,7 @@ function AddHoldingForm({ divisionId, subdivisionId, subdivisions, onSave, onCan
   const [form, setForm] = useState({
     name:'', platform:'kite', assetType:'stock', ticker:'', schemeCode:'',
     units:'', buyPrice:'', currentPrice:'', invested:'', current:'', note:'',
-    subdivisionId: subdivisionId || '',
+    subdivisionId: subdivisionId || '', currency: 'USD',
   })
   const [saving, setSaving] = useState(false)
   const set = (k, v) => setForm(f => ({ ...f, [k]: v }))
@@ -626,7 +703,9 @@ function AddHoldingForm({ divisionId, subdivisionId, subdivisions, onSave, onCan
 
   const isMf = form.assetType === 'mf'
   const isFd = form.assetType === 'fd'
+  const isForeign = form.assetType === 'foreign'
   const isStock = ['stock','etf','foreign','gold'].includes(form.assetType)
+  const currSym = isForeign ? (CURRENCIES[form.currency]?.symbol || form.currency) : '₹'
 
   async function handleSave() {
     if (!form.name) return
@@ -636,13 +715,31 @@ function AddHoldingForm({ divisionId, subdivisionId, subdivisions, onSave, onCan
       const finalBuyPrice = autoBuyPrice !== null ? autoBuyPrice : p
       const finalInvested = autoInvested !== null ? autoInvested : inv
       const finalCurrent  = autoCurrent  !== null ? autoCurrent  : Number(form.current) || 0
-      await api.addHolding(divisionId, {
+      let payload = {
         name: form.name, platform: form.platform, assetType: form.assetType,
         ticker: form.ticker, schemeCode: form.schemeCode,
         units: finalUnits, buyPrice: finalBuyPrice, currentPrice: cp || 0,
         invested: finalInvested, current: finalCurrent, note: form.note,
         subdivisionId: form.subdivisionId || subdivisionId || undefined,
-      })
+      }
+      if (isForeign) {
+        const rate = await fetchRateToInr(form.currency)
+        if (!rate) throw new Error(`Could not fetch ${form.currency}/INR rate`)
+        payload = {
+          ...payload,
+          currency: form.currency,
+          exchangeRate: rate,
+          foreignBuyPrice: finalBuyPrice,
+          foreignCurrentPrice: cp || 0,
+          foreignInvested: finalInvested,
+          foreignCurrent: finalCurrent,
+          buyPrice: Math.round(finalBuyPrice * rate * 100) / 100,
+          currentPrice: Math.round((cp || 0) * rate * 100) / 100,
+          invested: Math.round(finalInvested * rate * 100) / 100,
+          current: Math.round(finalCurrent * rate * 100) / 100,
+        }
+      }
+      await api.addHolding(divisionId, payload)
       onSave()
     } catch (e) { alert('Failed to add: ' + e.message) }
     finally { setSaving(false) }
@@ -674,11 +771,25 @@ function AddHoldingForm({ divisionId, subdivisionId, subdivisions, onSave, onCan
             onSelectStock={s => setForm(f => ({ ...f, name: s.name, ticker: s.symbol }))}
           />
         </div>
-        {isStock && (
+        {isStock && !isForeign && (
           <div className="form-group">
             <label className="form-label">Ticker</label>
             <input className="input input-sm" style={{ width:120 }} placeholder="e.g. INFY" value={form.ticker} onChange={e => set('ticker', e.target.value)} />
           </div>
+        )}
+        {isForeign && (
+          <>
+            <div className="form-group">
+              <label className="form-label">Ticker</label>
+              <input className="input input-sm" style={{ width:100 }} placeholder="e.g. AAPL" value={form.ticker} onChange={e => set('ticker', e.target.value)} />
+            </div>
+            <div className="form-group">
+              <label className="form-label">Currency</label>
+              <select className="input input-sm" style={{ width:85 }} value={form.currency} onChange={e => set('currency', e.target.value)}>
+                {Object.entries(CURRENCIES).map(([k,v]) => <option key={k} value={k}>{k} {v.symbol}</option>)}
+              </select>
+            </div>
+          </>
         )}
         {isMf && form.schemeCode && (
           <div className="form-group">
@@ -697,6 +808,12 @@ function AddHoldingForm({ divisionId, subdivisionId, subdivisions, onSave, onCan
         )}
       </div>
 
+      {isForeign && (
+        <div style={{ fontSize:11, color:'var(--indigo)', padding:'0 0 6px', fontStyle:'italic' }}>
+          Enter amounts in {form.currency} ({CURRENCIES[form.currency]?.name}). INR value computed via live rate on save.
+        </div>
+      )}
+
       <div className="flex gap-2 flex-wrap items-end">
         {!isFd && (
           <>
@@ -708,25 +825,25 @@ function AddHoldingForm({ divisionId, subdivisionId, subdivisions, onSave, onCan
             </div>
             <div className="form-group">
               <label className="form-label">
-                Avg Buy ₹ {autoBuyPrice !== null && <span style={{ color:'var(--cyan)' }}>→ {autoBuyPrice.toFixed(2)}</span>}
+                Avg Buy {currSym} {autoBuyPrice !== null && <span style={{ color:'var(--cyan)' }}>→ {autoBuyPrice.toFixed(4)}</span>}
               </label>
               <input className="input input-sm" style={{ width:90 }} type="number" placeholder="0" value={form.buyPrice} onChange={e => set('buyPrice', e.target.value)} />
             </div>
             <div className="form-group">
-              <label className="form-label">Cur Price ₹</label>
+              <label className="form-label">Cur Price {currSym}</label>
               <input className="input input-sm" style={{ width:90 }} type="number" placeholder="0" value={form.currentPrice} onChange={e => set('currentPrice', e.target.value)} />
             </div>
           </>
         )}
         {(isFd || !form.units) && (
           <div className="form-group">
-            <label className="form-label">Invested ₹</label>
+            <label className="form-label">Invested {currSym}</label>
             <input className="input input-sm" style={{ width:100 }} type="number" placeholder="0" value={form.invested} onChange={e => set('invested', e.target.value)} />
           </div>
         )}
         {(isFd || (!form.units && !form.currentPrice)) && (
           <div className="form-group">
-            <label className="form-label">Current ₹</label>
+            <label className="form-label">Current {currSym}</label>
             <input className="input input-sm" style={{ width:100 }} type="number" placeholder="0" value={form.current} onChange={e => set('current', e.target.value)} />
           </div>
         )}
@@ -735,9 +852,9 @@ function AddHoldingForm({ divisionId, subdivisionId, subdivisions, onSave, onCan
           <input className="input input-sm" placeholder="e.g. SIP" value={form.note} onChange={e => set('note', e.target.value)} />
         </div>
         <div className="flex gap-2 items-center" style={{ paddingBottom:2 }}>
-          {autoInvested !== null && <span className="text-xs text-muted">Inv: {fmt(autoInvested)}</span>}
-          {autoCurrent  !== null && <span className="text-xs text-muted">Cur: {fmt(autoCurrent)}</span>}
-          <button className="btn btn-primary btn-sm" onClick={handleSave} disabled={saving || !form.name}>{saving?'…':'+ Add'}</button>
+          {autoInvested !== null && <span className="text-xs text-muted">Inv: {isForeign ? `${currSym}${autoInvested.toFixed(2)}` : fmt(autoInvested)}</span>}
+          {autoCurrent  !== null && <span className="text-xs text-muted">Cur: {isForeign ? `${currSym}${autoCurrent.toFixed(2)}` : fmt(autoCurrent)}</span>}
+          <button className="btn btn-primary btn-sm" onClick={handleSave} disabled={saving || !form.name}>{saving ? (isForeign ? '⟳ Fetching rate…' : '…') : '+ Add'}</button>
           <button className="btn btn-ghost btn-sm" onClick={onCancel}>Cancel</button>
         </div>
       </div>

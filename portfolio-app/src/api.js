@@ -42,4 +42,5 @@ export const api = {
   stockSearch: (q) => fetch(`${API_ROOT}/api/stock/search?q=${encodeURIComponent(q)}`).then(r => r.json()),
   refreshAll: () => json('POST', '/api/holdings/refresh-all'),
   portfolioOverlap: () => fetch(`${API_ROOT}/api/portfolio/overlap`).then(r => r.json()),
+  getExchangeRate: (currency) => fetch(`${API_ROOT}/api/exchange-rate/${encodeURIComponent(currency)}`).then(r => r.json()),
 }
