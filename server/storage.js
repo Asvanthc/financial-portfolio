@@ -283,7 +283,8 @@ function createSubdivision({ name, targetPercent = 0 }) {
   return { id: randomUUID(), name, targetPercent: Number(targetPercent) || 0, holdings: [] }
 }
 
-function createHolding({ name, invested = 0, current = 0, targetPercent = undefined, platform = 'other', assetType = 'stock', ticker = '', schemeCode = '', units = 0, buyPrice = 0, currentPrice = 0, note = '' }) {
+function createHolding({ name, invested = 0, current = 0, targetPercent = undefined, platform = 'other', assetType = 'stock', ticker = '', schemeCode = '', units = 0, buyPrice = 0, currentPrice = 0, note = '',
+  currency, exchangeRate, foreignBuyPrice, foreignCurrentPrice, foreignInvested, foreignCurrent }) {
   const h = {
     id: randomUUID(),
     name,
@@ -300,6 +301,14 @@ function createHolding({ name, invested = 0, current = 0, targetPercent = undefi
     priceDate: null,
   }
   if (targetPercent !== undefined) h.targetPercent = Number(targetPercent) || 0
+  if (currency) {
+    h.currency = currency
+    h.exchangeRate = Number(exchangeRate) || 0
+    h.foreignBuyPrice = Number(foreignBuyPrice) || 0
+    h.foreignCurrentPrice = Number(foreignCurrentPrice) || 0
+    h.foreignInvested = Number(foreignInvested) || 0
+    h.foreignCurrent = Number(foreignCurrent) || 0
+  }
   return h
 }
 

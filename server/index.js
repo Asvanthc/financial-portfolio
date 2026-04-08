@@ -957,7 +957,8 @@ app.patch('/api/holdings/:hid', async (req, res) => {
       if (found) break
     }
     if (!found) return res.status(404).json({ error: 'holding not found' })
-    const { name, invested, current, targetPercent, platform, assetType, ticker, schemeCode, units, buyPrice, currentPrice, priceDate, note } = req.body || {}
+    const { name, invested, current, targetPercent, platform, assetType, ticker, schemeCode, units, buyPrice, currentPrice, priceDate, note,
+      currency, exchangeRate, foreignBuyPrice, foreignCurrentPrice, foreignInvested, foreignCurrent } = req.body || {}
     if (name !== undefined) found.name = name
     if (invested !== undefined) found.invested = Number(invested) || 0
     if (current !== undefined) found.current = Number(current) || 0
@@ -971,6 +972,12 @@ app.patch('/api/holdings/:hid', async (req, res) => {
     if (currentPrice !== undefined) found.currentPrice = Number(currentPrice) || 0
     if (priceDate !== undefined) found.priceDate = priceDate
     if (note !== undefined) found.note = note
+    if (currency !== undefined) found.currency = currency
+    if (exchangeRate !== undefined) found.exchangeRate = Number(exchangeRate) || 0
+    if (foreignBuyPrice !== undefined) found.foreignBuyPrice = Number(foreignBuyPrice) || 0
+    if (foreignCurrentPrice !== undefined) found.foreignCurrentPrice = Number(foreignCurrentPrice) || 0
+    if (foreignInvested !== undefined) found.foreignInvested = Number(foreignInvested) || 0
+    if (foreignCurrent !== undefined) found.foreignCurrent = Number(foreignCurrent) || 0
     await savePortfolio(p)
     res.json(found)
   } catch (e) { res.status(500).json({ error: e.message }) }
