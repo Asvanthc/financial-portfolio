@@ -71,7 +71,7 @@ export default function App() {
       {/* Header */}
       <header className="app-header">
         <div className="app-header-inner">
-          <div className="app-title">FIN<span className="app-title-dot">·</span><span>FOLIO</span><span className="app-title-sub">TERMINAL</span></div>
+          <div className="app-title">Fin<span>Folio</span></div>
           <nav className="tab-nav">
             {TABS.map(t => (
               <button key={t.id} className={`tab-btn${activeTab === t.id ? ' active' : ''}`} onClick={() => setActiveTab(t.id)}>
