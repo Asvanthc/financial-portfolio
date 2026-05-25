@@ -116,116 +116,54 @@ async function ensureNseSession() {
   }
 }
 
+// All external fetches use a hard timeout so a hanging connection never blocks the server
+function fetchWithTimeout(url, options = {}, ms = 5000) {
+  const ctrl = new AbortController()
+  const timer = setTimeout(() => ctrl.abort(), ms)
+  return fetch(url, { ...options, signal: ctrl.signal }).finally(() => clearTimeout(timer))
+}
+
 async function fetchNsePrice(symbol) {
-  // NSE uses bare symbol without exchange suffix
   const nseSymbol = symbol.replace(/\.(NS|BO|NSE|BSE)$/i, '').toUpperCase()
   await ensureNseSession()
   try {
-    const r = await fetch(`https://www.nseindia.com/api/quote-equity?symbol=${encodeURIComponent(nseSymbol)}`, {
-      headers: { ...NSE_HEADERS, Cookie: nseSession.cookie },
-    })
-    if (!r.ok) {
-      if (r.status === 401 || r.status === 403) nseSession.fetchedAt = 0
-      console.warn(`[NSE] ${nseSymbol} → HTTP ${r.status}`)
-      return null
-    }
+    const r = await fetchWithTimeout(
+      `https://www.nseindia.com/api/quote-equity?symbol=${encodeURIComponent(nseSymbol)}`,
+      { headers: { ...NSE_HEADERS, Cookie: nseSession.cookie } },
+      4000
+    )
+    if (!r.ok) { if (r.status === 401 || r.status === 403) nseSession.fetchedAt = 0; return null }
     const data = await r.json()
     const price = Number(data?.priceInfo?.lastPrice)
-    if (Number.isFinite(price) && price > 0) {
-      console.log(`[NSE] ${nseSymbol} → ₹${price}`)
-      return price
-    }
-    return null
-  } catch (e) {
-    console.error('[NSE] fetchNsePrice error:', nseSymbol, e.message)
-    return null
-  }
+    return (Number.isFinite(price) && price > 0) ? price : null
+  } catch (_) { return null }
 }
 
-// Yahoo Finance — used only for foreign stocks (no .NS/.BO suffix expected)
-const yfSession = { cookie: '', crumb: '', fetchedAt: 0, initInProgress: false }
 const YF_HEADERS = {
   'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
-  'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+  'Accept': 'application/json',
   'Accept-Language': 'en-US,en;q=0.9',
 }
 
-async function ensureYfSession() {
-  if (yfSession.crumb && Date.now() - yfSession.fetchedAt < 55 * 60 * 1000) return
-  if (yfSession.initInProgress) return
-  yfSession.initInProgress = true
-  try {
-    const r1 = await fetch('https://finance.yahoo.com/', { headers: YF_HEADERS })
-    const setCookieHeader = r1.headers.getSetCookie ? r1.headers.getSetCookie() : []
-    const cookie = setCookieHeader.map(c => c.split(';')[0].trim()).filter(c => c.includes('=')).join('; ')
-    let crumb = ''
-    for (let attempt = 0; attempt < 2; attempt++) {
-      if (attempt > 0) await new Promise(r => setTimeout(r, 3000))
-      const r2 = await fetch('https://query2.finance.yahoo.com/v1/test/getcrumb', {
-        headers: { ...YF_HEADERS, Accept: '*/*', Cookie: cookie },
-      })
-      crumb = (await r2.text()).trim()
-      if (crumb && !crumb.toLowerCase().includes('request') && crumb.length < 40) break
-    }
-    if (crumb && !crumb.toLowerCase().includes('request') && crumb.length < 40) {
-      yfSession.cookie = cookie
-      yfSession.crumb = crumb
-      yfSession.fetchedAt = Date.now()
-      console.log('[YF] Session ready, crumb length:', crumb.length)
-    }
-  } catch (e) {
-    console.error('[YF] Session init failed:', e.message)
-  } finally {
-    yfSession.initInProgress = false
-  }
-}
-
-async function fetchYfPrice(symbol) {
-  await ensureYfSession()
-  if (!yfSession.crumb) return null
-  try {
-    const url = `https://query2.finance.yahoo.com/v7/finance/quote?symbols=${encodeURIComponent(symbol)}&crumb=${encodeURIComponent(yfSession.crumb)}`
-    const resp = await fetch(url, { headers: { ...YF_HEADERS, Cookie: yfSession.cookie } })
-    if (!resp.ok) {
-      if (resp.status === 401 || resp.status === 403) yfSession.fetchedAt = 0
-      return null
-    }
-    const data = await resp.json()
-    const r = data?.quoteResponse?.result?.[0]
-    if (!r) return null
-    const price = Number(r.regularMarketPrice ?? r.regularMarketPreviousClose)
-    return (Number.isFinite(price) && price > 0) ? price : null
-  } catch (e) {
-    console.error('[YF] fetchYfPrice error:', symbol, e.message)
-    return null
-  }
-}
-
-// Crumb-free YF chart API — works reliably from cloud servers
+// Crumb-free YF v8 chart API
 async function fetchYfV8Price(symbol) {
   try {
     const url = `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(symbol)}?interval=1d&range=1d`
-    const resp = await fetch(url, {
-      headers: {
-        'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
-        'Accept': 'application/json',
-      }
-    })
+    const resp = await fetchWithTimeout(url, { headers: YF_HEADERS }, 5000)
     if (!resp.ok) return null
     const data = await resp.json()
     const meta = data?.chart?.result?.[0]?.meta
     const price = Number(meta?.regularMarketPrice ?? meta?.previousClose)
     return (Number.isFinite(price) && price > 0) ? price : null
-  } catch (e) {
-    return null
-  }
+  } catch (_) { return null }
 }
+
 
 // Stooq CSV API — no auth needed, works from cloud, covers NSE (.IN) and US (.US)
 async function fetchStooqPrice(stooqSymbol) {
   try {
     const url = `https://stooq.com/q/l/?s=${encodeURIComponent(stooqSymbol.toLowerCase())}&f=sd2t2ohlcv&h&e=csv`
-    const resp = await fetch(url, { headers: { 'User-Agent': 'Mozilla/5.0' } })
+    const resp = await fetchWithTimeout(url, { headers: { 'User-Agent': 'Mozilla/5.0' } }, 6000)
     if (!resp.ok) return null
     const text = await resp.text()
     const lines = text.trim().split('\n')
@@ -256,6 +194,22 @@ async function pMap(items, fn, concurrency = 4) {
   return results
 }
 
+// Try all price sources in parallel; return first non-null result with its source name
+function racePriceSources(sources) {
+  return new Promise(resolve => {
+    let remaining = sources.length
+    if (remaining === 0) return resolve({ price: null, source: null })
+    sources.forEach(({ name, fn }) => {
+      fn().then(price => {
+        if (price !== null) resolve({ price, source: name })
+        else if (--remaining === 0) resolve({ price: null, source: null })
+      }).catch(() => {
+        if (--remaining === 0) resolve({ price: null, source: null })
+      })
+    })
+  })
+}
+
 async function fetchQuotes(symbols) {
   const cleaned = symbols.map(s => (s || '').trim()).filter(Boolean).slice(0, 50)
   if (cleaned.length === 0) return { quotes: {}, missing: [] }
@@ -270,29 +224,21 @@ async function fetchQuotes(symbols) {
 
   const [indianResults, foreignResults] = await Promise.all([
     pMap(indianSyms, async sym => {
-      const upper = sym.toUpperCase()
-      const bare = upper.replace(/\.(NS|BO)$/i, '')
-      let price = null, source = null
-      // 1. NSE direct
-      price = await fetchNsePrice(upper); source = 'NSE'
-      // 2. Yahoo Finance v8 (crumb-free)
-      if (price === null) { price = await fetchYfV8Price(bare + '.NS'); source = 'YF/NS' }
-      if (price === null) { price = await fetchYfV8Price(bare + '.BO'); source = 'YF/BO' }
-      // 3. Stooq (reliable from cloud, uses .IN suffix for NSE)
-      if (price === null) { price = await fetchStooqPrice(bare + '.in'); source = 'Stooq' }
-      // 4. Crumb-based YF last resort
-      if (price === null) { price = await fetchYfPrice(bare + '.NS'); source = 'YF-crumb' }
+      const bare = sym.toUpperCase().replace(/\.(NS|BO)$/i, '')
+      // Race all sources in parallel — fastest non-null wins, max 6s total
+      const { price, source } = await racePriceSources([
+        { name: 'NSE',   fn: () => fetchNsePrice(bare) },
+        { name: 'YF/NS', fn: () => fetchYfV8Price(bare + '.NS') },
+        { name: 'Stooq', fn: () => fetchStooqPrice(bare + '.in') },
+      ])
       return { sym, price, source }
-    }, 4),
+    }, 5),
     Promise.all(foreignSyms.map(async sym => {
       const upper = sym.toUpperCase()
-      let price = null, source = null
-      // 1. YF v8 (crumb-free)
-      price = await fetchYfV8Price(upper); source = 'YF/v8'
-      // 2. Stooq with .US suffix
-      if (price === null) { price = await fetchStooqPrice(upper + '.us'); source = 'Stooq/US' }
-      // 3. Crumb-based YF
-      if (price === null) { price = await fetchYfPrice(upper); source = 'YF-crumb' }
+      const { price, source } = await racePriceSources([
+        { name: 'YF/v8',    fn: () => fetchYfV8Price(upper) },
+        { name: 'Stooq/US', fn: () => fetchStooqPrice(upper + '.us') },
+      ])
       return { sym, price, source }
     })),
   ])
