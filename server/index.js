@@ -201,6 +201,26 @@ async function fetchYfPrice(symbol) {
   }
 }
 
+// Crumb-free YF chart API — works reliably from cloud servers
+async function fetchYfV8Price(symbol) {
+  try {
+    const url = `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(symbol)}?interval=1d&range=1d`
+    const resp = await fetch(url, {
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
+        'Accept': 'application/json',
+      }
+    })
+    if (!resp.ok) return null
+    const data = await resp.json()
+    const meta = data?.chart?.result?.[0]?.meta
+    const price = Number(meta?.regularMarketPrice ?? meta?.previousClose)
+    return (Number.isFinite(price) && price > 0) ? price : null
+  } catch (e) {
+    return null
+  }
+}
+
 // Warm up NSE session at startup
 ensureNseSession().catch(() => {})
 
@@ -234,22 +254,34 @@ async function fetchQuotes(symbols) {
   const [indianResults, foreignResults] = await Promise.all([
     pMap(indianSyms, async sym => {
       const upper = sym.toUpperCase()
+      const bare = upper.replace(/\.(NS|BO)$/i, '')
       let price = await fetchNsePrice(upper)
       let source = 'NSE'
       if (price === null) {
-        // YF .NS fallback for Indian stocks
-        price = await fetchYfPrice(upper.replace(/\.(NS|BO)$/i, '') + '.NS')
+        // YF v8 chart API — crumb-free, works from cloud
+        price = await fetchYfV8Price(bare + '.NS')
         source = 'YF/NS'
       }
-      if (price === null && !/\.(NS|BO)$/i.test(upper)) {
-        price = await fetchNsePrice(upper + '.BO')
-        source = 'NSE/BSE'
+      if (price === null) {
+        price = await fetchYfV8Price(bare + '.BO')
+        source = 'YF/BO'
+      }
+      if (price === null) {
+        // Last resort: crumb-based YF
+        price = await fetchYfPrice(bare + '.NS')
+        source = 'YF-crumb'
       }
       return { sym, price, source }
     }, 4),
     Promise.all(foreignSyms.map(async sym => {
-      const price = await fetchYfPrice(sym.toUpperCase())
-      return { sym, price, source: 'Yahoo Finance' }
+      const upper = sym.toUpperCase()
+      let price = await fetchYfV8Price(upper)
+      let source = 'YF/v8'
+      if (price === null) {
+        price = await fetchYfPrice(upper)
+        source = 'YF/crumb'
+      }
+      return { sym, price, source }
     })),
   ])
 
@@ -506,6 +538,16 @@ app.post('/api/holdings/refresh-all', async (req, res) => {
       mfs.length    ? fetchMfNav([...new Set(mfs.map(h => h.schemeCode))]) : Promise.resolve({}),
     ])
 
+    // Fetch fresh exchange rates for any foreign currencies in use
+    const foreignCurrencies = [...new Set(stocks.filter(h => h.currency).map(h => h.currency))]
+    const freshRates = {}
+    await Promise.all(foreignCurrencies.map(async cur => {
+      try {
+        const r = await fetch(`https://api.frankfurter.app/latest?from=${cur}&to=INR`)
+        if (r.ok) { const d = await r.json(); freshRates[cur] = d?.rates?.INR || 0 }
+      } catch (_) {}
+    }))
+
     let updated = 0, failed = 0, skipped = 0
     const failedNames = []
     const today = new Date().toISOString().split('T')[0]
@@ -513,8 +555,17 @@ app.post('/api/holdings/refresh-all', async (req, res) => {
     stocks.forEach(h => {
       const q = quotesRes.quotes[h.ticker]
       if (q?.price) {
-        h.currentPrice = q.price; h.priceDate = today
-        if (h.units > 0) h.current = Math.round(h.units * q.price * 100) / 100
+        const isForeign = h.assetType === 'foreign' && h.currency
+        const rate = isForeign ? (freshRates[h.currency] || h.exchangeRate || 0) : 1
+        const priceInr = isForeign ? Math.round(q.price * rate * 100) / 100 : q.price
+        h.currentPrice = priceInr
+        h.priceDate = today
+        if (isForeign) {
+          h.foreignCurrentPrice = q.price
+          if (rate) h.exchangeRate = rate
+          if (h.units > 0) h.foreignCurrent = Math.round(h.units * q.price * 100) / 100
+        }
+        if (h.units > 0) h.current = Math.round(h.units * priceInr * 100) / 100
         updated++
       } else { failed++; failedNames.push(h.ticker || h.name) }
     })
