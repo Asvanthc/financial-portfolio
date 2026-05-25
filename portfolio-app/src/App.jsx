@@ -81,9 +81,13 @@ export default function App() {
           </nav>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginLeft: 'auto' }}>
             {syncResult && !syncResult.error && (
-              <span style={{ fontSize: 11, color: 'var(--green)' }}>
-                ✓ {syncResult.updated} updated
-                {syncResult.failed > 0 && <span style={{ color: 'var(--red)' }}>, {syncResult.failed} failed</span>}
+              <span style={{ fontSize: 11 }}>
+                <span style={{ color: 'var(--green)' }}>✓ {syncResult.updated} updated</span>
+                {syncResult.failed > 0 && (
+                  <span style={{ color: 'var(--red)' }} title={syncResult.failedNames?.join(', ')}>
+                    {' '}· {syncResult.failed} failed{syncResult.failedNames?.length ? ` (${syncResult.failedNames.slice(0,3).join(', ')}${syncResult.failedNames.length > 3 ? '…' : ''})` : ''}
+                  </span>
+                )}
               </span>
             )}
             {syncResult?.error && (

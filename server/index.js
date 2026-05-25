@@ -205,40 +205,60 @@ async function fetchYfPrice(symbol) {
 ensureNseSession().catch(() => {})
 
 // Fetch live quotes — NSE primary for Indian stocks, Yahoo Finance for foreign
+// Run an array of async tasks with max `concurrency` in flight at once
+async function pMap(items, fn, concurrency = 4) {
+  const results = new Array(items.length)
+  let idx = 0
+  async function worker() {
+    while (idx < items.length) {
+      const i = idx++
+      results[i] = await fn(items[i], i)
+    }
+  }
+  await Promise.all(Array.from({ length: Math.min(concurrency, items.length) }, worker))
+  return results
+}
+
 async function fetchQuotes(symbols) {
   const cleaned = symbols.map(s => (s || '').trim()).filter(Boolean).slice(0, 50)
   if (cleaned.length === 0) return { quotes: {}, missing: [] }
 
-  const results = await Promise.all(cleaned.map(async sym => {
-    const upper = sym.toUpperCase()
-    const isIndian = !upper.includes('.') || /\.(NS|BO)$/i.test(upper)
-    let price = null
-    let source = null
+  function isIndian(s) { return !s.includes('.') || /\.(NS|BO)$/i.test(s) }
 
-    if (isIndian) {
-      price = await fetchNsePrice(upper)
-      source = 'NSE'
-      // NSE failed — try BSE/equity ETF variant if plain symbol
+  // Indian stocks: max 4 concurrent NSE requests; foreign: parallel via YF
+  const [indianSyms, foreignSyms] = cleaned.reduce(
+    ([ind, fgn], s) => (isIndian(s) ? [[...ind, s], fgn] : [ind, [...fgn, s]]),
+    [[], []]
+  )
+
+  const [indianResults, foreignResults] = await Promise.all([
+    pMap(indianSyms, async sym => {
+      const upper = sym.toUpperCase()
+      let price = await fetchNsePrice(upper)
+      let source = 'NSE'
+      if (price === null) {
+        // YF .NS fallback for Indian stocks
+        price = await fetchYfPrice(upper.replace(/\.(NS|BO)$/i, '') + '.NS')
+        source = 'YF/NS'
+      }
       if (price === null && !/\.(NS|BO)$/i.test(upper)) {
         price = await fetchNsePrice(upper + '.BO')
         source = 'NSE/BSE'
       }
-    } else {
-      price = await fetchYfPrice(upper)
-      source = 'Yahoo Finance'
-    }
-
-    return { sym, price, source }
-  }))
+      return { sym, price, source }
+    }, 4),
+    Promise.all(foreignSyms.map(async sym => {
+      const price = await fetchYfPrice(sym.toUpperCase())
+      return { sym, price, source: 'Yahoo Finance' }
+    })),
+  ])
 
   const quotes = {}
   const missing = []
-  results.forEach(({ sym, price, source }) => {
+  ;[...indianResults, ...foreignResults].forEach(({ sym, price, source }) => {
     if (price !== null) quotes[sym] = { price, currency: isIndian(sym) ? 'INR' : 'USD', source }
     else missing.push(sym)
   })
-
-  function isIndian(s) { return !s.includes('.') || /\.(NS|BO)$/i.test(s) }
 
   console.log('[QUOTES] Fetched', Object.keys(quotes).length, '/', cleaned.length, '; missing:', missing)
   return { quotes, missing }
@@ -487,6 +507,7 @@ app.post('/api/holdings/refresh-all', async (req, res) => {
     ])
 
     let updated = 0, failed = 0, skipped = 0
+    const failedNames = []
     const today = new Date().toISOString().split('T')[0]
 
     stocks.forEach(h => {
@@ -495,7 +516,7 @@ app.post('/api/holdings/refresh-all', async (req, res) => {
         h.currentPrice = q.price; h.priceDate = today
         if (h.units > 0) h.current = Math.round(h.units * q.price * 100) / 100
         updated++
-      } else failed++
+      } else { failed++; failedNames.push(h.ticker || h.name) }
     })
     mfs.forEach(h => {
       const nav = navsRes[h.schemeCode]?.price
@@ -503,12 +524,12 @@ app.post('/api/holdings/refresh-all', async (req, res) => {
         h.currentPrice = nav; h.priceDate = today
         if (h.units > 0) h.current = Math.round(h.units * nav * 100) / 100
         updated++
-      } else failed++
+      } else { failed++; failedNames.push(h.schemeCode || h.name) }
     })
     allH.filter(h => !h.ticker && !h.schemeCode).forEach(() => skipped++)
 
     await savePortfolio(p)
-    res.json({ updated, failed, skipped, total: stocks.length + mfs.length })
+    res.json({ updated, failed, skipped, total: stocks.length + mfs.length, failedNames })
   } catch (e) { res.status(500).json({ error: e.message }) }
 })
 
