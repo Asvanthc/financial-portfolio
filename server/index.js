@@ -221,6 +221,23 @@ async function fetchYfV8Price(symbol) {
   }
 }
 
+// Stooq CSV API — no auth needed, works from cloud, covers NSE (.IN) and US (.US)
+async function fetchStooqPrice(stooqSymbol) {
+  try {
+    const url = `https://stooq.com/q/l/?s=${encodeURIComponent(stooqSymbol.toLowerCase())}&f=sd2t2ohlcv&h&e=csv`
+    const resp = await fetch(url, { headers: { 'User-Agent': 'Mozilla/5.0' } })
+    if (!resp.ok) return null
+    const text = await resp.text()
+    const lines = text.trim().split('\n')
+    if (lines.length < 2) return null
+    // CSV: Symbol,Date,Time,Open,High,Low,Close,Volume
+    const vals = lines[1].split(',')
+    const close = Number(vals[6])
+    if (!Number.isFinite(close) || close <= 0 || close === 0.0001) return null // stooq returns 0.0001 for N/A
+    return close
+  } catch (_) { return null }
+}
+
 // Warm up NSE session at startup
 ensureNseSession().catch(() => {})
 
@@ -255,32 +272,27 @@ async function fetchQuotes(symbols) {
     pMap(indianSyms, async sym => {
       const upper = sym.toUpperCase()
       const bare = upper.replace(/\.(NS|BO)$/i, '')
-      let price = await fetchNsePrice(upper)
-      let source = 'NSE'
-      if (price === null) {
-        // YF v8 chart API — crumb-free, works from cloud
-        price = await fetchYfV8Price(bare + '.NS')
-        source = 'YF/NS'
-      }
-      if (price === null) {
-        price = await fetchYfV8Price(bare + '.BO')
-        source = 'YF/BO'
-      }
-      if (price === null) {
-        // Last resort: crumb-based YF
-        price = await fetchYfPrice(bare + '.NS')
-        source = 'YF-crumb'
-      }
+      let price = null, source = null
+      // 1. NSE direct
+      price = await fetchNsePrice(upper); source = 'NSE'
+      // 2. Yahoo Finance v8 (crumb-free)
+      if (price === null) { price = await fetchYfV8Price(bare + '.NS'); source = 'YF/NS' }
+      if (price === null) { price = await fetchYfV8Price(bare + '.BO'); source = 'YF/BO' }
+      // 3. Stooq (reliable from cloud, uses .IN suffix for NSE)
+      if (price === null) { price = await fetchStooqPrice(bare + '.in'); source = 'Stooq' }
+      // 4. Crumb-based YF last resort
+      if (price === null) { price = await fetchYfPrice(bare + '.NS'); source = 'YF-crumb' }
       return { sym, price, source }
     }, 4),
     Promise.all(foreignSyms.map(async sym => {
       const upper = sym.toUpperCase()
-      let price = await fetchYfV8Price(upper)
-      let source = 'YF/v8'
-      if (price === null) {
-        price = await fetchYfPrice(upper)
-        source = 'YF/crumb'
-      }
+      let price = null, source = null
+      // 1. YF v8 (crumb-free)
+      price = await fetchYfV8Price(upper); source = 'YF/v8'
+      // 2. Stooq with .US suffix
+      if (price === null) { price = await fetchStooqPrice(upper + '.us'); source = 'Stooq/US' }
+      // 3. Crumb-based YF
+      if (price === null) { price = await fetchYfPrice(upper); source = 'YF-crumb' }
       return { sym, price, source }
     })),
   ])
