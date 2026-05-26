@@ -210,47 +210,57 @@ function racePriceSources(sources) {
   })
 }
 
-async function fetchQuotes(symbols) {
-  const cleaned = symbols.map(s => (s || '').trim()).filter(Boolean).slice(0, 50)
-  if (cleaned.length === 0) return { quotes: {}, missing: [] }
+// Accept either string[] or {ticker, assetType}[] — assetType='foreign' forces foreign routing
+// regardless of ticker format (handles tickers like 'Qqq' with no .NS/.BO suffix)
+async function fetchQuotes(symbolsOrItems) {
+  const items = (symbolsOrItems || []).map(s =>
+    typeof s === 'string'
+      ? { ticker: s.trim(), assetType: null }
+      : { ticker: (s.ticker || '').trim(), assetType: s.assetType || null }
+  ).filter(x => x.ticker).slice(0, 50)
+  if (items.length === 0) return { quotes: {}, missing: [] }
 
-  function isIndian(s) { return !s.includes('.') || /\.(NS|BO)$/i.test(s) }
+  // assetType='foreign' always routes to foreign path; otherwise use ticker suffix heuristic
+  function isIndian(item) {
+    if (item.assetType === 'foreign') return false
+    return !item.ticker.includes('.') || /\.(NS|BO)$/i.test(item.ticker)
+  }
 
-  // Indian stocks: max 4 concurrent NSE requests; foreign: parallel via YF
-  const [indianSyms, foreignSyms] = cleaned.reduce(
-    ([ind, fgn], s) => (isIndian(s) ? [[...ind, s], fgn] : [ind, [...fgn, s]]),
+  const [indianItems, foreignItems] = items.reduce(
+    ([ind, fgn], item) => (isIndian(item) ? [[...ind, item], fgn] : [ind, [...fgn, item]]),
     [[], []]
   )
 
   const [indianResults, foreignResults] = await Promise.all([
-    pMap(indianSyms, async sym => {
-      const bare = sym.toUpperCase().replace(/\.(NS|BO)$/i, '')
-      // Race all sources in parallel — fastest non-null wins, max 6s total
+    pMap(indianItems, async item => {
+      const bare = item.ticker.toUpperCase().replace(/\.(NS|BO)$/i, '')
       const { price, source } = await racePriceSources([
         { name: 'NSE',   fn: () => fetchNsePrice(bare) },
         { name: 'YF/NS', fn: () => fetchYfV8Price(bare + '.NS') },
         { name: 'Stooq', fn: () => fetchStooqPrice(bare + '.in') },
       ])
-      return { sym, price, source }
+      return { sym: item.ticker, price, source }
     }, 5),
-    Promise.all(foreignSyms.map(async sym => {
-      const upper = sym.toUpperCase()
+    Promise.all(foreignItems.map(async item => {
+      const upper = item.ticker.toUpperCase()
       const { price, source } = await racePriceSources([
         { name: 'YF/v8',    fn: () => fetchYfV8Price(upper) },
         { name: 'Stooq/US', fn: () => fetchStooqPrice(upper + '.us') },
       ])
-      return { sym, price, source }
+      return { sym: item.ticker, price, source }
     })),
   ])
 
+  const itemMap = new Map(items.map(i => [i.ticker, i]))
   const quotes = {}
   const missing = []
   ;[...indianResults, ...foreignResults].forEach(({ sym, price, source }) => {
-    if (price !== null) quotes[sym] = { price, currency: isIndian(sym) ? 'INR' : 'USD', source }
+    const item = itemMap.get(sym)
+    if (price !== null) quotes[sym] = { price, currency: (item && !isIndian(item)) ? 'USD' : 'INR', source }
     else missing.push(sym)
   })
 
-  console.log('[QUOTES] Fetched', Object.keys(quotes).length, '/', cleaned.length, '; missing:', missing)
+  console.log('[QUOTES] Fetched', Object.keys(quotes).length, '/', items.length, '; missing:', missing)
   return { quotes, missing }
 }
 
@@ -451,7 +461,7 @@ app.post('/api/holdings/:hid/refresh-price', async (req, res) => {
       newPrice = navs[found.schemeCode]?.price ?? null
       debugInfo = { source: 'AMFI', schemeCode: found.schemeCode, navResult: navs[found.schemeCode] || null }
     } else if (['stock', 'etf', 'foreign', 'gold'].includes(at) && found.ticker) {
-      const { quotes, missing } = await fetchQuotes([found.ticker])
+      const { quotes, missing } = await fetchQuotes([{ ticker: found.ticker, assetType: found.assetType }])
       const q = quotes[found.ticker]
       newPrice = q?.price ?? null
       debugInfo = {
@@ -491,8 +501,10 @@ app.post('/api/holdings/refresh-all', async (req, res) => {
     const stocks = allH.filter(h => h.ticker && ['stock','etf','foreign','gold'].includes(h.assetType))
     const mfs    = allH.filter(h => h.schemeCode && h.assetType === 'mf')
 
+    // Deduplicate by ticker; carry assetType so foreign holdings route correctly
+    const uniqueStockItems = [...new Map(stocks.map(h => [h.ticker, { ticker: h.ticker, assetType: h.assetType }])).values()]
     const [quotesRes, navsRes] = await Promise.all([
-      stocks.length ? fetchQuotes([...new Set(stocks.map(h => h.ticker))]) : Promise.resolve({ quotes: {}, missing: [] }),
+      stocks.length ? fetchQuotes(uniqueStockItems) : Promise.resolve({ quotes: {}, missing: [] }),
       mfs.length    ? fetchMfNav([...new Set(mfs.map(h => h.schemeCode))]) : Promise.resolve({}),
     ])
 
@@ -868,6 +880,51 @@ app.get('/api/portfolio/overlap', async (req, res) => {
       companyExposure,
     })
   } catch (e) { res.status(500).json({ error: e.message }) }
+})
+
+// Diagnostic endpoint — tests each price source from this server's IP
+app.get('/api/debug/price-sources', async (_req, res) => {
+  const results = {}
+  await Promise.all([
+    (async () => {
+      try {
+        await ensureNseSession()
+        const price = await fetchNsePrice('RELIANCE')
+        results.nse_reliance = { ok: price !== null, price, hasCookie: !!nseSession.cookie }
+      } catch (e) { results.nse_reliance = { ok: false, error: e.message } }
+    })(),
+    (async () => {
+      try {
+        const price = await fetchYfV8Price('RELIANCE.NS')
+        results.yf_reliance_ns = { ok: price !== null, price }
+      } catch (e) { results.yf_reliance_ns = { ok: false, error: e.message } }
+    })(),
+    (async () => {
+      try {
+        const price = await fetchYfV8Price('QQQ')
+        results.yf_qqq = { ok: price !== null, price }
+      } catch (e) { results.yf_qqq = { ok: false, error: e.message } }
+    })(),
+    (async () => {
+      try {
+        const price = await fetchStooqPrice('reliance.in')
+        results.stooq_reliance_in = { ok: price !== null, price }
+      } catch (e) { results.stooq_reliance_in = { ok: false, error: e.message } }
+    })(),
+    (async () => {
+      try {
+        const price = await fetchStooqPrice('qqq.us')
+        results.stooq_qqq_us = { ok: price !== null, price }
+      } catch (e) { results.stooq_qqq_us = { ok: false, error: e.message } }
+    })(),
+    (async () => {
+      try {
+        const navs = await fetchMfNav(['119551'])
+        results.amfi_nav = { ok: !!navs['119551'], nav: navs['119551'] || null }
+      } catch (e) { results.amfi_nav = { ok: false, error: e.message } }
+    })(),
+  ])
+  res.json(results)
 })
 
 // Live quotes endpoint
