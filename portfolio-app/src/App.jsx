@@ -8,6 +8,7 @@ import DeepAnalytics from './components/DeepAnalytics'
 import ExpenseTracker from './components/ExpenseTracker'
 import FIRECalculator from './components/FIRECalculator'
 import OverlapAnalysis from './components/OverlapAnalysis'
+import BulkPriceEditor from './components/BulkPriceEditor'
 
 const TABS = [
   { id: 'overview', label: 'Overview' },
@@ -31,6 +32,7 @@ export default function App() {
   const [expenses, setExpenses] = useState([])
   const [syncing, setSyncing] = useState(false)
   const [syncResult, setSyncResult] = useState(null)
+  const [showBulkPrices, setShowBulkPrices] = useState(false)
 
   async function refreshAll() {
     const [p, a, sgs, exp] = await Promise.all([
@@ -93,6 +95,14 @@ export default function App() {
             {syncResult?.error && (
               <span style={{ fontSize: 11, color: 'var(--red)' }}>✗ {syncResult.error}</span>
             )}
+            <button
+              className="btn btn-sm"
+              style={{ background:'var(--surface2)', color:'var(--text2)', border:'1px solid var(--border)' }}
+              onClick={() => setShowBulkPrices(true)}
+              title="Manually set prices for all holdings"
+            >
+              ✏ Prices
+            </button>
             <button
               className="btn btn-sm"
               style={{ background: syncing ? 'var(--surface2)' : 'var(--indigo)', color: '#fff', minWidth: 90 }}
@@ -191,6 +201,14 @@ export default function App() {
           isOpen={showAddDivision}
           onClose={() => setShowAddDivision(false)}
           onAdd={async (data) => { await api.addDivision(data); setShowAddDivision(false); refreshAll() }}
+        />
+      )}
+
+      {showBulkPrices && (
+        <BulkPriceEditor
+          portfolio={portfolio}
+          onClose={() => setShowBulkPrices(false)}
+          onUpdate={refreshAll}
         />
       )}
     </div>
