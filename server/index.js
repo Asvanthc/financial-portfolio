@@ -97,9 +97,9 @@ async function ensureNseSession() {
   }
   nseSession.initInProgress = true
   try {
-    const r = await fetch('https://www.nseindia.com/', {
+    const r = await fetchWithTimeout('https://www.nseindia.com/', {
       headers: { ...NSE_HEADERS, Accept: 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8' },
-    })
+    }, 8000)
     const setCookies = r.headers.getSetCookie ? r.headers.getSetCookie() : []
     const cookie = setCookies.map(c => c.split(';')[0].trim()).filter(c => c.includes('=')).join('; ')
     if (cookie) {

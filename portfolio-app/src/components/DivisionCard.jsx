@@ -365,6 +365,7 @@ function HoldingsTable({ holdings, onUpdate, onRefresh, refreshingId, editingHol
               ? <EditHoldingRow key={h.id} holding={h} onSave={() => { setEditingHolding(null); onUpdate?.() }} onCancel={() => setEditingHolding(null)} />
               : <HoldingRow key={h.id} holding={h} onEdit={() => setEditingHolding(h.id)} onRefresh={onRefresh}
                   refreshing={refreshingId === h.id} parentCurrent={parentCurrent} totalCurrent={totalCurrent}
+                  onUpdate={onUpdate}
                   onDelete={async () => { if (confirm(`Delete "${h.name}"?`)) { await api.deleteHolding(h.id); onUpdate?.() } }} />
           ))}
         </tbody>
@@ -373,13 +374,63 @@ function HoldingsTable({ holdings, onUpdate, onRefresh, refreshingId, editingHol
   )
 }
 
-function HoldingRow({ holding: h, onEdit, onRefresh, refreshing, onDelete, parentCurrent, totalCurrent }) {
+function HoldingRow({ holding: h, onEdit, onRefresh, refreshing, onDelete, parentCurrent, totalCurrent, onUpdate }) {
+  const [editingPrice, setEditingPrice] = useState(false)
+  const [priceInput, setPriceInput]     = useState('')
+  const committingRef = useRef(false)
+
   const profit    = (h.current||0) - (h.invested||0)
   const profitPct = h.invested > 0 ? (profit / h.invested) * 100 : 0
   const platform  = PLATFORMS[h.platform] || PLATFORMS.other
   const canRefresh = h.ticker || h.schemeCode
   const pctOfParent = parentCurrent > 0 && h.current > 0 ? (h.current / parentCurrent * 100) : 0
   const pctOfTotal  = totalCurrent  > 0 && h.current > 0 ? (h.current / totalCurrent  * 100) : 0
+  const isForeign = !!(h.currency && h.exchangeRate)
+  const currSym   = isForeign ? (CURRENCIES[h.currency]?.symbol || h.currency) : '₹'
+  const displayPrice = isForeign && h.foreignCurrentPrice > 0 ? h.foreignCurrentPrice : h.currentPrice
+
+  function startPriceEdit(e) {
+    e.stopPropagation()
+    setPriceInput(displayPrice > 0 ? String(displayPrice) : '')
+    setEditingPrice(true)
+  }
+
+  async function commitEdit() {
+    if (committingRef.current) return
+    committingRef.current = true
+    const val = Number(priceInput)
+    if (!val || val <= 0 || val === displayPrice) {
+      setEditingPrice(false); committingRef.current = false; return
+    }
+    try {
+      const today = new Date().toISOString().split('T')[0]
+      let patch
+      if (isForeign) {
+        const rate = h.exchangeRate || 0
+        const priceInr = rate > 0 ? Math.round(val * rate * 100) / 100 : h.currentPrice
+        patch = {
+          foreignCurrentPrice: val, currentPrice: priceInr, priceDate: today,
+          ...(h.units > 0 && {
+            foreignCurrent: Math.round(h.units * val * 100) / 100,
+            current: Math.round(h.units * priceInr * 100) / 100,
+          }),
+        }
+      } else {
+        patch = {
+          currentPrice: val, priceDate: today,
+          ...(h.units > 0 && { current: Math.round(h.units * val * 100) / 100 }),
+        }
+      }
+      await api.updateHolding(h.id, patch)
+      onUpdate?.()
+    } catch (e) { alert('Price save failed: ' + e.message) }
+    finally { setEditingPrice(false); committingRef.current = false }
+  }
+
+  function onPriceKeyDown(e) {
+    if (e.key === 'Enter')  { e.preventDefault(); commitEdit() }
+    if (e.key === 'Escape') { setEditingPrice(false) }
+  }
 
   return (
     <tr>
@@ -402,16 +453,31 @@ function HoldingRow({ holding: h, onEdit, onRefresh, refreshing, onDelete, paren
             : `₹${h.buyPrice.toLocaleString('en-IN',{maximumFractionDigits:2})}`
         ) : '—'}
       </td>
-      <td className="right num">
-        {h.currentPrice > 0 ? (
-          <div>
-            {h.currency && h.foreignCurrentPrice > 0
-              ? <div style={{ color:'var(--cyan)' }}>{CURRENCIES[h.currency]?.symbol || h.currency}{h.foreignCurrentPrice.toLocaleString('en-IN',{maximumFractionDigits:4})}</div>
-              : <div style={{ color:'var(--cyan)' }}>₹{h.currentPrice.toLocaleString('en-IN',{maximumFractionDigits:2})}</div>}
-            {h.exchangeRate && <div style={{ fontSize:10, color:'var(--text3)' }}>@ ₹{h.exchangeRate.toFixed(2)}/{h.currency}</div>}
-            {h.priceDate && <div style={{ fontSize:10, color:'var(--text3)' }}>{h.priceDate}</div>}
-          </div>
-        ) : '—'}
+      {/* Inline-editable price cell — click to edit, Enter/blur to save, Esc to cancel */}
+      <td className="right num"
+        onClick={!editingPrice ? startPriceEdit : undefined}
+        style={{ cursor: editingPrice ? 'default' : 'pointer', minWidth: 90 }}
+        title={editingPrice ? undefined : `${isForeign ? currSym : '₹'}${displayPrice > 0 ? displayPrice : '—'} · click to edit`}>
+        {editingPrice ? (
+          <input className="input input-sm"
+            style={{ width:82, textAlign:'right', padding:'2px 5px', fontSize:12 }}
+            type="number" step="any" autoFocus
+            value={priceInput}
+            onChange={e => setPriceInput(e.target.value)}
+            onBlur={commitEdit}
+            onKeyDown={onPriceKeyDown}
+            onClick={e => e.stopPropagation()} />
+        ) : (
+          h.currentPrice > 0 ? (
+            <div>
+              {isForeign
+                ? <div style={{ color:'var(--cyan)' }}>{currSym}{h.foreignCurrentPrice.toLocaleString('en-IN',{maximumFractionDigits:4})}</div>
+                : <div style={{ color:'var(--cyan)' }}>₹{h.currentPrice.toLocaleString('en-IN',{maximumFractionDigits:2})}</div>}
+              {h.exchangeRate && <div style={{ fontSize:10, color:'var(--text3)' }}>@ ₹{h.exchangeRate.toFixed(2)}/{h.currency}</div>}
+              {h.priceDate && <div style={{ fontSize:10, color:'var(--text3)' }}>{h.priceDate}</div>}
+            </div>
+          ) : <span style={{ color:'var(--text3)', fontSize:12 }}>—</span>
+        )}
       </td>
       <td className="right num" style={{ color:'var(--text2)' }}>
         {h.currency && h.foreignInvested > 0
