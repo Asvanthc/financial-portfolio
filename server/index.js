@@ -382,18 +382,42 @@ app.get('/api/exchange-rate/:currency', async (req, res) => {
   }
 })
 
-// Stock/ETF ticker search via Yahoo Finance autocomplete
-app.get('/api/stock/search', async (req, res) => {
+// Yahoo Finance symbol search — works from cloud/datacenter IPs (unlike NSE's API,
+// which blocks non-Indian/datacenter traffic). Used as the search fallback.
+async function fetchYahooSearch(q) {
   try {
-    const q = (req.query.q || '').trim()
-    if (!q) return res.json([])
+    const url = `https://query1.finance.yahoo.com/v1/finance/search?q=${encodeURIComponent(q)}&quotesCount=15&newsCount=0&listsCount=0`
+    const resp = await fetchWithTimeout(url, { headers: YF_HEADERS }, 8000)
+    if (!resp.ok) return []
+    const data = await resp.json().catch(() => null)
+    return (data?.quotes || [])
+      .filter(x => x.symbol && ['EQUITY', 'ETF', 'MUTUALFUND', 'INDEX'].includes(x.quoteType))
+      .map(x => {
+        const indian = /\.(NS|BO)$/i.test(x.symbol)
+        return {
+          // Strip .NS/.BO so the ticker matches our price-fetch + display convention
+          symbol: indian ? x.symbol.replace(/\.(NS|BO)$/i, '') : x.symbol,
+          name: x.longname || x.shortname || x.symbol,
+          exchange: x.exchange || (indian ? 'NSE' : ''),
+          type: x.quoteType || 'EQUITY',
+        }
+      })
+      .slice(0, 12)
+  } catch (_) { return [] }
+}
+
+async function fetchNseSearch(q) {
+  try {
     await ensureNseSession()
-    const url = `https://www.nseindia.com/api/search/autocomplete?q=${encodeURIComponent(q)}`
-    const resp = await fetch(url, { headers: { ...NSE_HEADERS, Cookie: nseSession.cookie } })
-    if (!resp.ok) return res.json([])
-    const data = await resp.json()
-    // NSE returns { symbols: [{symbol, name, ...}] }
-    const items = (data?.symbols || [])
+    if (!nseSession.cookie) return []
+    const resp = await fetchWithTimeout(
+      `https://www.nseindia.com/api/search/autocomplete?q=${encodeURIComponent(q)}`,
+      { headers: { ...NSE_HEADERS, Cookie: nseSession.cookie } },
+      4000
+    )
+    if (!resp.ok) return []
+    const data = await resp.json().catch(() => null)
+    return (data?.symbols || [])
       .filter(x => x.symbol)
       .map(x => ({
         symbol: x.symbol,
@@ -402,23 +426,34 @@ app.get('/api/stock/search', async (req, res) => {
         type: x.result_sub_type || x.type || 'EQUITY',
       }))
       .slice(0, 12)
-    res.json(items)
-  } catch (e) {
-    res.status(500).json({ error: e.message })
-  }
+  } catch (_) { return [] }
+}
+
+// Stock/ETF ticker search. NSE autocomplete is best for Indian names but is blocked
+// from datacenter IPs (e.g. Render), so we run it alongside Yahoo (cloud-reliable) in
+// PARALLEL — latency is max(NSE, Yahoo), not the sum — and prefer NSE when it returns.
+// NEVER 500s: search failing must not break the form; the user can always type manually.
+app.get('/api/stock/search', async (req, res) => {
+  const q = (req.query.q || '').trim()
+  if (!q) return res.json([])
+  const [nseItems, yahooItems] = await Promise.all([
+    fetchNseSearch(q),
+    fetchYahooSearch(q),
+  ])
+  res.json(nseItems.length > 0 ? nseItems : yahooItems)
 })
 
-// MF search via mfapi.in
+// MF search via mfapi.in — never 500s (search failure must not break the form)
 app.get('/api/mf/search', async (req, res) => {
   try {
     const q = (req.query.q || '').trim()
     if (!q) return res.json([])
-    const resp = await fetch(`https://api.mfapi.in/mf/search?q=${encodeURIComponent(q)}`)
+    const resp = await fetchWithTimeout(`https://api.mfapi.in/mf/search?q=${encodeURIComponent(q)}`, {}, 6000)
     if (!resp.ok) return res.json([])
-    const data = await resp.json()
-    res.json((data || []).slice(0, 20))
-  } catch (e) {
-    res.status(500).json({ error: e.message })
+    const data = await resp.json().catch(() => [])
+    res.json(Array.isArray(data) ? data.slice(0, 20) : [])
+  } catch (_) {
+    res.json([])
   }
 })
 

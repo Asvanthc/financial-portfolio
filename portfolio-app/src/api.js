@@ -14,6 +14,26 @@ async function json(method, path, body) {
   return data
 }
 
+// Resilient GET helpers for endpoints whose result shape the UI relies on.
+// A failed request (network error, 4xx/5xx, or a JSON error object) must NEVER
+// leak a non-array/non-object back to the UI — otherwise `.map` etc. crash the app.
+async function getArr(path) {
+  try {
+    const r = await fetch(`${API_ROOT}${path}`)
+    if (!r.ok) return []
+    const d = await r.json().catch(() => [])
+    return Array.isArray(d) ? d : []
+  } catch (_) { return [] }
+}
+async function getObj(path) {
+  try {
+    const r = await fetch(`${API_ROOT}${path}`)
+    if (!r.ok) return {}
+    const d = await r.json().catch(() => ({}))
+    return (d && typeof d === 'object' && !Array.isArray(d)) ? d : {}
+  } catch (_) { return {} }
+}
+
 export const api = {
   getPortfolio: () => json('GET', '/api/portfolio'),
   savePortfolio: (p) => json('POST', '/api/portfolio', p),
@@ -36,10 +56,10 @@ export const api = {
   getCategories: () => fetch(`${API_ROOT}/api/categories`).then(r => r.json()),
   addCategory: (type, name) => json('POST', `/api/categories/${type}`, { name }),
   deleteCategory: (type, name) => json('DELETE', `/api/categories/${type}/${encodeURIComponent(name)}`),
-  quotes: (symbols = []) => fetch(`${API_ROOT}/api/quotes?symbols=${encodeURIComponent(symbols.join(','))}`).then(r => r.json()),
-  mfSearch: (q) => fetch(`${API_ROOT}/api/mf/search?q=${encodeURIComponent(q)}`).then(r => r.json()),
-  mfNav: (codes = []) => fetch(`${API_ROOT}/api/mf/nav?codes=${encodeURIComponent(codes.join(','))}`).then(r => r.json()),
-  stockSearch: (q) => fetch(`${API_ROOT}/api/stock/search?q=${encodeURIComponent(q)}`).then(r => r.json()),
+  quotes: (symbols = []) => getObj(`/api/quotes?symbols=${encodeURIComponent(symbols.join(','))}`),
+  mfSearch: (q) => getArr(`/api/mf/search?q=${encodeURIComponent(q)}`),
+  mfNav: (codes = []) => getObj(`/api/mf/nav?codes=${encodeURIComponent(codes.join(','))}`),
+  stockSearch: (q) => getArr(`/api/stock/search?q=${encodeURIComponent(q)}`),
   refreshAll: () => json('POST', '/api/holdings/refresh-all'),
   portfolioOverlap: () => fetch(`${API_ROOT}/api/portfolio/overlap`).then(r => r.json()),
   getExchangeRate: (currency) => fetch(`${API_ROOT}/api/exchange-rate/${encodeURIComponent(currency)}`).then(r => r.json()),

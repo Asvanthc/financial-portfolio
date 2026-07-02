@@ -42,6 +42,7 @@ function fmt(n) {
 function NameSearch({ assetType, value, onChange, onSelectMf, onSelectStock }) {
   const [results, setResults] = useState([])
   const [searching, setSearching] = useState(false)
+  const [searched, setSearched] = useState(false)
   const timer = useRef(null)
   const isMf = assetType === 'mf'
   const searchable = isMf || ['stock','etf','foreign'].includes(assetType)
@@ -49,33 +50,41 @@ function NameSearch({ assetType, value, onChange, onSelectMf, onSelectStock }) {
   function handleInput(q) {
     onChange(q)
     clearTimeout(timer.current)
-    if (!searchable || q.length < 2) { setResults([]); return }
+    if (!searchable || q.length < 2) { setResults([]); setSearched(false); setSearching(false); return }
     setSearching(true)
     timer.current = setTimeout(async () => {
       try {
         const res = isMf ? await api.mfSearch(q) : await api.stockSearch(q)
-        setResults(res || [])
-      } catch (_) {}
+        setResults(Array.isArray(res) ? res : [])
+      } catch (_) { setResults([]) }
+      setSearched(true)
       setSearching(false)
     }, 350)
   }
+
+  const safeResults = Array.isArray(results) ? results : []
+
+  function pick(fn, s) { fn(s); setResults([]); setSearched(false) }
 
   return (
     <div className="relative" style={{ flex:1, minWidth:180 }}>
       <input className="input input-sm" style={{ width:'100%' }}
         placeholder={isMf ? 'Search MF name…' : searchable ? 'Search stock / ETF…' : 'Name'}
         value={value} onChange={e => handleInput(e.target.value)} />
-      {(results.length > 0 || searching) && (
+      {(safeResults.length > 0 || searching || searched) && (
         <div className="search-dropdown">
           {searching && <div className="search-item text-muted">Searching…</div>}
-          {isMf && results.map(s => (
-            <div key={s.schemeCode} className="search-item" onClick={() => { onSelectMf(s); setResults([]) }}>
+          {!searching && searched && safeResults.length === 0 && (
+            <div className="search-item text-muted">No matches — just type the name/ticker manually and continue.</div>
+          )}
+          {isMf && safeResults.map(s => (
+            <div key={s.schemeCode} className="search-item" onClick={() => pick(onSelectMf, s)}>
               <div style={{ fontWeight:600, fontSize:12 }}>{s.schemeName}</div>
               <div style={{ fontSize:10, color:'var(--text3)' }}>#{s.schemeCode}</div>
             </div>
           ))}
-          {!isMf && results.map(s => (
-            <div key={s.symbol} className="search-item" onClick={() => { onSelectStock(s); setResults([]) }}>
+          {!isMf && safeResults.map(s => (
+            <div key={s.symbol} className="search-item" onClick={() => pick(onSelectStock, s)}>
               <div style={{ fontWeight:700, fontSize:12 }}>{s.symbol} <span style={{ fontWeight:400, color:'var(--text2)' }}>— {s.name}</span></div>
               <div style={{ fontSize:10, color:'var(--text3)' }}>{s.exchange} · {s.type}</div>
             </div>
