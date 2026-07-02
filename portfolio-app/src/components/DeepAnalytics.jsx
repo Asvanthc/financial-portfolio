@@ -1,6 +1,7 @@
 import React, { useMemo } from 'react'
 import { Doughnut, Bar } from 'react-chartjs-2'
 import { Chart as ChartJS, ArcElement, CategoryScale, LinearScale, BarElement, Tooltip, Legend } from 'chart.js'
+import { CAP_CATEGORIES, UNCLASSIFIED, sectorColor, capColor } from '../constants'
 
 ChartJS.register(ArcElement, CategoryScale, LinearScale, BarElement, Tooltip, Legend)
 
@@ -38,7 +39,7 @@ export default function DeepAnalytics({ divisions, analytics }) {
         if (profit > 0) profitable++
         if (roi > maxGain) maxGain = roi
         if (roi < maxLoss) maxLoss = roi
-        allItems.push({ name: h.name, parent: parentName, invested, current, profit, roi, currentPct, platform: h.platform, assetType: h.assetType })
+        allItems.push({ name: h.name, parent: parentName, invested, current, profit, roi, currentPct, platform: h.platform, assetType: h.assetType, sector: h.sector || '', capCategory: h.capCategory || '' })
       }
 
       ;(div.holdings || []).forEach(h => processHolding(h, div.name))
@@ -74,7 +75,34 @@ export default function DeepAnalytics({ divisions, analytics }) {
       byAsset[a] += h.current
     })
 
-    return { positions, profitable, winRate, maxGain, maxLoss, avgDev, diversification, health, allItems, byPlatform, byAsset }
+    // Sector breakdown — unset holdings bucketed as "Unclassified" so coverage is visible
+    const bySector = {}
+    let classifiedSectorCurrent = 0
+    allItems.forEach(h => {
+      const key = h.sector || UNCLASSIFIED
+      if (!bySector[key]) bySector[key] = { invested: 0, current: 0, count: 0 }
+      bySector[key].invested += h.invested
+      bySector[key].current += h.current
+      bySector[key].count++
+      if (h.sector) classifiedSectorCurrent += h.current
+    })
+
+    // Market-cap breakdown
+    const byCap = {}
+    let classifiedCapCurrent = 0
+    allItems.forEach(h => {
+      const key = h.capCategory || UNCLASSIFIED
+      if (!byCap[key]) byCap[key] = { invested: 0, current: 0, count: 0 }
+      byCap[key].invested += h.invested
+      byCap[key].current += h.current
+      byCap[key].count++
+      if (h.capCategory) classifiedCapCurrent += h.current
+    })
+
+    const sectorCoverage = totalCurrent > 0 ? (classifiedSectorCurrent / totalCurrent) * 100 : 0
+    const capCoverage = totalCurrent > 0 ? (classifiedCapCurrent / totalCurrent) * 100 : 0
+
+    return { positions, profitable, winRate, maxGain, maxLoss, avgDev, diversification, health, allItems, byPlatform, byAsset, bySector, byCap, sectorCoverage, capCoverage }
   }, [divisions, analytics, totalCurrent])
 
   const returnPct = totalInvested > 0 ? (totalProfit / totalInvested) * 100 : 0
@@ -130,6 +158,22 @@ export default function DeepAnalytics({ divisions, analytics }) {
       y: { ticks: { color: '#64748b', callback: v => `${v}%` }, grid: { color: '#1f2937' } }
     }
   }
+
+  // Sector entries: highest current value first
+  const sectorEntries = Object.entries(metrics.bySector)
+    .map(([key, v]) => ({ key, ...v }))
+    .sort((a, b) => b.current - a.current)
+
+  // Cap entries: fixed Large→Mid→Small→… order, Unclassified last
+  const capOrder = [...CAP_CATEGORIES, UNCLASSIFIED]
+  const capEntries = Object.entries(metrics.byCap)
+    .map(([key, v]) => ({ key, ...v }))
+    .sort((a, b) => {
+      const ai = capOrder.indexOf(a.key), bi = capOrder.indexOf(b.key)
+      return (ai === -1 ? 999 : ai) - (bi === -1 ? 999 : bi)
+    })
+
+  const hasSectorCapData = metrics.sectorCoverage > 0 || metrics.capCoverage > 0
 
   return (
     <div>
@@ -192,6 +236,18 @@ export default function DeepAnalytics({ divisions, analytics }) {
           <div style={{ height: 200 }}><Bar data={barData} options={barOpts} /></div>
         </div>
       </div>
+
+      {/* Sector & Market-Cap breakdowns */}
+      {hasSectorCapData ? (
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(340px, 1fr))', gap: 16, marginBottom: 20 }}>
+          <BreakdownCard title="By Sector" note={`${metrics.sectorCoverage.toFixed(0)}% of portfolio value tagged with a sector`} entries={sectorEntries} totalCurrent={totalCurrent} colorFn={sectorColor} />
+          <BreakdownCard title="By Market Cap" note={`${metrics.capCoverage.toFixed(0)}% of portfolio value tagged with a market cap`} entries={capEntries} totalCurrent={totalCurrent} colorFn={capColor} />
+        </div>
+      ) : (
+        <div className="card-lg mb-4" style={{ textAlign: 'center', color: 'var(--text3)', padding: 24 }}>
+          Tag holdings with a <strong style={{ color: 'var(--text2)' }}>Sector</strong> and <strong style={{ color: 'var(--text2)' }}>Market Cap</strong> (edit any stock/fund holding) to unlock sector &amp; cap-weighted breakdowns here.
+        </div>
+      )}
 
       {/* Platform summary */}
       {Object.keys(metrics.byPlatform).length > 0 && (
@@ -273,6 +329,78 @@ export default function DeepAnalytics({ divisions, analytics }) {
           </div>
         </div>
       )}
+    </div>
+  )
+}
+
+// Reusable "proportion + stats" card: doughnut on top, per-category stats table below.
+// Used for both the sector and the market-cap breakdowns.
+function BreakdownCard({ title, note, entries, totalCurrent, colorFn }) {
+  if (!entries || entries.length === 0) return null
+
+  const chartData = {
+    labels: entries.map(e => e.key),
+    datasets: [{
+      data: entries.map(e => Math.max(0, e.current)),
+      backgroundColor: entries.map(e => colorFn(e.key)),
+      borderWidth: 0,
+    }],
+  }
+
+  const opts = {
+    responsive: true, maintainAspectRatio: false,
+    plugins: {
+      legend: { position: 'bottom', labels: { color: '#94a3b8', font: { size: 10 }, boxWidth: 10, padding: 8 } },
+      tooltip: { callbacks: { label: ctx => {
+        const share = totalCurrent > 0 ? (ctx.raw / totalCurrent * 100).toFixed(1) : '0.0'
+        return `${ctx.label}: ${fmt(ctx.raw)} (${share}%)`
+      } } },
+    },
+  }
+
+  return (
+    <div className="card-lg">
+      <div className="card-title" style={{ marginBottom: 4 }}>{title}</div>
+      {note && <div style={{ fontSize: 11, color: 'var(--text3)', marginBottom: 12 }}>{note}</div>}
+      <div style={{ height: 220 }}><Doughnut data={chartData} options={opts} /></div>
+      <div style={{ overflowX: 'auto', marginTop: 14 }}>
+        <table className="holdings-table">
+          <thead>
+            <tr>
+              <th>Category</th>
+              <th className="right">#</th>
+              <th className="right">Invested</th>
+              <th className="right">Current</th>
+              <th className="right">P/L</th>
+              <th className="right">Return</th>
+              <th className="right">Share</th>
+            </tr>
+          </thead>
+          <tbody>
+            {entries.map(e => {
+              const pl = e.current - e.invested
+              const ret = e.invested > 0 ? (pl / e.invested) * 100 : 0
+              const share = totalCurrent > 0 ? (e.current / totalCurrent) * 100 : 0
+              return (
+                <tr key={e.key}>
+                  <td>
+                    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontWeight: 600 }}>
+                      <span style={{ width: 9, height: 9, borderRadius: 2, background: colorFn(e.key), flexShrink: 0 }} />
+                      {e.key}
+                    </span>
+                  </td>
+                  <td className="right num text-muted">{e.count}</td>
+                  <td className="right num">{fmt(e.invested)}</td>
+                  <td className="right num" style={{ color: 'var(--purple)' }}>{fmt(e.current)}</td>
+                  <td className="right num"><span className={pl >= 0 ? 'pos' : 'neg'}>{pl >= 0 ? '+' : ''}{fmt(pl)}</span></td>
+                  <td className="right num"><span className={ret >= 0 ? 'pos' : 'neg'}>{ret >= 0 ? '+' : ''}{ret.toFixed(1)}%</span></td>
+                  <td className="right num" style={{ color: 'var(--text2)' }}>{share.toFixed(1)}%</td>
+                </tr>
+              )
+            })}
+          </tbody>
+        </table>
+      </div>
     </div>
   )
 }

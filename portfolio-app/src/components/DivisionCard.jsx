@@ -1,5 +1,6 @@
 import React, { useState, useRef } from 'react'
 import { api } from '../api'
+import { SECTORS, CAP_CATEGORIES, CAP_SECTOR_ELIGIBLE, sectorColor, capColor } from '../constants'
 
 const PLATFORMS = {
   kite:     { label: 'Kite',     cls: 'platform-kite',     icon: '⚡' },
@@ -438,6 +439,12 @@ function HoldingRow({ holding: h, onEdit, onRefresh, refreshing, onDelete, paren
         <div style={{ fontWeight:600, fontSize:13 }}>{h.name}</div>
         {h.ticker    && <div style={{ fontSize:11, color:'var(--text3)' }}>{h.ticker}</div>}
         {h.schemeCode && <div style={{ fontSize:11, color:'var(--text3)' }}>MF #{h.schemeCode}</div>}
+        {(h.sector || h.capCategory) && (
+          <div className="tags" style={{ marginTop:3 }}>
+            {h.capCategory && <span className="cap-badge" style={{ color: capColor(h.capCategory), borderColor: capColor(h.capCategory) }}>{h.capCategory}</span>}
+            {h.sector && <span className="sector-badge" style={{ color: sectorColor(h.sector), borderColor: sectorColor(h.sector) }}>{h.sector}</span>}
+          </div>
+        )}
         {h.note      && <div style={{ fontSize:11, color:'var(--text3)', fontStyle:'italic' }}>{h.note}</div>}
       </td>
       <td><span className={`platform-badge ${platform.cls}`}>{platform.icon} {platform.label}</span></td>
@@ -530,6 +537,8 @@ function EditHoldingRow({ holding, onSave, onCancel }) {
     current: holding.foreignCurrent ? String(holding.foreignCurrent) : (holding.current ? String(holding.current) : ''),
     note: holding.note || '',
     currency: holding.currency || 'USD',
+    sector: holding.sector || '',
+    capCategory: holding.capCategory || '',
   })
   const [saving, setSaving] = useState(false)
   const [buyMore, setBuyMore] = useState(false)
@@ -583,11 +592,15 @@ function EditHoldingRow({ holding, onSave, onCancel }) {
       const finalInvested = autoInvested !== null ? autoInvested : inv
       const finalCurrent  = autoCurrent  !== null ? autoCurrent  : cur
       const isForeignType = form.assetType === 'foreign'
+      // Only equity-like types carry a sector/cap. Send '' for ineligible types (e.g. FD)
+      // so switching a previously-tagged holding to FD clears the stale tag instead of keeping it.
+      const eligibleForTag = CAP_SECTOR_ELIGIBLE.includes(form.assetType)
       let payload = {
         name: form.name, platform: form.platform, assetType: form.assetType,
         ticker: form.ticker, schemeCode: form.schemeCode,
         units: finalUnits, buyPrice: finalBuyPrice, currentPrice: cp || 0,
         invested: finalInvested, current: finalCurrent, note: form.note,
+        sector: eligibleForTag ? form.sector : '', capCategory: eligibleForTag ? form.capCategory : '',
       }
       if (isForeignType) {
         const rate = await fetchRateToInr(form.currency)
@@ -616,6 +629,7 @@ function EditHoldingRow({ holding, onSave, onCancel }) {
   const isFd = form.assetType === 'fd'
   const isForeign = form.assetType === 'foreign'
   const currSym = isForeign ? (CURRENCIES[form.currency]?.symbol || form.currency) : '₹'
+  const showSectorCap = CAP_SECTOR_ELIGIBLE.includes(form.assetType)
 
   return (
     <tr style={{ background:'rgba(34,211,238,0.04)' }}>
@@ -646,6 +660,25 @@ function EditHoldingRow({ holding, onSave, onCancel }) {
             </select>
           )}
         </div>
+
+        {showSectorCap && (
+          <div className="flex gap-2 flex-wrap items-end" style={{ padding:'2px 0 4px' }}>
+            <div className="form-group">
+              <label className="form-label">Sector</label>
+              <select className="input input-sm" style={{ width:170 }} value={form.sector} onChange={e => set('sector', e.target.value)}>
+                <option value="">— Sector —</option>
+                {SECTORS.map(s => <option key={s} value={s}>{s}</option>)}
+              </select>
+            </div>
+            <div className="form-group">
+              <label className="form-label">Market Cap</label>
+              <select className="input input-sm" style={{ width:140 }} value={form.capCategory} onChange={e => set('capCategory', e.target.value)}>
+                <option value="">— Cap —</option>
+                {CAP_CATEGORIES.map(c => <option key={c} value={c}>{c}</option>)}
+              </select>
+            </div>
+          </div>
+        )}
 
         {isForeign && (
           <div style={{ fontSize:11, color:'var(--indigo)', padding:'2px 0 4px', fontStyle:'italic' }}>
@@ -700,7 +733,7 @@ function EditHoldingRow({ holding, onSave, onCancel }) {
 
         {/* Auto-computed summary */}
         {(autoInvested || autoUnits || autoCurrent) && (
-          <div className="flex gap-3 flex-wrap" style={{ padding:'4px 0 2px', fontSize:12, background:'rgba(34,211,238,0.06)', borderRadius:6, padding:'6px 10px', marginTop:2 }}>
+          <div className="flex gap-3 flex-wrap" style={{ fontSize:12, background:'rgba(34,211,238,0.06)', borderRadius:6, padding:'6px 10px', marginTop:2 }}>
             {autoUnits    && <span style={{ color:'var(--cyan)' }}>Units: {autoUnits.toFixed(4)}</span>}
             {autoInvested && <span style={{ color:'var(--cyan)' }}>Total Invested: <strong>{isForeign ? `${currSym}${autoInvested.toFixed(2)}` : fmt(autoInvested)}</strong></span>}
             {autoCurrent  && <span style={{ color:'var(--cyan)' }}>Total Current: <strong>{isForeign ? `${currSym}${autoCurrent.toFixed(2)}` : fmt(autoCurrent)}</strong></span>}
@@ -753,7 +786,7 @@ function AddHoldingForm({ divisionId, subdivisionId, subdivisions, onSave, onCan
   const [form, setForm] = useState({
     name:'', platform:'kite', assetType:'stock', ticker:'', schemeCode:'',
     units:'', buyPrice:'', currentPrice:'', invested:'', current:'', note:'',
-    subdivisionId: subdivisionId || '', currency: 'USD',
+    subdivisionId: subdivisionId || '', currency: 'USD', sector:'', capCategory:'',
   })
   const [saving, setSaving] = useState(false)
   const set = (k, v) => setForm(f => ({ ...f, [k]: v }))
@@ -772,6 +805,7 @@ function AddHoldingForm({ divisionId, subdivisionId, subdivisions, onSave, onCan
   const isFd = form.assetType === 'fd'
   const isForeign = form.assetType === 'foreign'
   const isStock = ['stock','etf','foreign','gold'].includes(form.assetType)
+  const showSectorCap = CAP_SECTOR_ELIGIBLE.includes(form.assetType)
   const currSym = isForeign ? (CURRENCIES[form.currency]?.symbol || form.currency) : '₹'
 
   async function handleSave() {
@@ -787,6 +821,8 @@ function AddHoldingForm({ divisionId, subdivisionId, subdivisions, onSave, onCan
         ticker: form.ticker, schemeCode: form.schemeCode,
         units: finalUnits, buyPrice: finalBuyPrice, currentPrice: cp || 0,
         invested: finalInvested, current: finalCurrent, note: form.note,
+        // sector/cap only for equity-like types; '' for ineligible (e.g. FD) so nothing stale is stored
+        sector: showSectorCap ? form.sector : '', capCategory: showSectorCap ? form.capCategory : '',
         subdivisionId: form.subdivisionId || subdivisionId || undefined,
       }
       if (isForeign) {
@@ -872,6 +908,24 @@ function AddHoldingForm({ divisionId, subdivisionId, subdivisions, onSave, onCan
               {subdivisions.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
             </select>
           </div>
+        )}
+        {showSectorCap && (
+          <>
+            <div className="form-group">
+              <label className="form-label">Sector</label>
+              <select className="input input-sm" style={{ width:160 }} value={form.sector} onChange={e => set('sector', e.target.value)}>
+                <option value="">— Sector —</option>
+                {SECTORS.map(s => <option key={s} value={s}>{s}</option>)}
+              </select>
+            </div>
+            <div className="form-group">
+              <label className="form-label">Market Cap</label>
+              <select className="input input-sm" style={{ width:135 }} value={form.capCategory} onChange={e => set('capCategory', e.target.value)}>
+                <option value="">— Cap —</option>
+                {CAP_CATEGORIES.map(c => <option key={c} value={c}>{c}</option>)}
+              </select>
+            </div>
+          </>
         )}
       </div>
 

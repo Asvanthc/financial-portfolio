@@ -1011,9 +1011,11 @@ app.post('/api/divisions/:id/holdings', async (req, res) => {
     const p = await loadPortfolio()
     const d = p.divisions.find(x => x.id === req.params.id)
     if (!d) return res.status(404).json({ error: 'division not found' })
-    const { name, invested, current, subdivisionId, platform, assetType, ticker, schemeCode, units, buyPrice, currentPrice, note } = req.body || {}
+    const { name, invested, current, subdivisionId, platform, assetType, ticker, schemeCode, units, buyPrice, currentPrice, note, sector, capCategory,
+      currency, exchangeRate, foreignBuyPrice, foreignCurrentPrice, foreignInvested, foreignCurrent, targetPercent } = req.body || {}
     if (!name) return res.status(400).json({ error: 'name required' })
-    const h = createHolding({ name, invested, current, platform, assetType, ticker, schemeCode, units, buyPrice, currentPrice, note })
+    const h = createHolding({ name, invested, current, platform, assetType, ticker, schemeCode, units, buyPrice, currentPrice, note, sector, capCategory, targetPercent,
+      currency, exchangeRate, foreignBuyPrice, foreignCurrentPrice, foreignInvested, foreignCurrent })
     if (subdivisionId) {
       const sd = (d.subdivisions || []).find(s => s.id === subdivisionId)
       if (!sd) return res.status(404).json({ error: 'subdivision not found' })
@@ -1044,7 +1046,7 @@ app.patch('/api/holdings/:hid', async (req, res) => {
       if (found) break
     }
     if (!found) return res.status(404).json({ error: 'holding not found' })
-    const { name, invested, current, targetPercent, platform, assetType, ticker, schemeCode, units, buyPrice, currentPrice, priceDate, note,
+    const { name, invested, current, targetPercent, platform, assetType, ticker, schemeCode, units, buyPrice, currentPrice, priceDate, note, sector, capCategory,
       currency, exchangeRate, foreignBuyPrice, foreignCurrentPrice, foreignInvested, foreignCurrent } = req.body || {}
     if (name !== undefined) found.name = name
     if (invested !== undefined) found.invested = Number(invested) || 0
@@ -1059,6 +1061,8 @@ app.patch('/api/holdings/:hid', async (req, res) => {
     if (currentPrice !== undefined) found.currentPrice = Number(currentPrice) || 0
     if (priceDate !== undefined) found.priceDate = priceDate
     if (note !== undefined) found.note = note
+    if (sector !== undefined) found.sector = sector
+    if (capCategory !== undefined) found.capCategory = capCategory
     if (currency !== undefined) found.currency = currency
     if (exchangeRate !== undefined) found.exchangeRate = Number(exchangeRate) || 0
     if (foreignBuyPrice !== undefined) found.foreignBuyPrice = Number(foreignBuyPrice) || 0
