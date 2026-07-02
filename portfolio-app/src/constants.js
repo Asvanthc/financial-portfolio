@@ -29,13 +29,14 @@ export const SECTORS = [
   'Other',
 ]
 
-// Market-cap categories.
+// Market-cap categories (Gold/Misc are catch-alls for non-cap-graded holdings).
 export const CAP_CATEGORIES = [
   'Large Cap',
   'Mid Cap',
   'Small Cap',
   'Micro Cap',
   'Multi / Flexi Cap',
+  'Gold',
   'Misc',
 ]
 
@@ -49,6 +50,7 @@ export const CAP_COLORS = {
   'Small Cap':          '#fb923c', // orange
   'Micro Cap':          '#f87171', // red
   'Multi / Flexi Cap':  '#4ade80', // green
+  'Gold':               '#fbbf24', // amber/gold
   'Misc':               '#818cf8', // indigo
   [UNCLASSIFIED]:       '#64748b', // slate
 }

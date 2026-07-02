@@ -1,7 +1,8 @@
-import React, { useMemo } from 'react'
+import React, { useMemo, useState } from 'react'
 import { Doughnut, Bar } from 'react-chartjs-2'
 import { Chart as ChartJS, ArcElement, CategoryScale, LinearScale, BarElement, Tooltip, Legend } from 'chart.js'
 import { CAP_CATEGORIES, UNCLASSIFIED, sectorColor, capColor } from '../constants'
+import Modal from './Modal'
 
 ChartJS.register(ArcElement, CategoryScale, LinearScale, BarElement, Tooltip, Legend)
 
@@ -75,34 +76,43 @@ export default function DeepAnalytics({ divisions, analytics }) {
       byAsset[a] += h.current
     })
 
+    // Sector & market-cap analysis covers only holdings that actually carry those
+    // attributes: bank deposits (platform 'bank') and FDs are cash-like — no sector,
+    // no market cap — so they're excluded and the proportions use this equity/fund base.
+    const isAnalyzable = h => h.platform !== 'bank' && h.assetType !== 'fd'
+    const analyzableItems = allItems.filter(isAnalyzable)
+    const analyzableTotal = analyzableItems.reduce((s, h) => s + h.current, 0)
+
     // Sector breakdown — unset holdings bucketed as "Unclassified" so coverage is visible
     const bySector = {}
     let classifiedSectorCurrent = 0
-    allItems.forEach(h => {
+    analyzableItems.forEach(h => {
       const key = h.sector || UNCLASSIFIED
-      if (!bySector[key]) bySector[key] = { invested: 0, current: 0, count: 0 }
+      if (!bySector[key]) bySector[key] = { invested: 0, current: 0, count: 0, items: [] }
       bySector[key].invested += h.invested
       bySector[key].current += h.current
       bySector[key].count++
+      bySector[key].items.push(h)
       if (h.sector) classifiedSectorCurrent += h.current
     })
 
     // Market-cap breakdown
     const byCap = {}
     let classifiedCapCurrent = 0
-    allItems.forEach(h => {
+    analyzableItems.forEach(h => {
       const key = h.capCategory || UNCLASSIFIED
-      if (!byCap[key]) byCap[key] = { invested: 0, current: 0, count: 0 }
+      if (!byCap[key]) byCap[key] = { invested: 0, current: 0, count: 0, items: [] }
       byCap[key].invested += h.invested
       byCap[key].current += h.current
       byCap[key].count++
+      byCap[key].items.push(h)
       if (h.capCategory) classifiedCapCurrent += h.current
     })
 
-    const sectorCoverage = totalCurrent > 0 ? (classifiedSectorCurrent / totalCurrent) * 100 : 0
-    const capCoverage = totalCurrent > 0 ? (classifiedCapCurrent / totalCurrent) * 100 : 0
+    const sectorCoverage = analyzableTotal > 0 ? (classifiedSectorCurrent / analyzableTotal) * 100 : 0
+    const capCoverage = analyzableTotal > 0 ? (classifiedCapCurrent / analyzableTotal) * 100 : 0
 
-    return { positions, profitable, winRate, maxGain, maxLoss, avgDev, diversification, health, allItems, byPlatform, byAsset, bySector, byCap, sectorCoverage, capCoverage }
+    return { positions, profitable, winRate, maxGain, maxLoss, avgDev, diversification, health, allItems, byPlatform, byAsset, bySector, byCap, sectorCoverage, capCoverage, analyzableTotal }
   }, [divisions, analytics, totalCurrent])
 
   const returnPct = totalInvested > 0 ? (totalProfit / totalInvested) * 100 : 0
@@ -240,12 +250,12 @@ export default function DeepAnalytics({ divisions, analytics }) {
       {/* Sector & Market-Cap breakdowns */}
       {hasSectorCapData ? (
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(340px, 1fr))', gap: 16, marginBottom: 20 }}>
-          <BreakdownCard title="By Sector" note={`${metrics.sectorCoverage.toFixed(0)}% of portfolio value tagged with a sector`} entries={sectorEntries} totalCurrent={totalCurrent} colorFn={sectorColor} />
-          <BreakdownCard title="By Market Cap" note={`${metrics.capCoverage.toFixed(0)}% of portfolio value tagged with a market cap`} entries={capEntries} totalCurrent={totalCurrent} colorFn={capColor} />
+          <BreakdownCard title="By Sector" kind="sector" note={`${metrics.sectorCoverage.toFixed(0)}% tagged · bank & FD excluded`} entries={sectorEntries} baseCurrent={metrics.analyzableTotal} colorFn={sectorColor} />
+          <BreakdownCard title="By Market Cap" kind="market cap" note={`${metrics.capCoverage.toFixed(0)}% tagged · bank & FD excluded`} entries={capEntries} baseCurrent={metrics.analyzableTotal} colorFn={capColor} />
         </div>
       ) : (
         <div className="card-lg mb-4" style={{ textAlign: 'center', color: 'var(--text3)', padding: 24 }}>
-          Tag holdings with a <strong style={{ color: 'var(--text2)' }}>Sector</strong> and <strong style={{ color: 'var(--text2)' }}>Market Cap</strong> (edit any stock/fund holding) to unlock sector &amp; cap-weighted breakdowns here.
+          Tag holdings with a <strong style={{ color: 'var(--text2)' }}>Sector</strong> and <strong style={{ color: 'var(--text2)' }}>Market Cap</strong> (edit any stock/fund holding) to unlock sector &amp; cap-weighted breakdowns here. Bank deposits &amp; FDs are excluded.
         </div>
       )}
 
@@ -334,8 +344,10 @@ export default function DeepAnalytics({ divisions, analytics }) {
 }
 
 // Reusable "proportion + stats" card: doughnut on top, per-category stats table below.
-// Used for both the sector and the market-cap breakdowns.
-function BreakdownCard({ title, note, entries, totalCurrent, colorFn }) {
+// Each category row is clickable and opens a popup listing the holdings under it.
+// `baseCurrent` is the denominator for share % (the analyzable equity/fund universe).
+function BreakdownCard({ title, kind = 'category', note, entries, baseCurrent, colorFn }) {
+  const [openKey, setOpenKey] = useState(null)
   if (!entries || entries.length === 0) return null
 
   const chartData = {
@@ -352,11 +364,13 @@ function BreakdownCard({ title, note, entries, totalCurrent, colorFn }) {
     plugins: {
       legend: { position: 'bottom', labels: { color: '#94a3b8', font: { size: 10 }, boxWidth: 10, padding: 8 } },
       tooltip: { callbacks: { label: ctx => {
-        const share = totalCurrent > 0 ? (ctx.raw / totalCurrent * 100).toFixed(1) : '0.0'
+        const share = baseCurrent > 0 ? (ctx.raw / baseCurrent * 100).toFixed(1) : '0.0'
         return `${ctx.label}: ${fmt(ctx.raw)} (${share}%)`
       } } },
     },
   }
+
+  const openEntry = entries.find(e => e.key === openKey) || null
 
   return (
     <div className="card-lg">
@@ -380,9 +394,10 @@ function BreakdownCard({ title, note, entries, totalCurrent, colorFn }) {
             {entries.map(e => {
               const pl = e.current - e.invested
               const ret = e.invested > 0 ? (pl / e.invested) * 100 : 0
-              const share = totalCurrent > 0 ? (e.current / totalCurrent) * 100 : 0
+              const share = baseCurrent > 0 ? (e.current / baseCurrent) * 100 : 0
               return (
-                <tr key={e.key}>
+                <tr key={e.key} onClick={() => setOpenKey(e.key)} style={{ cursor: 'pointer' }}
+                  title={`View ${e.count} holding${e.count === 1 ? '' : 's'} in ${e.key}`}>
                   <td>
                     <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontWeight: 600 }}>
                       <span style={{ width: 9, height: 9, borderRadius: 2, background: colorFn(e.key), flexShrink: 0 }} />
@@ -401,6 +416,81 @@ function BreakdownCard({ title, note, entries, totalCurrent, colorFn }) {
           </tbody>
         </table>
       </div>
+
+      {openEntry && (
+        <CategoryHoldingsModal entry={openEntry} kind={kind} baseCurrent={baseCurrent} color={colorFn(openEntry.key)} onClose={() => setOpenKey(null)} />
+      )}
     </div>
+  )
+}
+
+// Popup listing every holding under a chosen sector / market-cap category.
+function CategoryHoldingsModal({ entry, kind, baseCurrent, color, onClose }) {
+  const items = [...(entry.items || [])].sort((a, b) => b.current - a.current)
+  const pl = entry.current - entry.invested
+  const ret = entry.invested > 0 ? (pl / entry.invested) * 100 : 0
+  const share = baseCurrent > 0 ? (entry.current / baseCurrent) * 100 : 0
+
+  const stat = (label, value, color2) => (
+    <div style={{ flex: '1 1 90px' }}>
+      <div style={{ fontSize: 10, color: 'var(--text3)', textTransform: 'uppercase', letterSpacing: '0.5px', fontWeight: 700 }}>{label}</div>
+      <div style={{ fontSize: 15, fontWeight: 800, color: color2 || 'var(--text)' }}>{value}</div>
+    </div>
+  )
+
+  return (
+    <Modal
+      isOpen
+      onClose={onClose}
+      size="lg"
+      title={<span style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
+        <span style={{ width: 12, height: 12, borderRadius: 3, background: color, display: 'inline-block' }} />
+        {entry.key}
+      </span>}
+    >
+      <div style={{ fontSize: 11, color: 'var(--text3)', marginTop: -6, marginBottom: 14 }}>
+        {items.length} holding{items.length === 1 ? '' : 's'} · {kind} breakdown
+      </div>
+
+      <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', padding: '12px 14px', background: 'rgba(255,255,255,0.03)', border: '1px solid var(--border)', borderRadius: 10, marginBottom: 16 }}>
+        {stat('Current', fmt(entry.current), 'var(--purple)')}
+        {stat('Invested', fmt(entry.invested))}
+        {stat('P / L', `${pl >= 0 ? '+' : ''}${fmt(pl)}`, pl >= 0 ? 'var(--green)' : 'var(--red)')}
+        {stat('Return', `${ret >= 0 ? '+' : ''}${ret.toFixed(1)}%`, ret >= 0 ? 'var(--green)' : 'var(--red)')}
+        {stat('Share', `${share.toFixed(1)}%`, 'var(--cyan)')}
+      </div>
+
+      <div style={{ overflowX: 'auto' }}>
+        <table className="holdings-table">
+          <thead>
+            <tr>
+              <th>Holding</th>
+              <th>Division</th>
+              <th className="right">Invested</th>
+              <th className="right">Current</th>
+              <th className="right">P/L</th>
+              <th className="right">Return</th>
+              <th className="right">Weight</th>
+            </tr>
+          </thead>
+          <tbody>
+            {items.map((h, i) => {
+              const w = entry.current > 0 ? (h.current / entry.current) * 100 : 0
+              return (
+                <tr key={i}>
+                  <td style={{ fontWeight: 600 }}>{h.name}</td>
+                  <td className="text-sm text-muted">{h.parent}</td>
+                  <td className="right num">{fmt(h.invested)}</td>
+                  <td className="right num" style={{ color: 'var(--purple)' }}>{fmt(h.current)}</td>
+                  <td className="right num"><span className={h.profit >= 0 ? 'pos' : 'neg'}>{h.profit >= 0 ? '+' : ''}{fmt(h.profit)}</span></td>
+                  <td className="right num"><span className={h.roi >= 0 ? 'pos' : 'neg'}>{h.roi >= 0 ? '+' : ''}{h.roi.toFixed(1)}%</span></td>
+                  <td className="right num" style={{ color: 'var(--text2)' }}>{w.toFixed(1)}%</td>
+                </tr>
+              )
+            })}
+          </tbody>
+        </table>
+      </div>
+    </Modal>
   )
 }
