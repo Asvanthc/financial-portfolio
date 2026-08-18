@@ -153,7 +153,20 @@ export default function DivisionCard({ division, analytics, onUpdate }) {
 
   async function refreshPrice(holding) {
     setRefreshingId(holding.id)
-    try { await api.refreshHoldingPrice(holding.id); onUpdate?.() }
+    try {
+      const r = await api.refreshHoldingPrice(holding.id)
+      onUpdate?.()
+      // The server writes the price but flags one that moved implausibly (usually a
+      // mis-resolved ticker), and refuses one it couldn't convert to INR at all.
+      if (r?.newPrice == null && r?.hint) alert(r.hint)
+      else if (r?.suspicious) {
+        alert(
+          `Saved, but check this one:\n\n${holding.name}\n` +
+          `₹${r.suspicious.oldPrice} → ₹${r.suspicious.newPrice} (${r.suspicious.source || 'unknown source'})\n\n` +
+          `That's a big jump for one refresh. If it looks wrong, fix it with the ✏ Prices editor.`
+        )
+      }
+    }
     catch (e) { alert('Price fetch failed: ' + e.message) }
     finally { setRefreshingId(null) }
   }

@@ -3,6 +3,7 @@ import { Doughnut, Bar } from 'react-chartjs-2'
 import { Chart as ChartJS, ArcElement, CategoryScale, LinearScale, BarElement, Tooltip, Legend } from 'chart.js'
 import { CAP_CATEGORIES, UNCLASSIFIED, sectorColor, capColor } from '../constants'
 import Modal from './Modal'
+import ProjectionPanel from './ProjectionPanel'
 
 ChartJS.register(ArcElement, CategoryScale, LinearScale, BarElement, Tooltip, Legend)
 
@@ -298,6 +299,9 @@ export default function DeepAnalytics({ divisions, analytics }) {
           </div>
         </div>
       )}
+
+      {/* Forward projection of the current portfolio */}
+      <ProjectionPanel currentValue={totalCurrent} investedValue={totalInvested} />
 
       {/* Holdings detail */}
       {metrics.allItems.length > 0 && (

@@ -9,6 +9,7 @@ import ExpenseTracker from './components/ExpenseTracker'
 import FIRECalculator from './components/FIRECalculator'
 import OverlapAnalysis from './components/OverlapAnalysis'
 import BulkPriceEditor from './components/BulkPriceEditor'
+import BankSection from './components/BankSection'
 
 const TABS = [
   { id: 'overview', label: 'Overview' },
@@ -33,18 +34,21 @@ export default function App() {
   const [syncing, setSyncing] = useState(false)
   const [syncResult, setSyncResult] = useState(null)
   const [showBulkPrices, setShowBulkPrices] = useState(false)
+  const [bank, setBank] = useState({ accounts: [], total: 0 })
 
   async function refreshAll() {
-    const [p, a, sgs, exp] = await Promise.all([
+    const [p, a, sgs, exp, bk] = await Promise.all([
       api.getPortfolio(),
       api.analytics(budget || undefined),
       api.subdivisionGoalSeek(),
       api.getExpenses(),
+      api.getBankAccounts(),
     ])
     setPortfolio(p)
     setAnalytics(a)
     setSubdivisionGoalSeek(sgs)
     setExpenses(exp)
+    setBank({ accounts: Array.isArray(bk.accounts) ? bk.accounts : [], total: Number(bk.total) || 0 })
   }
 
   async function syncAllPrices() {
@@ -84,10 +88,26 @@ export default function App() {
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginLeft: 'auto' }}>
             {syncResult && !syncResult.error && (
               <span style={{ fontSize: 11 }}>
-                <span style={{ color: 'var(--green)' }}>✓ {syncResult.updated} updated</span>
+                <span
+                  style={{ color: 'var(--green)' }}
+                  title={syncResult.bySource
+                    ? Object.entries(syncResult.bySource).map(([s, n]) => `${s}: ${n}`).join(' · ')
+                    : undefined}
+                >
+                  ✓ {syncResult.updated} updated
+                </span>
                 {syncResult.failed > 0 && (
                   <span style={{ color: 'var(--red)' }} title={syncResult.failedNames?.join(', ')}>
                     {' '}· {syncResult.failed} failed{syncResult.failedNames?.length ? ` (${syncResult.failedNames.slice(0,3).join(', ')}${syncResult.failedNames.length > 3 ? '…' : ''})` : ''}
+                  </span>
+                )}
+                {/* Prices that moved so much they're probably a bad symbol match — not written */}
+                {syncResult.suspicious?.length > 0 && (
+                  <span
+                    style={{ color: 'var(--orange)' }}
+                    title={syncResult.suspicious.map(s => `${s.name || s.ticker}: ₹${s.oldPrice} → ₹${s.newPrice} (${s.source})`).join('\n')}
+                  >
+                    {' '}· {syncResult.suspicious.length} skipped, check ✏ Prices
                   </span>
                 )}
               </span>
@@ -141,6 +161,14 @@ export default function App() {
               <div className="kpi-value" style={{ color: 'var(--orange)' }}>{fmt(minRequired)}</div>
               <div className="kpi-sub text-dim">min. to reach all targets</div>
             </div>
+            {/* Bank cash sits outside the portfolio — shown, never counted in the % maths */}
+            <div className="kpi-card" style={{ borderColor: 'rgba(74,222,128,0.28)' }}>
+              <div className="kpi-label">In Bank (cash)</div>
+              <div className="kpi-value" style={{ color: 'var(--green)' }}>{fmt(bank.total)}</div>
+              <div className="kpi-sub text-dim">
+                excluded from allocation % · net worth {fmt(totalCurrent + bank.total)}
+              </div>
+            </div>
           </div>
         )}
 
@@ -169,6 +197,9 @@ export default function App() {
 
             {/* Goal Seek Summary */}
             <GoalSeekPanel analytics={analytics} totalCurrent={totalCurrent} minRequired={minRequired} subdivisionGoalSeek={subdivisionGoalSeek} portfolio={portfolio} budget={budget} setBudget={setBudget} />
+
+            {/* Bank cash — standalone, outside every portfolio percentage calculation */}
+            <BankSection accounts={bank.accounts} total={bank.total} onUpdate={refreshAll} />
 
             {/* Charts */}
             <PortfolioCharts divisions={portfolio.divisions} analytics={analytics} />

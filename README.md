@@ -37,6 +37,44 @@ Set `WORKBOOK` env var to point to another file if needed.
 - Use the Grouping selectors in the UI to choose a categorical column (e.g., Sector, Asset Class, Category) and optionally a numeric column to sum.
 - Edit `src/components/ChartPanel.jsx` to change chart types/colors.
 
+## Price sources (all free, no API keys)
+
+`server/prices.js` prices holdings bulk-first, so a 40-holding portfolio costs ~3 outbound
+requests rather than ~120. That matters: the earlier version raced three providers per ticker
+and got rate-limited into failing.
+
+| Order | Source | Covers | Batch? |
+|---|---|---|---|
+| 1 | CNBC quote service (`SYMBOL-IN` for NSE) | Indian stocks + ETFs, US stocks + ETFs | yes, pipe-separated |
+| 2 | Tickertape (`/search` → sid, then `/stocks/quotes`) | Indian stocks + ETFs | yes, by sid |
+| 3 | NSE `quote-equity` (cookie session) | Indian | per symbol |
+| 4 | Yahoo `v8/finance/chart` (query2 then query1) | everything | per symbol |
+| 5 | Google Finance HTML | everything | per symbol |
+| 6 | NSE bhavcopy CSV (whole market, EOD) | Indian | one request, all symbols |
+| — | mfapi.in, then AMFI `NAVAll.txt` | mutual fund NAV | NAVAll is one request, all schemes |
+| — | Frankfurter, then open.er-api | FX to INR | — |
+
+Notes:
+- Quotes are cached 5 min; the bhavcopy/NAVAll bulk files 30 min; ticker→sid a week.
+- NSE and Tickertape may be blocked from a cloud datacenter IP. Hit
+  `GET /api/debug/price-sources` on the deployed instance to see which providers *its* IP can
+  reach; `GET /api/debug/price-cache` shows cache state and `POST /api/debug/price-cache/clear`
+  resets it.
+- `POST /api/holdings/refresh-all` will not overwrite a price that moved more than 60% — those
+  come back in a `suspicious` array to confirm manually, since that size of jump is nearly always
+  a mis-resolved symbol rather than a real move.
+
+## Bank cash
+
+Money sitting in a bank account lives outside the investment portfolio entirely — its own
+`bank` Mongo collection (or a top-level `bankAccounts` key in `data/portfolio.json`), never a
+division or a holding. It is displayed on the Overview tab and in the KPI row, and is excluded
+from every allocation %, target %, goal-seek and rebalance figure. Endpoints:
+`GET/POST /api/bank-accounts`, `PATCH/DELETE /api/bank-accounts/:id`.
+
+This is distinct from holdings with `platform: 'bank'` or `assetType: 'fd'`, which *are* part of
+the portfolio.
+
 ## Notes
 - The app reads the workbook on every request, ensuring it always reflects the latest file.
 - If your workbook has time-series data (e.g., Year/Month), group by that and set a numeric value, then swap to a Line chart for trends.

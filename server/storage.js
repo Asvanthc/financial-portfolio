@@ -7,6 +7,11 @@ let db = null
 let portfolioCollection = null
 let expensesCollection = null
 let categoriesCollection = null
+let bankCollection = null
+// 'connecting' | 'connected' | 'failed' — lets a handler tell "Mongo isn't ready yet"
+// (wait) apart from "Mongo will never be ready" (use the file), instead of guessing
+// from a null collection.
+let mongoState = process.env.MONGODB_URI ? 'connecting' : 'absent'
 
 if (process.env.MONGODB_URI) {
   const { MongoClient } = require('mongodb')
@@ -17,9 +22,12 @@ if (process.env.MONGODB_URI) {
       portfolioCollection = db.collection('portfolio')
       expensesCollection = db.collection('expenses')
       categoriesCollection = db.collection('categories')
-      console.log('[STORAGE] Connected to MongoDB with collections: portfolio, expenses, categories')
+      bankCollection = db.collection('bank')
+      mongoState = 'connected'
+      console.log('[STORAGE] Connected to MongoDB with collections: portfolio, expenses, categories, bank')
     })
     .catch(err => {
+      mongoState = 'failed'
       console.error('[STORAGE] MongoDB connection failed, using file system:', err.message)
     })
 }
@@ -158,6 +166,76 @@ async function loadCategories() {
   }
 }
 
+// ── Bank cash ────────────────────────────────────────────────────────────────
+// Money parked in bank accounts. Deliberately kept OUTSIDE portfolio.divisions so
+// it can never be picked up by the allocation / target-% / rebalance math, which
+// only ever walks divisions. Stored in its own Mongo collection (same pattern as
+// categories) so savePortfolio's `$set: { divisions }` can't clobber it, and under
+// a top-level `bankAccounts` key in the JSON file for the no-Mongo path.
+
+// Resolves the bank collection, or null when the file path should be used.
+// The important case: when Mongo IS the live backend, a failed READ must not fall
+// through to the JSON file — that returns an empty list, and the next add would
+// write that empty list straight over the real Mongo document. So read errors
+// propagate (a 500 the user sees) rather than silently emptying the section.
+async function bankStore(waitMs = 5000) {
+  if (mongoState === 'absent' || mongoState === 'failed') return null
+  const deadline = Date.now() + waitMs
+  while (mongoState === 'connecting' && Date.now() < deadline) {
+    await new Promise(r => setTimeout(r, 100))
+  }
+  return mongoState === 'connected' ? bankCollection : null
+}
+
+async function loadBankAccounts() {
+  const coll = await bankStore()
+  if (coll) {
+    const doc = await coll.findOne({ _id: 'accounts' })
+    return Array.isArray(doc?.accounts) ? doc.accounts : []
+  }
+  ensureDataFile()
+  try {
+    const data = JSON.parse(fs.readFileSync(DATA_FILE, 'utf8'))
+    return Array.isArray(data.bankAccounts) ? data.bankAccounts : []
+  } catch (_) {
+    return []
+  }
+}
+
+async function saveBankAccounts(accounts) {
+  const list = Array.isArray(accounts) ? accounts : []
+  const coll = await bankStore()
+  if (coll) {
+    // Let a write failure surface as a 500 instead of quietly landing in a file the
+    // Mongo-backed reader will never look at.
+    await coll.updateOne(
+      { _id: 'accounts' },
+      { $set: { accounts: list, updatedAt: new Date().toISOString() } },
+      { upsert: true }
+    )
+    console.log('[STORAGE] Bank accounts saved to MongoDB:', list.length)
+    return list
+  }
+  ensureDataFile()
+  const data = JSON.parse(fs.readFileSync(DATA_FILE, 'utf8'))
+  data.bankAccounts = list
+  fs.writeFileSync(DATA_FILE, JSON.stringify(data, null, 2))
+  return list
+}
+
+function createBankAccount({ name, bankName = '', accountType = 'savings', balance = 0, note = '' }) {
+  const b = Number(balance)
+  return {
+    id: randomUUID(),
+    name: String(name).trim(),
+    bankName: String(bankName || '').trim(),
+    accountType: accountType || 'savings',
+    balance: Number.isFinite(b) && b >= 0 ? b : 0,
+    note: String(note || '').trim(),
+    updatedAt: new Date().toISOString(),
+  }
+}
+
 async function savePortfolio(portfolio) {
   const data = { ...portfolio, updatedAt: new Date().toISOString() }
   
@@ -176,10 +254,17 @@ async function savePortfolio(portfolio) {
     }
   }
   
-  // Fallback to file system
+  // Fallback to file system. Write ONLY the keys the portfolio owns, on top of the
+  // current file contents. loadPortfolio returns the whole document in file mode, so
+  // spreading it back would re-persist a stale snapshot of the sibling keys and undo
+  // any bankAccounts / expenses / categories write that landed while a slow handler
+  // (e.g. Sync All, which spends seconds fetching prices) was in flight.
   ensureDataFile()
   console.log('[STORAGE] Saving portfolio to disk:', DATA_FILE)
-  fs.writeFileSync(DATA_FILE, JSON.stringify(data, null, 2))
+  let onDisk = {}
+  try { onDisk = JSON.parse(fs.readFileSync(DATA_FILE, 'utf8')) || {} } catch (_) { onDisk = {} }
+  const merged = { ...onDisk, divisions: data.divisions, updatedAt: data.updatedAt }
+  fs.writeFileSync(DATA_FILE, JSON.stringify(merged, null, 2))
   console.log('[STORAGE] Portfolio saved successfully at', data.updatedAt)
   return data
 }
@@ -324,6 +409,9 @@ module.exports = {
   loadCategories,
   saveCategories,
   saveMonthExpenses,
+  loadBankAccounts,
+  saveBankAccounts,
+  createBankAccount,
   createDivision,
   createSubdivision,
   createHolding,

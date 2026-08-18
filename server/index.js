@@ -13,6 +13,9 @@ const {
   loadCategories,
   saveCategories,
   saveMonthExpenses,
+  loadBankAccounts,
+  saveBankAccounts,
+  createBankAccount,
   createDivision,
   createSubdivision,
   createHolding,
@@ -62,207 +65,21 @@ if (process.env.NODE_ENV === 'production' && API_BASE_PATH && API_BASE_PATH !== 
 // Storage for uploads: place next to existing workbook and replace it atomically
 const upload = multer({ dest: path.resolve(process.cwd(), 'uploads') });
 
-// Fetch MF NAV from AMFI via mfapi.in
-async function fetchMfNav(schemeCodes) {
-  const results = {}
-  await Promise.all(schemeCodes.map(async code => {
-    try {
-      const resp = await fetch(`https://api.mfapi.in/mf/${code}/latest`)
-      if (!resp.ok) return
-      const data = await resp.json()
-      const nav = Number(data?.data?.[0]?.nav)
-      if (nav > 0) results[code] = { price: nav, date: data?.data?.[0]?.date || null, currency: 'INR' }
-    } catch (_) {}
-  }))
-  return results
-}
-
-// ── NSE India session (cookie required for their API) ───────────────────────
-const nseSession = { cookie: '', fetchedAt: 0, initInProgress: false }
-const NSE_HEADERS = {
-  'User-Agent': 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
-  'Accept': 'application/json, text/plain, */*',
-  'Accept-Language': 'en-US,en;q=0.9',
-  'Referer': 'https://www.nseindia.com/',
-}
-
-async function ensureNseSession() {
-  if (nseSession.cookie && Date.now() - nseSession.fetchedAt < 30 * 60 * 1000) return
-  if (nseSession.initInProgress) {
-    for (let i = 0; i < 20; i++) {
-      await new Promise(r => setTimeout(r, 500))
-      if (!nseSession.initInProgress) return
-    }
-    return
-  }
-  nseSession.initInProgress = true
-  try {
-    const r = await fetchWithTimeout('https://www.nseindia.com/', {
-      headers: { ...NSE_HEADERS, Accept: 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8' },
-    }, 8000)
-    const setCookies = r.headers.getSetCookie ? r.headers.getSetCookie() : []
-    const cookie = setCookies.map(c => c.split(';')[0].trim()).filter(c => c.includes('=')).join('; ')
-    if (cookie) {
-      nseSession.cookie = cookie
-      nseSession.fetchedAt = Date.now()
-      console.log('[NSE] Session ready, cookies:', cookie.length, 'chars')
-    } else {
-      console.warn('[NSE] No cookies received from homepage')
-    }
-  } catch (e) {
-    console.error('[NSE] Session init failed:', e.message)
-  } finally {
-    nseSession.initInProgress = false
-  }
-}
-
-// All external fetches use a hard timeout so a hanging connection never blocks the server
-function fetchWithTimeout(url, options = {}, ms = 5000) {
-  const ctrl = new AbortController()
-  const timer = setTimeout(() => ctrl.abort(), ms)
-  return fetch(url, { ...options, signal: ctrl.signal }).finally(() => clearTimeout(timer))
-}
-
-async function fetchNsePrice(symbol) {
-  const nseSymbol = symbol.replace(/\.(NS|BO|NSE|BSE)$/i, '').toUpperCase()
-  await ensureNseSession()
-  try {
-    const r = await fetchWithTimeout(
-      `https://www.nseindia.com/api/quote-equity?symbol=${encodeURIComponent(nseSymbol)}`,
-      { headers: { ...NSE_HEADERS, Cookie: nseSession.cookie } },
-      4000
-    )
-    if (!r.ok) { if (r.status === 401 || r.status === 403) nseSession.fetchedAt = 0; return null }
-    const data = await r.json()
-    const price = Number(data?.priceInfo?.lastPrice)
-    return (Number.isFinite(price) && price > 0) ? price : null
-  } catch (_) { return null }
-}
-
-const YF_HEADERS = {
-  'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
-  'Accept': 'application/json',
-  'Accept-Language': 'en-US,en;q=0.9',
-}
-
-// Crumb-free YF v8 chart API
-async function fetchYfV8Price(symbol) {
-  try {
-    const url = `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(symbol)}?interval=1d&range=1d`
-    const resp = await fetchWithTimeout(url, { headers: YF_HEADERS }, 5000)
-    if (!resp.ok) return null
-    const data = await resp.json()
-    const meta = data?.chart?.result?.[0]?.meta
-    const price = Number(meta?.regularMarketPrice ?? meta?.previousClose)
-    return (Number.isFinite(price) && price > 0) ? price : null
-  } catch (_) { return null }
-}
-
-
-// Stooq CSV API — no auth needed, works from cloud, covers NSE (.IN) and US (.US)
-async function fetchStooqPrice(stooqSymbol) {
-  try {
-    const url = `https://stooq.com/q/l/?s=${encodeURIComponent(stooqSymbol.toLowerCase())}&f=sd2t2ohlcv&h&e=csv`
-    const resp = await fetchWithTimeout(url, { headers: { 'User-Agent': 'Mozilla/5.0' } }, 6000)
-    if (!resp.ok) return null
-    const text = await resp.text()
-    const lines = text.trim().split('\n')
-    if (lines.length < 2) return null
-    // CSV: Symbol,Date,Time,Open,High,Low,Close,Volume
-    const vals = lines[1].split(',')
-    const close = Number(vals[6])
-    if (!Number.isFinite(close) || close <= 0 || close === 0.0001) return null // stooq returns 0.0001 for N/A
-    return close
-  } catch (_) { return null }
-}
-
-// Warm up NSE session at startup
-ensureNseSession().catch(() => {})
-
-// Fetch live quotes — NSE primary for Indian stocks, Yahoo Finance for foreign
-// Run an array of async tasks with max `concurrency` in flight at once
-async function pMap(items, fn, concurrency = 4) {
-  const results = new Array(items.length)
-  let idx = 0
-  async function worker() {
-    while (idx < items.length) {
-      const i = idx++
-      results[i] = await fn(items[i], i)
-    }
-  }
-  await Promise.all(Array.from({ length: Math.min(concurrency, items.length) }, worker))
-  return results
-}
-
-// Try all price sources in parallel; return first non-null result with its source name
-function racePriceSources(sources) {
-  return new Promise(resolve => {
-    let remaining = sources.length
-    if (remaining === 0) return resolve({ price: null, source: null })
-    sources.forEach(({ name, fn }) => {
-      fn().then(price => {
-        if (price !== null) resolve({ price, source: name })
-        else if (--remaining === 0) resolve({ price: null, source: null })
-      }).catch(() => {
-        if (--remaining === 0) resolve({ price: null, source: null })
-      })
-    })
-  })
-}
-
-// Accept either string[] or {ticker, assetType}[] — assetType='foreign' forces foreign routing
-// regardless of ticker format (handles tickers like 'Qqq' with no .NS/.BO suffix)
-async function fetchQuotes(symbolsOrItems) {
-  const items = (symbolsOrItems || []).map(s =>
-    typeof s === 'string'
-      ? { ticker: s.trim(), assetType: null }
-      : { ticker: (s.ticker || '').trim(), assetType: s.assetType || null }
-  ).filter(x => x.ticker).slice(0, 50)
-  if (items.length === 0) return { quotes: {}, missing: [] }
-
-  // assetType='foreign' always routes to foreign path; otherwise use ticker suffix heuristic
-  function isIndian(item) {
-    if (item.assetType === 'foreign') return false
-    return !item.ticker.includes('.') || /\.(NS|BO)$/i.test(item.ticker)
-  }
-
-  const [indianItems, foreignItems] = items.reduce(
-    ([ind, fgn], item) => (isIndian(item) ? [[...ind, item], fgn] : [ind, [...fgn, item]]),
-    [[], []]
-  )
-
-  const [indianResults, foreignResults] = await Promise.all([
-    pMap(indianItems, async item => {
-      const bare = item.ticker.toUpperCase().replace(/\.(NS|BO)$/i, '')
-      const { price, source } = await racePriceSources([
-        { name: 'NSE',   fn: () => fetchNsePrice(bare) },
-        { name: 'YF/NS', fn: () => fetchYfV8Price(bare + '.NS') },
-        { name: 'Stooq', fn: () => fetchStooqPrice(bare + '.in') },
-      ])
-      return { sym: item.ticker, price, source }
-    }, 5),
-    Promise.all(foreignItems.map(async item => {
-      const upper = item.ticker.toUpperCase()
-      const { price, source } = await racePriceSources([
-        { name: 'YF/v8',    fn: () => fetchYfV8Price(upper) },
-        { name: 'Stooq/US', fn: () => fetchStooqPrice(upper + '.us') },
-      ])
-      return { sym: item.ticker, price, source }
-    })),
-  ])
-
-  const itemMap = new Map(items.map(i => [i.ticker, i]))
-  const quotes = {}
-  const missing = []
-  ;[...indianResults, ...foreignResults].forEach(({ sym, price, source }) => {
-    const item = itemMap.get(sym)
-    if (price !== null) quotes[sym] = { price, currency: (item && !isIndian(item)) ? 'USD' : 'INR', source }
-    else missing.push(sym)
-  })
-
-  console.log('[QUOTES] Fetched', Object.keys(quotes).length, '/', items.length, '; missing:', missing)
-  return { quotes, missing }
-}
+// All price/quote/search/FX plumbing lives in ./prices — see the header comment
+// there for why the old "race 3 providers per ticker" approach kept getting
+// rate-limited into failure.
+const prices = require('./prices')
+const {
+  fetchQuotes,
+  fetchMfNav,
+  fetchRateToInr,
+  searchStocks,
+  searchMf,
+  ensureNseSession,
+  fetchWithTimeout,
+  NSE_HEADERS,
+  nseSession,
+} = prices
 
 function readWorkbook(filePath) {
   if (!fs.existsSync(filePath)) {
@@ -367,94 +184,34 @@ app.get('/api/group', (req, res) => {
   }
 });
 
-// Exchange rate: foreign currency → INR via Frankfurter API (ECB data, free, no key)
+// Exchange rate: foreign currency -> INR. Frankfurter (ECB) with an open.er-api
+// fallback, cached 6h inside ./prices.
 app.get('/api/exchange-rate/:currency', async (req, res) => {
   const currency = req.params.currency.toUpperCase()
   try {
-    const r = await fetch(`https://api.frankfurter.app/latest?from=${currency}&to=INR`)
-    if (!r.ok) return res.status(502).json({ error: 'Exchange rate fetch failed' })
-    const data = await r.json()
-    const rate = data?.rates?.INR
-    if (!rate) return res.status(404).json({ error: `No INR rate for ${currency}` })
-    res.json({ currency, rateToInr: rate, date: data.date })
+    const fx = await fetchRateToInr(currency)
+    if (!fx || !fx.rate) return res.status(404).json({ error: `No INR rate for ${currency}` })
+    res.json({ currency, rateToInr: fx.rate, date: fx.date, source: fx.source })
   } catch (e) {
     res.status(500).json({ error: e.message })
   }
 })
 
-// Yahoo Finance symbol search — works from cloud/datacenter IPs (unlike NSE's API,
-// which blocks non-Indian/datacenter traffic). Used as the search fallback.
-async function fetchYahooSearch(q) {
-  try {
-    const url = `https://query1.finance.yahoo.com/v1/finance/search?q=${encodeURIComponent(q)}&quotesCount=15&newsCount=0&listsCount=0`
-    const resp = await fetchWithTimeout(url, { headers: YF_HEADERS }, 8000)
-    if (!resp.ok) return []
-    const data = await resp.json().catch(() => null)
-    return (data?.quotes || [])
-      .filter(x => x.symbol && ['EQUITY', 'ETF', 'MUTUALFUND', 'INDEX'].includes(x.quoteType))
-      .map(x => {
-        const indian = /\.(NS|BO)$/i.test(x.symbol)
-        return {
-          // Strip .NS/.BO so the ticker matches our price-fetch + display convention
-          symbol: indian ? x.symbol.replace(/\.(NS|BO)$/i, '') : x.symbol,
-          name: x.longname || x.shortname || x.symbol,
-          exchange: x.exchange || (indian ? 'NSE' : ''),
-          type: x.quoteType || 'EQUITY',
-        }
-      })
-      .slice(0, 12)
-  } catch (_) { return [] }
-}
-
-async function fetchNseSearch(q) {
-  try {
-    await ensureNseSession()
-    if (!nseSession.cookie) return []
-    const resp = await fetchWithTimeout(
-      `https://www.nseindia.com/api/search/autocomplete?q=${encodeURIComponent(q)}`,
-      { headers: { ...NSE_HEADERS, Cookie: nseSession.cookie } },
-      4000
-    )
-    if (!resp.ok) return []
-    const data = await resp.json().catch(() => null)
-    return (data?.symbols || [])
-      .filter(x => x.symbol)
-      .map(x => ({
-        symbol: x.symbol,
-        name: x.symbol_info || x.company_name || x.name || x.symbol,
-        exchange: 'NSE',
-        type: x.result_sub_type || x.type || 'EQUITY',
-      }))
-      .slice(0, 12)
-  } catch (_) { return [] }
-}
-
-// Stock/ETF ticker search. NSE autocomplete is best for Indian names but is blocked
-// from datacenter IPs (e.g. Render), so we run it alongside Yahoo (cloud-reliable) in
-// PARALLEL — latency is max(NSE, Yahoo), not the sum — and prefer NSE when it returns.
+// Stock/ETF ticker search — NSE autocomplete, Tickertape and Yahoo run in parallel
+// inside ./prices and the first non-empty result wins (NSE is best for Indian names
+// but is blocked from datacenter IPs like Render's).
 // NEVER 500s: search failing must not break the form; the user can always type manually.
 app.get('/api/stock/search', async (req, res) => {
-  const q = (req.query.q || '').trim()
-  if (!q) return res.json([])
-  const [nseItems, yahooItems] = await Promise.all([
-    fetchNseSearch(q),
-    fetchYahooSearch(q),
-  ])
-  res.json(nseItems.length > 0 ? nseItems : yahooItems)
+  try {
+    res.json(await searchStocks(req.query.q))
+  } catch (_) { res.json([]) }
 })
 
-// MF search via mfapi.in — never 500s (search failure must not break the form)
+// MF search — mfapi.in, falling back to a scan of AMFI's full scheme list.
 app.get('/api/mf/search', async (req, res) => {
   try {
-    const q = (req.query.q || '').trim()
-    if (!q) return res.json([])
-    const resp = await fetchWithTimeout(`https://api.mfapi.in/mf/search?q=${encodeURIComponent(q)}`, {}, 6000)
-    if (!resp.ok) return res.json([])
-    const data = await resp.json().catch(() => [])
-    res.json(Array.isArray(data) ? data.slice(0, 20) : [])
-  } catch (_) {
-    res.json([])
-  }
+    res.json(await searchMf(req.query.q))
+  } catch (_) { res.json([]) }
 })
 
 // MF latest NAV
@@ -468,6 +225,16 @@ app.get('/api/mf/nav', async (req, res) => {
     res.status(500).json({ error: e.message })
   }
 })
+
+// A price that moves more than this against the stored one is almost always a
+// mis-resolved symbol or a currency mix-up rather than a real move. Shared by both
+// refresh paths: the batch refresh refuses the write, the single refresh flags it.
+const SANITY_LIMIT = 0.6
+function isSanePriceMove(prev, next) {
+  const p = Number(prev) || 0
+  if (p <= 0 || !(next > 0)) return true
+  return Math.abs(next / p - 1) <= SANITY_LIMIT
+}
 
 // Refresh price for a single holding based on its assetType + ticker/schemeCode
 app.post('/api/holdings/:hid/refresh-price', async (req, res) => {
@@ -490,29 +257,65 @@ app.post('/api/holdings/:hid/refresh-price', async (req, res) => {
     let newPrice = null
     let debugInfo = {}
     const at = found.assetType || 'stock'
+    // A single-holding refresh is an explicit user action, so bypass the cache.
+    const opts = { force: true }
 
     if (at === 'mf' && found.schemeCode) {
       const navs = await fetchMfNav([found.schemeCode])
-      newPrice = navs[found.schemeCode]?.price ?? null
-      debugInfo = { source: 'AMFI', schemeCode: found.schemeCode, navResult: navs[found.schemeCode] || null }
+      const nav = navs[found.schemeCode]
+      newPrice = nav?.price ?? null
+      debugInfo = { source: nav?.source || 'AMFI', schemeCode: found.schemeCode, navResult: nav || null, asOf: nav?.date || null }
     } else if (['stock', 'etf', 'foreign', 'gold'].includes(at) && found.ticker) {
-      const { quotes, missing } = await fetchQuotes([{ ticker: found.ticker, assetType: found.assetType }])
+      const { quotes, missing } = await fetchQuotes([{ ticker: found.ticker, assetType: found.assetType }], opts)
       const q = quotes[found.ticker]
       newPrice = q?.price ?? null
       debugInfo = {
-        source: q?.source || 'NSE',
+        source: q?.source || null,
+        asOf: q?.asOf || null,
+        currency: q?.currency || null,
         tickerQueried: found.ticker,
         found: !!q,
         missing,
-        hint: !q ? `"${found.ticker}" not found. For Indian stocks use the NSE symbol e.g. INFY, RELIANCE, TMPV. For foreign stocks use Yahoo ticker e.g. AAPL, VOO.` : null,
+        hint: !q ? `"${found.ticker}" not found on any source. For Indian stocks use the NSE symbol e.g. INFY, RELIANCE, TMPV. For foreign stocks use the Yahoo ticker e.g. AAPL, VOO. Check /api/debug/price-sources to see which providers this server can reach.` : null,
       }
+      // currentPrice is always INR. A non-INR quote therefore has to be converted —
+      // and if it can't be, it must NOT be written, or a $717 price lands in a rupee
+      // field and understates the holding ~95x.
+      const quoteCcy = q?.currency ? String(q.currency).toUpperCase() : null
+      if (q?.price != null && quoteCcy && quoteCcy !== 'INR') {
+        const currency = quoteCcy
+        const fx = await fetchRateToInr(currency)
+        const rate = fx?.rate || found.exchangeRate || 0
+        if (rate) {
+          found.foreignCurrentPrice = q.price
+          found.currency = currency
+          found.exchangeRate = rate
+          if (found.units > 0) found.foreignCurrent = Math.round(found.units * q.price * 100) / 100
+          newPrice = Math.round(q.price * rate * 100) / 100
+          debugInfo.exchangeRate = rate
+          debugInfo.nativePrice = q.price
+        } else {
+          newPrice = null
+          debugInfo.found = false
+          debugInfo.hint = `Got a ${q.currency} price (${q.price}) for "${found.ticker}" but no ${currency}→INR rate was available, so nothing was saved. Try again, or set the price manually.`
+        }
+      }
+      if (newPrice !== null && q?.routeGuessed) debugInfo.routeGuessed = true
     } else {
       debugInfo = { reason: at === 'fd' ? 'FD has no live price — update manually' : 'No ticker or scheme code set on this holding' }
     }
 
     if (newPrice !== null) {
+      // Unlike the batch refresh, a single-holding refresh still writes an
+      // implausible price — the user is looking at that one row and would otherwise
+      // see "nothing happened" — but it comes back flagged so the UI can warn.
+      const prevPrice = Number(found.currentPrice) || 0
+      if (!isSanePriceMove(prevPrice, newPrice)) {
+        debugInfo.suspicious = { oldPrice: prevPrice, newPrice, source: debugInfo.source || null }
+      }
       found.currentPrice = newPrice
       found.priceDate = new Date().toISOString().split('T')[0]
+      found.priceSource = debugInfo.source || null
       if (found.units > 0) found.current = Math.round(found.units * newPrice * 100) / 100
       await savePortfolio(p)
     }
@@ -543,49 +346,101 @@ app.post('/api/holdings/refresh-all', async (req, res) => {
       mfs.length    ? fetchMfNav([...new Set(mfs.map(h => h.schemeCode))]) : Promise.resolve({}),
     ])
 
-    // Fetch fresh exchange rates for any foreign currencies in use
-    const foreignCurrencies = [...new Set(stocks.filter(h => h.currency).map(h => h.currency))]
+    // What currency is this holding priced in? Only 'foreign' holdings are anything
+    // other than INR; one with no currency set adopts whatever its quote came back in.
+    const holdingCurrency = h => (h.assetType === 'foreign'
+      ? String(h.currency || quotesRes.quotes[h.ticker]?.currency || 'INR')
+      : 'INR').toUpperCase()
+
+    // Fetch fresh exchange rates for every currency we might need.
+    const foreignCurrencies = [...new Set(
+      stocks.map(holdingCurrency).filter(c => c && c !== 'INR')
+    )]
     const freshRates = {}
     await Promise.all(foreignCurrencies.map(async cur => {
-      try {
-        const r = await fetch(`https://api.frankfurter.app/latest?from=${cur}&to=INR`)
-        if (r.ok) { const d = await r.json(); freshRates[cur] = d?.rates?.INR || 0 }
-      } catch (_) {}
+      const fx = await fetchRateToInr(cur).catch(() => null)
+      if (fx?.rate) freshRates[cur] = fx.rate
     }))
 
     let updated = 0, failed = 0, skipped = 0
     const failedNames = []
+    const suspicious = []
+    const bySource = {}
     const today = new Date().toISOString().split('T')[0]
+
+    const isSane = (h, next) => isSanePriceMove(h.currentPrice, next)
 
     stocks.forEach(h => {
       const q = quotesRes.quotes[h.ticker]
       if (q?.price) {
-        const isForeign = h.assetType === 'foreign' && h.currency
-        const rate = isForeign ? (freshRates[h.currency] || h.exchangeRate || 0) : 1
+        // currentPrice is an INR field. Compare the currency the quote came back in
+        // against the currency this holding is priced in: if they disagree, refuse.
+        // Converting when we shouldn't (INR quote × 95.69) and not converting when we
+        // should ($718 into a rupee field) are both ~95x errors, so guard both ways.
+        const quoteCcy = String(q.currency || 'INR').toUpperCase()
+        const holdingCcy = holdingCurrency(h)
+        if (quoteCcy !== holdingCcy) {
+          suspicious.push({
+            name: h.name, ticker: h.ticker, oldPrice: h.currentPrice, newPrice: q.price,
+            source: q.source,
+            reason: `quote came back in ${quoteCcy} but this holding is priced in ${holdingCcy} — check the ticker and asset type`,
+          })
+          return
+        }
+        const isForeign = holdingCcy !== 'INR'
+        const rate = isForeign ? (freshRates[holdingCcy] || h.exchangeRate || 0) : 1
+        if (isForeign && !rate) {
+          suspicious.push({
+            name: h.name, ticker: h.ticker, oldPrice: h.currentPrice, newPrice: q.price,
+            source: q.source, reason: `no ${holdingCcy}→INR rate available right now`,
+          })
+          return
+        }
         const priceInr = isForeign ? Math.round(q.price * rate * 100) / 100 : q.price
+        if (!isSane(h, priceInr)) {
+          suspicious.push({ name: h.name, ticker: h.ticker, oldPrice: h.currentPrice, newPrice: priceInr, source: q.source, reason: 'moved more than 60%' })
+          return
+        }
         h.currentPrice = priceInr
         h.priceDate = today
+        h.priceSource = q.source || null
         if (isForeign) {
           h.foreignCurrentPrice = q.price
+          h.currency = holdingCcy   // adopt the quote's currency if the holding had none
           if (rate) h.exchangeRate = rate
           if (h.units > 0) h.foreignCurrent = Math.round(h.units * q.price * 100) / 100
         }
         if (h.units > 0) h.current = Math.round(h.units * priceInr * 100) / 100
         updated++
+        bySource[q.source || 'unknown'] = (bySource[q.source || 'unknown'] || 0) + 1
       } else { failed++; failedNames.push(h.ticker || h.name) }
     })
     mfs.forEach(h => {
-      const nav = navsRes[h.schemeCode]?.price
+      const navInfo = navsRes[h.schemeCode]
+      const nav = navInfo?.price
       if (nav) {
-        h.currentPrice = nav; h.priceDate = today
+        if (!isSane(h, nav)) {
+          suspicious.push({ name: h.name, schemeCode: h.schemeCode, oldPrice: h.currentPrice, newPrice: nav, source: navInfo.source, reason: 'moved more than 60%' })
+          return
+        }
+        h.currentPrice = nav
+        h.priceDate = today
+        h.priceSource = navInfo.source || null
         if (h.units > 0) h.current = Math.round(h.units * nav * 100) / 100
         updated++
+        bySource[navInfo.source || 'unknown'] = (bySource[navInfo.source || 'unknown'] || 0) + 1
       } else { failed++; failedNames.push(h.schemeCode || h.name) }
     })
     allH.filter(h => !h.ticker && !h.schemeCode).forEach(() => skipped++)
 
     await savePortfolio(p)
-    res.json({ updated, failed, skipped, total: stocks.length + mfs.length, failedNames })
+    res.json({
+      updated, failed, skipped,
+      total: stocks.length + mfs.length,
+      failedNames,
+      suspicious,
+      bySource,
+    })
   } catch (e) { res.status(500).json({ error: e.message }) }
 })
 
@@ -711,10 +566,12 @@ async function fetchAmfiPortfolio(schemeCode) {
 
 async function fetchIndexConstituents(indexName) {
   await ensureNseSession()
+  if (!nseSession.cookie) return []
   try {
-    const r = await fetch(`https://www.nseindia.com/api/equity-stockIndices?index=${encodeURIComponent(indexName)}`, {
+    // Hard timeout: without one, a hung NSE connection stalls the whole overlap request.
+    const r = await fetchWithTimeout(`https://www.nseindia.com/api/equity-stockIndices?index=${encodeURIComponent(indexName)}`, {
       headers: { ...NSE_HEADERS, Cookie: nseSession.cookie }
-    })
+    }, 8000)
     if (!r.ok) return []
     const data = await r.json()
     const stocks = (data?.data || []).filter(s => s.symbol && !s.symbol.includes(' '))
@@ -917,50 +774,18 @@ app.get('/api/portfolio/overlap', async (req, res) => {
   } catch (e) { res.status(500).json({ error: e.message }) }
 })
 
-// Diagnostic endpoint — tests each price source from this server's IP
+// Diagnostic endpoint — probes every price provider from THIS server's IP and
+// reports which ones answer. Useful after deploying: NSE and Tickertape may be
+// reachable from an Indian IP but blocked from a US datacenter.
 app.get('/api/debug/price-sources', async (_req, res) => {
-  const results = {}
-  await Promise.all([
-    (async () => {
-      try {
-        await ensureNseSession()
-        const price = await fetchNsePrice('RELIANCE')
-        results.nse_reliance = { ok: price !== null, price, hasCookie: !!nseSession.cookie }
-      } catch (e) { results.nse_reliance = { ok: false, error: e.message } }
-    })(),
-    (async () => {
-      try {
-        const price = await fetchYfV8Price('RELIANCE.NS')
-        results.yf_reliance_ns = { ok: price !== null, price }
-      } catch (e) { results.yf_reliance_ns = { ok: false, error: e.message } }
-    })(),
-    (async () => {
-      try {
-        const price = await fetchYfV8Price('QQQ')
-        results.yf_qqq = { ok: price !== null, price }
-      } catch (e) { results.yf_qqq = { ok: false, error: e.message } }
-    })(),
-    (async () => {
-      try {
-        const price = await fetchStooqPrice('reliance.in')
-        results.stooq_reliance_in = { ok: price !== null, price }
-      } catch (e) { results.stooq_reliance_in = { ok: false, error: e.message } }
-    })(),
-    (async () => {
-      try {
-        const price = await fetchStooqPrice('qqq.us')
-        results.stooq_qqq_us = { ok: price !== null, price }
-      } catch (e) { results.stooq_qqq_us = { ok: false, error: e.message } }
-    })(),
-    (async () => {
-      try {
-        const navs = await fetchMfNav(['119551'])
-        results.amfi_nav = { ok: !!navs['119551'], nav: navs['119551'] || null }
-      } catch (e) { results.amfi_nav = { ok: false, error: e.message } }
-    })(),
-  ])
-  res.json(results)
+  try {
+    res.json(await prices.debugSources())
+  } catch (e) { res.status(500).json({ error: e.message }) }
 })
+
+// Price cache state / manual invalidation
+app.get('/api/debug/price-cache', (_req, res) => res.json(prices.cacheStats()))
+app.post('/api/debug/price-cache/clear', (_req, res) => { prices.clearCache(); res.json(prices.cacheStats()) })
 
 // Live quotes endpoint
 app.get('/api/quotes', async (req, res) => {
@@ -985,8 +810,94 @@ app.get('/api/portfolio', async (_req, res) => {
 app.post('/api/portfolio', async (req, res) => {
   try {
     const body = req.body || {}
-    const next = await savePortfolio({ divisions: Array.isArray(body.divisions) ? body.divisions : [], updatedAt: new Date().toISOString() })
+    // Spread the existing doc first: in file-storage mode savePortfolio writes the
+    // whole object, so building a fresh { divisions } would wipe sibling keys
+    // (expenses, categories, bankAccounts).
+    const existing = await loadPortfolio()
+    const next = await savePortfolio({
+      ...existing,
+      divisions: Array.isArray(body.divisions) ? body.divisions : [],
+      updatedAt: new Date().toISOString(),
+    })
     res.json(next)
+  } catch (e) { res.status(500).json({ error: e.message }) }
+})
+
+// ===== BANK CASH ROUTES =====
+// Plain money in the bank. It is intentionally NOT a division and NOT a holding:
+// nothing here feeds the allocation %, target %, goal-seek or rebalance numbers.
+
+app.get('/api/bank-accounts', async (_req, res) => {
+  try {
+    const accounts = await loadBankAccounts()
+    const total = accounts.reduce((s, a) => s + (Number(a.balance) || 0), 0)
+    res.json({ accounts, total })
+  } catch (e) { res.status(500).json({ error: e.message }) }
+})
+
+// Validate up front: an object where a string is expected would be stored verbatim
+// and then throw "Objects are not valid as a React child" on the Overview tab,
+// taking down the very UI that could delete the bad row.
+const BANK_ACCOUNT_TYPES = ['savings', 'current', 'salary', 'emergency', 'wallet', 'cash', 'other']
+function validateBankFields(body, { requireName }) {
+  const { name, bankName, accountType, balance, note } = body
+  if (requireName || name !== undefined) {
+    if (typeof name !== 'string' || !name.trim()) return { error: 'name must be a non-empty string' }
+  }
+  for (const [k, v] of Object.entries({ bankName, note })) {
+    if (v !== undefined && typeof v !== 'string') return { error: `${k} must be a string` }
+  }
+  if (accountType !== undefined && !BANK_ACCOUNT_TYPES.includes(accountType)) {
+    return { error: `accountType must be one of: ${BANK_ACCOUNT_TYPES.join(', ')}` }
+  }
+  if (balance !== undefined) {
+    const b = Number(balance)
+    if (!Number.isFinite(b) || b < 0) return { error: 'balance must be a non-negative number' }
+  }
+  return null
+}
+
+app.post('/api/bank-accounts', async (req, res) => {
+  try {
+    const body = req.body || {}
+    const bad = validateBankFields(body, { requireName: true })
+    if (bad) return res.status(400).json(bad)
+    const accounts = await loadBankAccounts()
+    const acc = createBankAccount(body)
+    accounts.push(acc)
+    await saveBankAccounts(accounts)
+    res.json(acc)
+  } catch (e) { res.status(500).json({ error: e.message }) }
+})
+
+app.patch('/api/bank-accounts/:id', async (req, res) => {
+  try {
+    const body = req.body || {}
+    const bad = validateBankFields(body, { requireName: false })
+    if (bad) return res.status(400).json(bad)
+    const accounts = await loadBankAccounts()
+    const acc = accounts.find(a => a.id === req.params.id)
+    if (!acc) return res.status(404).json({ error: 'bank account not found' })
+    const { name, bankName, accountType, balance, note } = body
+    if (name !== undefined) acc.name = name.trim()
+    if (bankName !== undefined) acc.bankName = bankName.trim()
+    if (accountType !== undefined) acc.accountType = accountType
+    if (balance !== undefined) acc.balance = Number(balance)
+    if (note !== undefined) acc.note = note.trim()
+    acc.updatedAt = new Date().toISOString()
+    await saveBankAccounts(accounts)
+    res.json(acc)
+  } catch (e) { res.status(500).json({ error: e.message }) }
+})
+
+app.delete('/api/bank-accounts/:id', async (req, res) => {
+  try {
+    const accounts = await loadBankAccounts()
+    const idx = accounts.findIndex(a => a.id === req.params.id)
+    if (idx === -1) return res.status(404).json({ error: 'bank account not found' })
+    const [removed] = accounts.splice(idx, 1)
+    await saveBankAccounts(accounts)
+    res.json(removed)
   } catch (e) { res.status(500).json({ error: e.message }) }
 })
 

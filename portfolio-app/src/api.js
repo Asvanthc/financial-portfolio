@@ -61,6 +61,11 @@ export const api = {
   mfNav: (codes = []) => getObj(`/api/mf/nav?codes=${encodeURIComponent(codes.join(','))}`),
   stockSearch: (q) => getArr(`/api/stock/search?q=${encodeURIComponent(q)}`),
   refreshAll: () => json('POST', '/api/holdings/refresh-all'),
+  // Bank cash — separate from the investment portfolio, never part of allocation %.
+  getBankAccounts: () => getObj('/api/bank-accounts'),
+  addBankAccount: (a) => json('POST', '/api/bank-accounts', a),
+  updateBankAccount: (id, a) => json('PATCH', `/api/bank-accounts/${id}`, a),
+  deleteBankAccount: (id) => json('DELETE', `/api/bank-accounts/${id}`),
   portfolioOverlap: () => fetch(`${API_ROOT}/api/portfolio/overlap`).then(r => r.json()),
   getExchangeRate: (currency) => fetch(`${API_ROOT}/api/exchange-rate/${encodeURIComponent(currency)}`).then(r => r.json()),
 }
