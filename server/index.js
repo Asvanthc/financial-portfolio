@@ -1097,6 +1097,197 @@ app.delete('/api/subdivisions/:sid', async (req, res) => {
   } catch (e) { res.status(500).json({ error: e.message }) }
 })
 
+// ===== BACKUP / EXPORT / IMPORT =====
+
+const BACKUP_VERSION = 1
+
+async function collectEverything() {
+  const [portfolio, bankAccounts, expenses, categories] = await Promise.all([
+    loadPortfolio(),
+    loadBankAccounts().catch(() => []),
+    loadExpenses().catch(() => []),
+    loadCategories().catch(() => ({ expense: [], income: [] })),
+  ])
+  return {
+    portfolio: { divisions: portfolio.divisions || [] },
+    bankAccounts,
+    // Strip Mongo's _id so a backup can be restored into either storage backend.
+    expenses: (expenses || []).map(({ _id, id, ...rest }) => rest),
+    categories,
+  }
+}
+
+function stampedName(ext) {
+  return `finfolio-backup-${new Date().toISOString().slice(0, 16).replace(/[:T]/g, '-')}.${ext}`
+}
+
+// Full JSON backup — the only export that can be restored.
+app.get('/api/backup', async (_req, res) => {
+  try {
+    const data = await collectEverything()
+    const counts = {
+      divisions: data.portfolio.divisions.length,
+      holdings: data.portfolio.divisions.reduce((n, d) =>
+        n + (d.holdings || []).length + (d.subdivisions || []).reduce((m, s) => m + (s.holdings || []).length, 0), 0),
+      bankAccounts: data.bankAccounts.length,
+      expenses: data.expenses.length,
+    }
+    const body = {
+      app: 'finfolio',
+      backupVersion: BACKUP_VERSION,
+      exportedAt: new Date().toISOString(),
+      counts,
+      ...data,
+    }
+    res.setHeader('Content-Type', 'application/json; charset=utf-8')
+    res.setHeader('Content-Disposition', `attachment; filename="${stampedName('json')}"`)
+    res.send(JSON.stringify(body, null, 2))
+  } catch (e) { res.status(500).json({ error: e.message }) }
+})
+
+// Same payload without the download headers, so the UI can show what's in a backup.
+app.get('/api/backup/summary', async (_req, res) => {
+  try {
+    const data = await collectEverything()
+    res.json({
+      backupVersion: BACKUP_VERSION,
+      divisions: data.portfolio.divisions.length,
+      holdings: data.portfolio.divisions.reduce((n, d) =>
+        n + (d.holdings || []).length + (d.subdivisions || []).reduce((m, s) => m + (s.holdings || []).length, 0), 0),
+      subdivisions: data.portfolio.divisions.reduce((n, d) => n + (d.subdivisions || []).length, 0),
+      bankAccounts: data.bankAccounts.length,
+      expenses: data.expenses.length,
+      categories: (data.categories.expense || []).length + (data.categories.income || []).length,
+    })
+  } catch (e) { res.status(500).json({ error: e.message }) }
+})
+
+function validateBackup(body) {
+  if (!body || typeof body !== 'object') return 'not a JSON object'
+  if (body.app && body.app !== 'finfolio') return `this looks like a backup from "${body.app}", not FinFolio`
+  const divisions = body.portfolio?.divisions ?? body.divisions
+  if (!Array.isArray(divisions)) return 'no portfolio.divisions array found — is this a FinFolio backup?'
+  for (const d of divisions) {
+    if (!d || typeof d !== 'object') return 'a division entry is not an object'
+    if (typeof d.name !== 'string') return 'a division is missing its name'
+    if (d.holdings && !Array.isArray(d.holdings)) return `division "${d.name}" has a malformed holdings list`
+    if (d.subdivisions && !Array.isArray(d.subdivisions)) return `division "${d.name}" has a malformed subdivisions list`
+  }
+  if (body.bankAccounts && !Array.isArray(body.bankAccounts)) return 'bankAccounts is not an array'
+  if (body.expenses && !Array.isArray(body.expenses)) return 'expenses is not an array'
+  return null
+}
+
+// Restore. Deliberately explicit: the caller must pass confirm:true, and the current
+// data is returned as `rollback` in the response so nothing is unrecoverable.
+app.post('/api/backup/restore', async (req, res) => {
+  try {
+    const body = req.body || {}
+    const payload = body.backup || body
+    const problem = validateBackup(payload)
+    if (problem) return res.status(400).json({ error: `Backup rejected: ${problem}` })
+    if (body.confirm !== true) {
+      return res.status(400).json({ error: 'restore requires confirm:true' })
+    }
+
+    const before = await collectEverything()
+    const divisions = payload.portfolio?.divisions ?? payload.divisions
+
+    const restored = { divisions: 0, bankAccounts: 0, expenses: 0, categories: 0 }
+    await savePortfolio({ divisions })
+    restored.divisions = divisions.length
+
+    if (Array.isArray(payload.bankAccounts)) {
+      await saveBankAccounts(payload.bankAccounts)
+      restored.bankAccounts = payload.bankAccounts.length
+    }
+    if (payload.categories && typeof payload.categories === 'object') {
+      await saveCategories({
+        expense: payload.categories.expense || [],
+        income: payload.categories.income || [],
+      })
+      restored.categories = (payload.categories.expense || []).length + (payload.categories.income || []).length
+    }
+    if (Array.isArray(payload.expenses)) {
+      // saveMonthExpenses replaces a whole month at a time, so group first.
+      const byMonth = new Map()
+      payload.expenses.forEach(e => {
+        const y = Number(e.year), m = Number(e.month)
+        if (!y || !m) return
+        const k = `${y}-${m}`
+        if (!byMonth.has(k)) byMonth.set(k, { year: y, month: m, entries: [] })
+        byMonth.get(k).entries.push({
+          type: e.type === 'income' ? 'income' : 'expense',
+          category: e.category || 'Other',
+          amount: Number(e.amount) || 0,
+          description: e.description || '',
+        })
+      })
+      for (const { year, month, entries } of byMonth.values()) {
+        await saveMonthExpenses(year, month, entries)
+        restored.expenses += entries.length
+      }
+    }
+
+    console.log('[BACKUP] Restored', JSON.stringify(restored))
+    res.json({ ok: true, restored, rollback: before })
+  } catch (e) { res.status(500).json({ error: e.message }) }
+})
+
+// Styled, formula-driven Excel workbook.
+app.get('/api/export/excel', async (_req, res) => {
+  try {
+    const { buildWorkbook } = require('./exportExcel')
+    const [portfolio, bankAccounts, expenses] = await Promise.all([
+      loadPortfolio(),
+      loadBankAccounts().catch(() => []),
+      loadExpenses().catch(() => []),
+    ])
+    const analytics = computeAnalytics(portfolio)
+    const wb = await buildWorkbook({ portfolio, bankAccounts, expenses, analytics })
+    res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
+    res.setHeader('Content-Disposition', `attachment; filename="finfolio-${new Date().toISOString().slice(0, 10)}.xlsx"`)
+    await wb.xlsx.write(res)
+    res.end()
+  } catch (e) {
+    console.error('[EXPORT] Excel build failed:', e)
+    if (!res.headersSent) res.status(500).json({ error: e.message })
+    else res.end()
+  }
+})
+
+// Flat CSV of every holding — for spreadsheets that would rather not open .xlsx.
+app.get('/api/export/csv', async (_req, res) => {
+  try {
+    const { flattenHoldings } = require('./exportExcel')
+    const portfolio = await loadPortfolio()
+    const rows = flattenHoldings(portfolio)
+    const head = [
+      'Division', 'Subdivision', 'Holding', 'Type', 'Platform', 'Ticker', 'SchemeCode',
+      'Units', 'BuyPrice', 'CurrentPrice', 'Invested', 'CurrentValue', 'ProfitLoss',
+      'ReturnPct', 'Sector', 'MarketCap', 'Currency', 'PriceDate', 'PriceSource', 'Note',
+    ]
+    const esc = v => {
+      const s = v == null ? '' : String(v)
+      return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s
+    }
+    const lines = [head.join(',')]
+    rows.forEach(h => {
+      const inv = Number(h.invested) || 0
+      const cur = Number(h.current) || 0
+      lines.push([
+        h.divisionName, h.subdivisionName, h.name, h.assetType, h.platform, h.ticker, h.schemeCode,
+        h.units, h.buyPrice, h.currentPrice, inv, cur, cur - inv,
+        inv > 0 ? (((cur - inv) / inv) * 100).toFixed(2) : '',
+        h.sector, h.capCategory, h.currency || 'INR', h.priceDate, h.priceSource, h.note,
+      ].map(esc).join(','))
+    })
+    res.setHeader('Content-Type', 'text/csv; charset=utf-8')
+    res.setHeader('Content-Disposition', `attachment; filename="finfolio-holdings-${new Date().toISOString().slice(0, 10)}.csv"`)
+    res.send('﻿' + lines.join('\n'))   // BOM so Excel reads ₹ and names correctly
+  } catch (e) { res.status(500).json({ error: e.message }) }
+})
+
 // ===== EXPENSES ROUTES =====
 
 // Get all expenses

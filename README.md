@@ -75,6 +75,27 @@ from every allocation %, target %, goal-seek and rebalance figure. Endpoints:
 This is distinct from holdings with `platform: 'bank'` or `assetType: 'fd'`, which *are* part of
 the portfolio.
 
+## Export & backup
+
+The **Export** button in the header opens everything data-related.
+
+| What | Endpoint | Restorable? |
+|---|---|---|
+| Excel workbook (.xlsx) | `GET /api/export/excel` | no — it's a model, not a backup |
+| Holdings CSV | `GET /api/export/csv` | no |
+| JSON backup | `GET /api/backup` | **yes** |
+| Restore | `POST /api/backup/restore` `{backup, confirm:true}` | — |
+
+The workbook is generated with ExcelJS and is *live*, not a snapshot: Holdings is the source
+data and every other sheet (Divisions, Subdivisions, Breakdown, Bank cash, Monthly, Projection)
+derives from it with real `SUMIF`/`SUMIFS` formulas, so editing a price in column I recalculates
+the whole file. The Projection sheet has yellow input cells and reproduces the app's own
+projection maths — verified to the rupee against it.
+
+Restore is deliberately awkward: it needs `confirm: true`, it validates the file's shape before
+touching anything, it tells you what's in the file *and* what will be overwritten, and it returns
+the previous data as `rollback` in the response. Only the JSON backup can be restored.
+
 ## Notes
 - The app reads the workbook on every request, ensuring it always reflects the latest file.
 - If your workbook has time-series data (e.g., Year/Month), group by that and set a numeric value, then swap to a Line chart for trends.

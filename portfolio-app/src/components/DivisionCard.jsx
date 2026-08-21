@@ -1,5 +1,7 @@
 import React, { useState, useRef } from 'react'
 import { api } from '../api'
+import { toast } from '../toast'
+import { money } from '../format'
 import { SECTORS, CAP_CATEGORIES, CAP_SECTOR_ELIGIBLE, sectorColor, capColor } from '../constants'
 
 const PLATFORMS = {
@@ -158,22 +160,37 @@ export default function DivisionCard({ division, analytics, onUpdate }) {
       onUpdate?.()
       // The server writes the price but flags one that moved implausibly (usually a
       // mis-resolved ticker), and refuses one it couldn't convert to INR at all.
-      if (r?.newPrice == null && r?.hint) alert(r.hint)
-      else if (r?.suspicious) {
-        alert(
-          `Saved, but check this one:\n\n${holding.name}\n` +
-          `₹${r.suspicious.oldPrice} → ₹${r.suspicious.newPrice} (${r.suspicious.source || 'unknown source'})\n\n` +
-          `That's a big jump for one refresh. If it looks wrong, fix it with the ✏ Prices editor.`
-        )
+      if (r?.newPrice == null) {
+        toast.warn(`No price for ${holding.name}`, { detail: r?.hint || r?.reason || 'No source returned a quote.' })
+      } else if (r?.suspicious) {
+        toast.warn(`${holding.name} moved a lot — worth a check`, {
+          detail: `${money(r.suspicious.oldPrice)} → ${money(r.suspicious.newPrice)} via ${r.suspicious.source || 'unknown source'}. Saved anyway; fix it in Prices if it looks wrong.`,
+        })
+      } else {
+        toast.success(`${holding.name} updated`, {
+          detail: `${money(r.newPrice)}${r.source ? ` via ${r.source}` : ''}`,
+        })
       }
     }
-    catch (e) { alert('Price fetch failed: ' + e.message) }
+    catch (e) { toast.error(`Couldn't price ${holding.name}`, { detail: e.message }) }
     finally { setRefreshingId(null) }
   }
 
   return (
     <div className="div-card">
-      <div className="div-header" onClick={() => !editingHeader && setExpanded(e => !e)}>
+      {/* Collapsible via a div, so give it button semantics and keyboard support */}
+      <div
+        className="div-header"
+        role="button"
+        tabIndex={editingHeader ? -1 : 0}
+        aria-expanded={expanded}
+        aria-label={`${division.name}, ${expanded ? 'collapse' : 'expand'}`}
+        onClick={() => !editingHeader && setExpanded(e => !e)}
+        onKeyDown={e => {
+          if (editingHeader) return
+          if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setExpanded(x => !x) }
+        }}
+      >
         <span className={`chevron${expanded ? ' open' : ''}`}>▶</span>
         {editingHeader ? (
           <div className="flex gap-2 items-center flex-1" onClick={e => e.stopPropagation()}>
@@ -372,12 +389,12 @@ function SubdivisionBlock({ subdivision, divisionId, analytics, divisionCurrent,
 
 function HoldingsTable({ holdings, onUpdate, onRefresh, refreshingId, editingHolding, setEditingHolding, indent, parentCurrent, totalCurrent }) {
   return (
-    <div style={{ overflowX:'auto', paddingLeft: indent ? 16 : 0 }}>
+    <div className="scroll-x" style={{ paddingLeft: indent ? 16 : 0 }}>
       <table className="holdings-table">
         <thead>
           <tr>
-            <th>Name</th><th>Platform</th><th>Type</th>
-            <th className="right">Units</th><th className="right">Avg ₹</th>
+            <th>Name</th><th className="col-optional">Platform</th><th className="col-optional">Type</th>
+            <th className="right col-optional">Units</th><th className="right col-optional">Avg ₹</th>
             <th className="right">Cur ₹</th><th className="right">Invested</th>
             <th className="right">Current</th><th className="right">P/L</th><th></th>
           </tr>
@@ -469,10 +486,10 @@ function HoldingRow({ holding: h, onEdit, onRefresh, refreshing, onDelete, paren
         )}
         {h.note      && <div style={{ fontSize:11, color:'var(--text3)', fontStyle:'italic' }}>{h.note}</div>}
       </td>
-      <td><span className={`platform-badge ${platform.cls}`}>{platform.icon} {platform.label}</span></td>
-      <td><span className="asset-type">{ASSET_TYPES[h.assetType] || h.assetType || '—'}</span></td>
-      <td className="right num">{h.units > 0 ? h.units.toLocaleString('en-IN',{maximumFractionDigits:4}) : '—'}</td>
-      <td className="right num" style={{ color:'var(--text2)' }}>
+      <td className="col-optional"><span className={`platform-badge ${platform.cls}`}>{platform.icon} {platform.label}</span></td>
+      <td className="col-optional"><span className="asset-type">{ASSET_TYPES[h.assetType] || h.assetType || '—'}</span></td>
+      <td className="right num col-optional">{h.units > 0 ? h.units.toLocaleString('en-IN',{maximumFractionDigits:4}) : '—'}</td>
+      <td className="right num col-optional" style={{ color:'var(--text2)' }}>
         {h.buyPrice > 0 ? (
           h.currency && h.foreignBuyPrice > 0
             ? <div>

@@ -14,24 +14,36 @@ async function json(method, path, body) {
   return data
 }
 
+// Failures in the resilient helpers below are swallowed so the UI can't crash, but
+// swallowing them silently meant a dead backend looked like an empty portfolio.
+// The app registers a reporter here and shows a banner / toast instead.
+let errorReporter = null
+export function onApiError(fn) { errorReporter = fn }
+function report(path, message) {
+  try { errorReporter?.({ path, message }) } catch (_) {}
+}
+
 // Resilient GET helpers for endpoints whose result shape the UI relies on.
 // A failed request (network error, 4xx/5xx, or a JSON error object) must NEVER
 // leak a non-array/non-object back to the UI — otherwise `.map` etc. crash the app.
 async function getArr(path) {
   try {
     const r = await fetch(`${API_ROOT}${path}`)
-    if (!r.ok) return []
+    if (!r.ok) { report(path, `${r.status} ${r.statusText}`); return [] }
     const d = await r.json().catch(() => [])
-    return Array.isArray(d) ? d : []
-  } catch (_) { return [] }
+    if (!Array.isArray(d)) { report(path, d?.error || 'unexpected response'); return [] }
+    return d
+  } catch (e) { report(path, e.message); return [] }
 }
 async function getObj(path) {
   try {
     const r = await fetch(`${API_ROOT}${path}`)
-    if (!r.ok) return {}
+    if (!r.ok) { report(path, `${r.status} ${r.statusText}`); return {} }
     const d = await r.json().catch(() => ({}))
-    return (d && typeof d === 'object' && !Array.isArray(d)) ? d : {}
-  } catch (_) { return {} }
+    if (!d || typeof d !== 'object' || Array.isArray(d)) { report(path, 'unexpected response'); return {} }
+    if (d.error) { report(path, d.error); return {} }
+    return d
+  } catch (e) { report(path, e.message); return {} }
 }
 
 export const api = {
@@ -47,9 +59,12 @@ export const api = {
   updateHolding: (hid, h) => json('PATCH', `/api/holdings/${hid}`, h),
   deleteHolding: (hid) => json('DELETE', `/api/holdings/${hid}`),
   refreshHoldingPrice: (hid) => json('POST', `/api/holdings/${hid}/refresh-price`),
-  analytics: (budget) => fetch(`${API_ROOT}/api/portfolio/analytics${budget !== undefined ? `?budget=${encodeURIComponent(budget)}` : ''}`).then(r => r.json()),
-  subdivisionGoalSeek: () => fetch(`${API_ROOT}/api/subdivision-goal-seek`).then(r => r.json()),
-  getExpenses: () => fetch(`${API_ROOT}/api/expenses`).then(r => r.json()),
+  // These three feed the whole dashboard. A 5xx used to resolve to `{error: "..."}`,
+  // which the UI then rendered as zeros with no sign anything had failed. Now the
+  // shape is guaranteed and the failure is reported through onApiError.
+  analytics: (budget) => getObj(`/api/portfolio/analytics${budget !== undefined ? `?budget=${encodeURIComponent(budget)}` : ''}`),
+  subdivisionGoalSeek: () => getObj('/api/subdivision-goal-seek'),
+  getExpenses: () => getArr('/api/expenses'),
   addExpense: (exp) => json('POST', '/api/expenses', exp),
   deleteExpense: (id) => json('DELETE', `/api/expenses/${id}`),
   saveMonthExpenses: (year, month, entries) => json('POST', '/api/expenses/month', { year, month, entries }),
@@ -68,4 +83,9 @@ export const api = {
   deleteBankAccount: (id) => json('DELETE', `/api/bank-accounts/${id}`),
   portfolioOverlap: () => fetch(`${API_ROOT}/api/portfolio/overlap`).then(r => r.json()),
   getExchangeRate: (currency) => fetch(`${API_ROOT}/api/exchange-rate/${encodeURIComponent(currency)}`).then(r => r.json()),
+
+  // Export / backup / restore
+  exportUrl: (kind) => `${API_ROOT}${kind === 'excel' ? '/api/export/excel' : kind === 'csv' ? '/api/export/csv' : '/api/backup'}`,
+  backupSummary: () => getObj('/api/backup/summary'),
+  restoreBackup: (backup) => json('POST', '/api/backup/restore', { backup, confirm: true }),
 }

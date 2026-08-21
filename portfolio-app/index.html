@@ -224,12 +224,99 @@
       .modal-box { background: var(--surface); border: 1px solid var(--border2); border-radius: var(--radius-lg); padding: 24px; width: 100%; max-width: 540px; }
       .modal-title { font-size: 16px; font-weight: 800; margin: 0 0 18px 0; }
 
+      /* Header actions */
+      .header-actions { display: flex; align-items: center; gap: 8px; margin-left: auto; }
+      .header-hint { font-size: 11px; color: var(--text3); white-space: nowrap; }
+      .btn-sync { min-width: 96px; justify-content: center; }
+
+      /* Banners — inline, dismissible, above the content they describe */
+      .banner { display: flex; align-items: flex-start; gap: 10px; padding: 12px 14px; border-radius: var(--radius);
+                border: 1px solid var(--border); background: var(--surface); margin-bottom: 16px; font-size: 13px; line-height: 1.45; }
+      .banner-error { border-color: rgba(248,113,113,0.35); background: rgba(248,113,113,0.07); }
+      .banner-error > span:first-child { color: var(--red); }
+      .banner-warn { border-color: rgba(251,146,60,0.35); background: rgba(251,146,60,0.07); }
+      .banner-warn > span:first-child { color: var(--orange); }
+
+      /* Toasts */
+      .toast-stack { position: fixed; bottom: 16px; right: 16px; z-index: 10000; display: flex; flex-direction: column;
+                     gap: 8px; width: min(92vw, 380px); }
+      .toast { display: flex; align-items: flex-start; gap: 10px; padding: 11px 12px; border-radius: var(--radius);
+               border: 1px solid var(--border2); background: var(--surface2); box-shadow: 0 10px 30px rgba(0,0,0,0.55);
+               animation: toast-in 0.18s ease-out; }
+      .toast-icon { flex-shrink: 0; width: 20px; height: 20px; border-radius: 99px; border: 1px solid;
+                    display: flex; align-items: center; justify-content: center; font-size: 11px; font-weight: 800; }
+      .toast-msg { font-size: 13px; font-weight: 700; color: var(--text); }
+      .toast-detail { font-size: 11px; color: var(--text2); margin-top: 2px; word-break: break-word; }
+      @keyframes toast-in { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }
+
+      /* Loading skeletons */
+      .skeleton { border-radius: 4px; background: linear-gradient(90deg, var(--surface2) 25%, #1b2534 37%, var(--surface2) 63%);
+                  background-size: 400% 100%; animation: shimmer 1.3s ease-in-out infinite; }
+      @keyframes shimmer { from { background-position: 100% 0; } to { background-position: 0 0; } }
+
+      /* Empty states */
+      .empty-state { background: var(--surface); border: 1px dashed var(--border2); border-radius: var(--radius-lg);
+                     padding: 32px 24px; text-align: center; }
+      .empty-state-icon { font-size: 28px; color: var(--text3); line-height: 1; margin-bottom: 10px; }
+      .empty-state-title { font-size: 15px; font-weight: 800; color: var(--text); margin-bottom: 6px; }
+      .empty-state-body { font-size: 13px; color: var(--text2); max-width: 460px; margin: 0 auto 16px; line-height: 1.5; }
+
+      /* Export / backup rows */
+      .data-row { display: flex; align-items: flex-start; gap: 12px; padding: 14px; border: 1px solid var(--border);
+                  border-radius: var(--radius); background: var(--surface2); margin-bottom: 10px; }
+      .data-row-icon { font-size: 20px; line-height: 1.2; flex-shrink: 0; }
+      .data-row-title { font-size: 13px; font-weight: 800; color: var(--text); margin-bottom: 3px; }
+      .data-row-body { font-size: 12px; color: var(--text2); line-height: 1.5; }
+      .restore-confirm { border: 1px solid rgba(248,113,113,0.4); background: rgba(248,113,113,0.07);
+                         border-radius: var(--radius); padding: 14px; margin-top: 4px; }
+
+      /* Horizontal-scroll affordance for wide tables */
+      .scroll-x { overflow-x: auto; }
+      .scroll-x-hint { position: relative; }
+      .scroll-x-hint::after { content: ''; position: absolute; top: 0; right: 0; bottom: 0; width: 26px;
+                              pointer-events: none; background: linear-gradient(to right, rgba(13,17,23,0), rgba(13,17,23,0.92)); }
+
+      /* Sortable table headers */
+      .sortable { cursor: pointer; user-select: none; white-space: nowrap; }
+      .sortable:hover { color: var(--text); }
+      .sort-arrow { font-size: 9px; margin-left: 3px; color: var(--cyan); }
+
       /* Responsive */
+      @media (max-width: 860px) {
+        /* Labels drop out before the buttons start wrapping onto a second line */
+        .btn-label { display: none; }
+        .btn-sync { min-width: 0; }
+      }
       @media (max-width: 640px) {
-        .app-header-inner { gap: 10px; }
+        .app-header { padding: 0 12px; }
+        .app-header-inner { gap: 8px; height: auto; padding: 8px 0; flex-wrap: wrap; }
         .app-content { padding: 16px 12px; }
         .kpi-row { grid-template-columns: 1fr 1fr; }
-        .div-stats { display: none; }
+        /* The bank/net-worth card reads better full width than squeezed into a column */
+        .kpi-row > .kpi-card:last-child:nth-child(odd) { grid-column: 1 / -1; }
+        .kpi-value { font-size: 22px; }
+
+        /* The tab bar used to scroll off screen with no hint that more tabs existed.
+           Wrapping shows all of them, which matters more than a single-line header. */
+        /* flex-basis beats width on a flex item, so the base `flex: 1` has to be
+           overridden here or the nav shares the title's line instead of wrapping. */
+        .tab-nav { order: 3; flex: 0 0 100%; flex-wrap: wrap; gap: 4px; overflow: visible; }
+        .tab-btn { padding: 6px 10px; font-size: 12px; }
+        .header-actions { margin-left: auto; }
+
+        /* Division money used to be hidden entirely on mobile (`display:none`), so a
+           phone showed no invested/current/P&L anywhere. Stack it under the name. */
+        .div-stats { display: flex; gap: 10px; font-size: 11px; flex-wrap: wrap; }
+        .div-header { flex-wrap: wrap; row-gap: 6px; }
+        .div-name { flex: 1 1 auto; min-width: 0; }
+        .holdings-table th, .holdings-table td { padding: 8px 9px; }
+        .holdings-table { font-size: 12px; }
+        /* On a phone, invested/current/P&L matter more than units, avg price,
+           platform and asset type — drop those so the money fits on screen. */
+        .col-optional { display: none; }
+        .toast-stack { right: 8px; left: 8px; width: auto; bottom: 8px; }
+        .data-row { flex-wrap: wrap; }
+        .data-row > div:last-child { width: 100%; }
       }
     </style>
   </head>

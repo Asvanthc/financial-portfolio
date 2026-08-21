@@ -304,45 +304,136 @@ export default function DeepAnalytics({ divisions, analytics }) {
       <ProjectionPanel currentValue={totalCurrent} investedValue={totalInvested} />
 
       {/* Holdings detail */}
-      {metrics.allItems.length > 0 && (
-        <div className="card-lg">
-          <div className="card-title">All Positions</div>
-          <div style={{ overflowX: 'auto' }}>
-            <table className="holdings-table">
-              <thead>
-                <tr>
-                  <th>Name</th>
-                  <th>Division</th>
-                  <th>Platform</th>
-                  <th className="right">Invested</th>
-                  <th className="right">Current</th>
-                  <th className="right">P/L</th>
-                  <th className="right">ROI</th>
-                  <th className="right">% of Portfolio</th>
-                </tr>
-              </thead>
-              <tbody>
-                {[...metrics.allItems].sort((a, b) => b.current - a.current).map((h, i) => {
-                  const PCLS = { kite: 'platform-kite', groww: 'platform-groww', indmoney: 'platform-indmoney', bank: 'platform-bank', other: 'platform-other' }
-                  const PLABELS = { kite: 'Kite', groww: 'Groww', indmoney: 'IndMoney', bank: 'Bank', other: 'Other' }
-                  return (
-                    <tr key={i}>
-                      <td style={{ fontWeight: 600 }}>{h.name}</td>
-                      <td className="text-sm text-muted">{h.parent}</td>
-                      <td><span className={`platform-badge ${PCLS[h.platform] || 'platform-other'}`}>{PLABELS[h.platform] || h.platform || 'Other'}</span></td>
-                      <td className="right num">{fmt(h.invested)}</td>
-                      <td className="right num" style={{ color: 'var(--purple)' }}>{fmt(h.current)}</td>
-                      <td className="right num"><span className={h.profit >= 0 ? 'pos' : 'neg'}>{h.profit >= 0 ? '+' : ''}{fmt(h.profit)}</span></td>
-                      <td className="right num"><span className={h.roi >= 0 ? 'pos' : 'neg'}>{h.roi >= 0 ? '+' : ''}{h.roi.toFixed(1)}%</span></td>
-                      <td className="right num text-muted">{h.currentPct.toFixed(1)}%</td>
-                    </tr>
-                  )
-                })}
-              </tbody>
-            </table>
-          </div>
+      {metrics.allItems.length > 0 && <AllPositions items={metrics.allItems} />}
+    </div>
+  )
+}
+
+// Every position, searchable and sortable. With a few dozen holdings the old
+// fixed sort-by-value list meant hunting; typing a name or clicking a column is
+// what anyone actually wants to do here.
+const PCLS = { kite: 'platform-kite', groww: 'platform-groww', indmoney: 'platform-indmoney', bank: 'platform-bank', other: 'platform-other' }
+const PLABELS = { kite: 'Kite', groww: 'Groww', indmoney: 'IndMoney', bank: 'Bank', other: 'Other' }
+
+const POSITION_COLS = [
+  { key: 'name', label: 'Name', align: 'left' },
+  { key: 'parent', label: 'Division', align: 'left' },
+  { key: 'platform', label: 'Platform', align: 'left' },
+  { key: 'invested', label: 'Invested', align: 'right' },
+  { key: 'current', label: 'Current', align: 'right' },
+  { key: 'profit', label: 'P/L', align: 'right' },
+  { key: 'roi', label: 'ROI', align: 'right' },
+  { key: 'currentPct', label: '% of Portfolio', align: 'right' },
+]
+
+function AllPositions({ items }) {
+  const [query, setQuery] = useState('')
+  const [sort, setSort] = useState({ key: 'current', dir: 'desc' })
+
+  const rows = useMemo(() => {
+    const q = query.trim().toLowerCase()
+    const filtered = q
+      ? items.filter(h => [h.name, h.parent, h.platform, h.sector, h.capCategory, h.assetType]
+          .some(v => String(v || '').toLowerCase().includes(q)))
+      : items
+    const dir = sort.dir === 'asc' ? 1 : -1
+    return [...filtered].sort((a, b) => {
+      const av = a[sort.key], bv = b[sort.key]
+      if (typeof av === 'number' && typeof bv === 'number') return (av - bv) * dir
+      return String(av ?? '').localeCompare(String(bv ?? '')) * dir
+    })
+  }, [items, query, sort])
+
+  const toggle = key => setSort(s => ({
+    key,
+    // Text reads naturally A→Z first; numbers are far more useful biggest-first.
+    dir: s.key === key ? (s.dir === 'asc' ? 'desc' : 'asc') : (['name', 'parent', 'platform'].includes(key) ? 'asc' : 'desc'),
+  }))
+
+  const totals = rows.reduce((t, h) => ({
+    invested: t.invested + h.invested, current: t.current + h.current, profit: t.profit + h.profit,
+  }), { invested: 0, current: 0, profit: 0 })
+
+  return (
+    <div className="card-lg">
+      <div className="section-header" style={{ marginBottom: 12 }}>
+        <div className="card-title" style={{ margin: 0 }}>
+          All Positions
+          <span className="text-xs text-dim" style={{ fontWeight: 500, marginLeft: 8 }}>
+            {rows.length === items.length ? `${items.length} holdings` : `${rows.length} of ${items.length}`}
+          </span>
         </div>
-      )}
+        <div className="flex items-center gap-2">
+          <input
+            className="input input-sm"
+            style={{ width: 200 }}
+            type="search"
+            placeholder="Filter by name, division…"
+            value={query}
+            onChange={e => setQuery(e.target.value)}
+            aria-label="Filter positions"
+          />
+          {query && <button className="btn-icon" aria-label="Clear filter" onClick={() => setQuery('')}>✕</button>}
+        </div>
+      </div>
+
+      <div className="scroll-x">
+        <table className="holdings-table">
+          <thead>
+            <tr>
+              {POSITION_COLS.map(c => (
+                <th
+                  key={c.key}
+                  className={`sortable${c.align === 'right' ? ' right' : ''}`}
+                  onClick={() => toggle(c.key)}
+                  aria-sort={sort.key === c.key ? (sort.dir === 'asc' ? 'ascending' : 'descending') : 'none'}
+                  title={`Sort by ${c.label}`}
+                  style={c.align === 'right' ? { textAlign: 'right' } : undefined}
+                >
+                  {c.label}
+                  {sort.key === c.key && <span className="sort-arrow">{sort.dir === 'asc' ? '▲' : '▼'}</span>}
+                </th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map((h, i) => (
+              <tr key={`${h.parent}-${h.name}-${i}`}>
+                <td style={{ fontWeight: 600 }}>{h.name}</td>
+                <td className="text-sm text-muted">{h.parent}</td>
+                <td><span className={`platform-badge ${PCLS[h.platform] || 'platform-other'}`}>{PLABELS[h.platform] || h.platform || 'Other'}</span></td>
+                <td className="right num">{fmt(h.invested)}</td>
+                <td className="right num" style={{ color: 'var(--purple)' }}>{fmt(h.current)}</td>
+                <td className="right num"><span className={h.profit >= 0 ? 'pos' : 'neg'}>{h.profit >= 0 ? '+' : ''}{fmt(h.profit)}</span></td>
+                <td className="right num"><span className={h.roi >= 0 ? 'pos' : 'neg'}>{h.roi >= 0 ? '+' : ''}{h.roi.toFixed(1)}%</span></td>
+                <td className="right num text-muted">{h.currentPct.toFixed(1)}%</td>
+              </tr>
+            ))}
+            {rows.length === 0 && (
+              <tr><td colSpan={POSITION_COLS.length} style={{ textAlign: 'center', color: 'var(--text3)', padding: 24 }}>
+                Nothing matches “{query}”.
+              </td></tr>
+            )}
+            {rows.length > 1 && (
+              <tr style={{ background: 'rgba(255,255,255,0.03)' }}>
+                <td style={{ fontWeight: 800 }}>{rows.length === items.length ? 'Total' : 'Filtered total'}</td>
+                <td /><td />
+                <td className="right num" style={{ fontWeight: 800 }}>{fmt(totals.invested)}</td>
+                <td className="right num" style={{ fontWeight: 800, color: 'var(--purple)' }}>{fmt(totals.current)}</td>
+                <td className="right num" style={{ fontWeight: 800 }}>
+                  <span className={totals.profit >= 0 ? 'pos' : 'neg'}>{totals.profit >= 0 ? '+' : ''}{fmt(totals.profit)}</span>
+                </td>
+                <td className="right num" style={{ fontWeight: 800 }}>
+                  <span className={totals.profit >= 0 ? 'pos' : 'neg'}>
+                    {totals.invested > 0 ? `${totals.profit >= 0 ? '+' : ''}${((totals.profit / totals.invested) * 100).toFixed(1)}%` : '—'}
+                  </span>
+                </td>
+                <td />
+              </tr>
+            )}
+          </tbody>
+        </table>
+      </div>
     </div>
   )
 }
