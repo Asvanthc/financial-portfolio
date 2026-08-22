@@ -1,6 +1,13 @@
 const fs = require('fs')
 const path = require('path')
 const { randomUUID } = require('crypto')
+const gh = require('./githubStore')
+
+// Backend priority: GitHub repo > MongoDB > local JSON file.
+// The file path is only durable in local dev — on a Render free instance the
+// filesystem is wiped on every deploy, restart and spin-down, so it must never be
+// the last word in production. See githubStore.js for why GitHub is the default.
+if (gh.isEnabled()) gh.verify().catch(() => {})
 
 // MongoDB support (optional)
 let db = null
@@ -44,6 +51,12 @@ function ensureDataFile() {
 }
 
 async function loadPortfolio() {
+  if (gh.isEnabled()) {
+    const data = await gh.readJson(gh.FILES.portfolio, { divisions: [], updatedAt: null })
+    if (!Array.isArray(data.divisions)) data.divisions = []
+    return data
+  }
+
   // Try MongoDB first
   if (portfolioCollection) {
     try {
@@ -70,6 +83,8 @@ async function loadPortfolio() {
 }
 
 async function loadExpenses() {
+  if (gh.isEnabled()) return gh.readJson(gh.FILES.expenses, [])
+
   if (expensesCollection) {
     try {
       const count = await expensesCollection.countDocuments({})
@@ -140,6 +155,11 @@ async function loadExpenses() {
 }
 
 async function loadCategories() {
+  if (gh.isEnabled()) {
+    const c = await gh.readJson(gh.FILES.categories, { expense: [], income: [] })
+    return { expense: c.expense || [], income: c.income || [] }
+  }
+
   if (categoriesCollection) {
     try {
       const doc = await categoriesCollection.findOne({ _id: 'categories' })
@@ -188,6 +208,8 @@ async function bankStore(waitMs = 5000) {
 }
 
 async function loadBankAccounts() {
+  if (gh.isEnabled()) return gh.readJson(gh.FILES.bank, [])
+
   const coll = await bankStore()
   if (coll) {
     const doc = await coll.findOne({ _id: 'accounts' })
@@ -204,6 +226,12 @@ async function loadBankAccounts() {
 
 async function saveBankAccounts(accounts) {
   const list = Array.isArray(accounts) ? accounts : []
+  if (gh.isEnabled()) {
+    const total = list.reduce((s, a) => s + (Number(a.balance) || 0), 0)
+    await gh.writeJson(gh.FILES.bank, list, `bank: ${list.length} accounts, total ${Math.round(total)}`)
+    return list
+  }
+
   const coll = await bankStore()
   if (coll) {
     // Let a write failure surface as a 500 instead of quietly landing in a file the
@@ -238,7 +266,18 @@ function createBankAccount({ name, bankName = '', accountType = 'savings', balan
 
 async function savePortfolio(portfolio) {
   const data = { ...portfolio, updatedAt: new Date().toISOString() }
-  
+
+  if (gh.isEnabled()) {
+    const holdings = (data.divisions || []).reduce((n, d) =>
+      n + (d.holdings || []).length + (d.subdivisions || []).reduce((m, s) => m + (s.holdings || []).length, 0), 0)
+    await gh.writeJson(
+      gh.FILES.portfolio,
+      { divisions: data.divisions || [], updatedAt: data.updatedAt },
+      `portfolio: ${data.divisions?.length || 0} divisions, ${holdings} holdings`
+    )
+    return data
+  }
+
   // Try MongoDB first
   if (portfolioCollection) {
     try {
@@ -270,6 +309,15 @@ async function savePortfolio(portfolio) {
 }
 
 async function saveExpense(expense) {
+  if (gh.isEnabled()) {
+    const list = await gh.readJson(gh.FILES.expenses, [])
+    const doc = { ...expense, _id: randomUUID(), createdAt: new Date().toISOString() }
+    list.push(doc)
+    await gh.writeJson(gh.FILES.expenses, list,
+      `expense: +${doc.type || 'expense'} ${doc.category || ''} ${Math.round(Number(doc.amount) || 0)}`)
+    return doc
+  }
+
   if (expensesCollection) {
     try {
       const result = await expensesCollection.insertOne({ ...expense, createdAt: new Date().toISOString() })
@@ -291,6 +339,14 @@ async function saveExpense(expense) {
 }
 
 async function deleteExpense(id) {
+  if (gh.isEnabled()) {
+    const list = await gh.readJson(gh.FILES.expenses, [])
+    const next = list.filter(e => String(e._id ?? e.id) !== String(id))
+    if (next.length === list.length) return false
+    await gh.writeJson(gh.FILES.expenses, next, `expense: removed 1 entry`)
+    return true
+  }
+
   if (expensesCollection) {
     try {
       const { ObjectId } = require('mongodb')
@@ -301,11 +357,35 @@ async function deleteExpense(id) {
       console.error('[STORAGE] MongoDB expense delete failed:', e.message)
     }
   }
-  return false
+
+  // File mode used to just `return false` here, so the delete button silently did
+  // nothing whenever Mongo wasn't configured.
+  ensureDataFile()
+  const data = JSON.parse(fs.readFileSync(DATA_FILE, 'utf8'))
+  const list = Array.isArray(data.expenses) ? data.expenses : []
+  const next = list.filter(e => String(e._id ?? e.id) !== String(id))
+  if (next.length === list.length) return false
+  data.expenses = next
+  fs.writeFileSync(DATA_FILE, JSON.stringify(data, null, 2))
+  return true
 }
 
 async function saveMonthExpenses(year, month, entries) {
   const y = Number(year), m = Number(month)
+
+  if (gh.isEnabled()) {
+    const list = await gh.readJson(gh.FILES.expenses, [])
+    const kept = list.filter(e => !(Number(e.year) === y && Number(e.month) === m))
+    const docs = entries.map(e => ({
+      _id: randomUUID(), type: e.type, category: e.category,
+      amount: Number(e.amount), month: m, year: y,
+      description: e.description || '', createdAt: new Date().toISOString(),
+    }))
+    await gh.writeJson(gh.FILES.expenses, [...kept, ...docs],
+      `expenses: ${y}-${String(m).padStart(2, '0')} set to ${docs.length} entries`)
+    return entries
+  }
+
   if (expensesCollection) {
     try {
       await expensesCollection.deleteMany({ year: y, month: m })
@@ -338,6 +418,13 @@ async function saveMonthExpenses(year, month, entries) {
 }
 
 async function saveCategories(categories) {
+  const payload = { expense: categories.expense || [], income: categories.income || [] }
+  if (gh.isEnabled()) {
+    await gh.writeJson(gh.FILES.categories, payload,
+      `categories: ${payload.expense.length} expense, ${payload.income.length} income`)
+    return payload
+  }
+
   if (categoriesCollection) {
     try {
       await categoriesCollection.updateOne(

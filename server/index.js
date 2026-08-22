@@ -789,6 +789,26 @@ app.get('/api/debug/price-sources', async (_req, res) => {
   } catch (e) { res.status(500).json({ error: e.message }) }
 })
 
+// Which storage backend is live, and is it actually durable? Worth an endpoint:
+// with three possible backends there was no way to tell from the outside, and the
+// answer decides whether your data survives the next deploy.
+app.get('/api/debug/storage', (_req, res) => {
+  const gh = require('./githubStore')
+  const ghStatus = gh.status()
+  const mongo = !!process.env.MONGODB_URI
+  const backend = ghStatus.enabled ? 'github' : mongo ? 'mongodb' : 'file'
+  const durable = backend !== 'file'
+  res.json({
+    backend,
+    durable,
+    warning: durable ? null
+      : 'Local JSON file. On a Render free instance the filesystem is wiped on every deploy, restart and 15-minute spin-down — set GITHUB_TOKEN + GITHUB_DATA_REPO, or MONGODB_URI.',
+    github: ghStatus,
+    mongodbConfigured: mongo,
+    dataFile: require('./storage').DATA_FILE,
+  })
+})
+
 // Price cache state / manual invalidation
 app.get('/api/debug/price-cache', (_req, res) => res.json(prices.cacheStats()))
 app.post('/api/debug/price-cache/clear', (_req, res) => { prices.clearCache(); res.json(prices.cacheStats()) })

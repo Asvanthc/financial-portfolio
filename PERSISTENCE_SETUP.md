@@ -1,121 +1,99 @@
-# Data Persistence Setup for Render
+# Data persistence
 
-**Problem:** Render rebuilds containers from GitHub on each deploy, wiping the `data/portfolio.json` file. Edits don't persist across deploys.
+**The problem this solves:** Render's free instances have an ephemeral filesystem.
+Anything written to `data/portfolio.json` is lost on every deploy, every restart, **and
+every spin-down** — and Render spins a free service down after 15 minutes without
+traffic. So on the free plan, without an external store, your edits disappear within
+minutes of you closing the tab.
 
-## Solution 1: Render Persistent Disk (Recommended - Simplest)
+> An earlier version of this file recommended a Render persistent disk and claimed it
+> was "FREE (1GB included in free tier)". That was wrong, and it's why data kept
+> vanishing. Render only attaches disks to **paid** instances; the `disk:` block in
+> `render.yaml` was silently doing nothing on a free plan. It has been removed.
 
-1. **Already configured** in `render.yaml`:
-   ```yaml
-   disk:
-     name: portfolio-data
-     mountPath: /opt/render/project/src/data
-     sizeGB: 1
+## What's used instead: a private GitHub repo
+
+Your data lives as JSON in a private repo, written through the GitHub API. It is free,
+it never pauses, it never expires, and **every save is a commit** — so the repo history
+is a complete, automatic backup you can browse and roll back.
+
+| Option | Free? | Permanent? | Verdict |
+|---|---|---|---|
+| **Private GitHub repo** | yes | yes — no pause, no expiry | **in use** |
+| Render persistent disk | no — paid instances only | yes | rejected: not free |
+| Render free Postgres | yes | **no — deleted after 30 days** | rejected |
+| MongoDB Atlas M0 | yes | mostly — pauses after 30 days idle | supported fallback |
+| Container filesystem | yes | **no — wiped on restart/spin-down** | local dev only |
+
+### Setup (about three minutes, once)
+
+1. **Create a private repo** for the data — e.g. `finfolio-data`. Tick "Add a README"
+   so it has a default branch. **It must be private:** it will contain your entire
+   portfolio. (The app logs a loud warning at boot if the repo is public.)
+
+2. **Create a fine-grained token** at
+   *GitHub → Settings → Developer settings → Personal access tokens → Fine-grained*:
+   - Repository access: **Only select repositories** → your `finfolio-data`
+   - Permissions: **Contents → Read and write** (nothing else)
+   - Expiration: set a reminder if you don't choose "no expiration"
+
+3. **Add two env vars in Render** (Dashboard → your service → Environment):
    ```
+   GITHUB_DATA_REPO = your-username/finfolio-data
+   GITHUB_TOKEN     = github_pat_...
+   ```
+   Optional: `GITHUB_DATA_BRANCH` (default `main`), `GITHUB_DATA_DIR` (default root).
 
-2. **Deploy to Render:**
-   - Push this commit to GitHub
-   - Render will automatically detect the disk config
-   - The `/data` folder will now persist across deploys
+4. **Redeploy**, then confirm:
+   ```
+   GET https://your-app.onrender.com/api/debug/storage
+   → { "backend": "github", "durable": true, ... }
+   ```
+   The boot log will also show `[GITHUB] Storage ready: owner/repo@main (private)`.
 
-3. **Verify:**
-   - Edit your portfolio in production
-   - Trigger a redeploy (push a commit or manual redeploy)
-   - Your edits should remain! ✅
+### Moving existing data across
 
-**Cost:** FREE (1GB included in free tier)
+If you already have data in the app (or in Mongo), don't retype it:
 
----
+1. Before switching, **Export → JSON backup** in the header.
+2. Set the env vars, redeploy.
+3. **Export → Restore from a JSON backup**, pick that file.
 
-## Solution 2: MongoDB Atlas (More Robust)
+### What it looks like in the repo
 
-If you need better reliability or want to access data from multiple deployments:
+```
+finfolio-data/
+  portfolio.json    ← divisions, subdivisions, holdings, targets
+  bank.json         ← bank cash accounts
+  expenses.json     ← income & expense entries
+  categories.json   ← your expense/income category lists
+```
 
-### Setup MongoDB Atlas (5 minutes):
+Each save is a commit with a readable message (`portfolio: 3 divisions, 13 holdings`),
+so `git log` on that repo is a full audit trail of every change you've ever made.
 
-1. **Create Free Account:**
-   - Go to: https://www.mongodb.com/cloud/atlas/register
-   - Sign up (no credit card needed)
+### How it behaves
 
-2. **Create Free Cluster:**
-   - Click "Build a Database"
-   - Choose **M0 FREE** tier
-   - Select region closest to your Render deployment (e.g., US-East)
-   - Click "Create"
+- **Reads** are served from memory after the first fetch — `loadPortfolio` runs on
+  nearly every request, so hitting the API each time would add ~300ms to everything.
+- **Writes** go straight through to GitHub before the request returns, so a container
+  dying can't lose them. Expect ~0.3–0.6s on save.
+- **Concurrent writes** are safe: GitHub rejects a write whose blob SHA is stale, and
+  the adapter refetches and retries rather than clobbering. This is stricter than the
+  old file/Mongo paths, which silently let the last writer win.
+- **Rate limits** are a non-issue: 5,000 requests/hour authenticated, against a
+  handful of writes per session.
 
-3. **Setup Database Access:**
-   - Go to "Database Access" (left sidebar)
-   - Click "Add New Database User"
-   - Username: `portfolio-admin`
-   - Password: Generate a secure password (save it!)
-   - Database User Privileges: **Read and write to any database**
-   - Click "Add User"
+## Alternative: MongoDB Atlas
 
-4. **Setup Network Access:**
-   - Go to "Network Access" (left sidebar)
-   - Click "Add IP Address"
-   - Click "Allow Access from Anywhere" (0.0.0.0/0)
-   - Click "Confirm"
+Still fully supported — if `GITHUB_TOKEN`/`GITHUB_DATA_REPO` are unset and
+`MONGODB_URI` is set, the app uses Mongo. Create a free M0 cluster, add a database
+user, allow access from `0.0.0.0/0`, and set `MONGODB_URI`. Caveats: free clusters
+pause after 30 days with zero connections (data is kept; you resume it), and M0 has no
+automatic backups — so take a JSON backup periodically.
 
-5. **Get Connection String:**
-   - Go to "Database" → Click "Connect" on your cluster
-   - Choose "Connect your application"
-   - Driver: **Node.js** version **6.3 or later**
-   - Copy the connection string (looks like):
-     ```
-     mongodb+srv://portfolio-admin:<password>@cluster0.xxxxx.mongodb.net/?retryWrites=true&w=majority
-     ```
-   - Replace `<password>` with your actual password
+## Local development
 
-6. **Add to Render:**
-   - Go to your Render dashboard
-   - Select your web service
-   - Go to "Environment" tab
-   - Add environment variable:
-     - Key: `MONGODB_URI`
-     - Value: `mongodb+srv://portfolio-admin:YOUR_PASSWORD@cluster0.xxxxx.mongodb.net/financial-portfolio?retryWrites=true&w=majority`
-   - Click "Save Changes"
-   - Render will redeploy automatically
-
-7. **Verify:**
-   - Check logs for: `[STORAGE] Connected to MongoDB`
-   - Edit your portfolio
-   - Check logs for: `[STORAGE] Portfolio saved to MongoDB`
-   - Redeploy → edits persist! ✅
-
-**Cost:** FREE (512MB storage, 100 connections)
-
----
-
-## How It Works
-
-The app now supports **dual storage**:
-
-1. **With `MONGODB_URI` set:** Uses MongoDB Atlas (cloud database)
-2. **Without `MONGODB_URI`:** Uses local disk (Render persistent disk)
-
-Both solutions work great! Choose based on your preference:
-- **Render Disk:** Simpler, no setup needed
-- **MongoDB:** More portable, can migrate to other hosts easily
-
----
-
-## Troubleshooting
-
-### Render Disk Not Persisting:
-- Check Render dashboard → your service → "Disks" tab
-- Ensure disk is mounted at `/opt/render/project/src/data`
-- Redeploy after adding disk config
-
-### MongoDB Connection Fails:
-- Check connection string format
-- Ensure password has no special characters (or URL-encode them)
-- Verify IP whitelist includes 0.0.0.0/0
-- Check Render logs for error messages
-
-### Data Migration:
-If you want to move existing data to MongoDB:
-1. Download current `data/portfolio.json` from Render shell
-2. Save locally
-3. Set `MONGODB_URI` in Render
-4. Redeploy
-5. POST to `/api/portfolio` with your JSON data
+With none of those env vars set, the app uses `data/portfolio.json` on disk. That's
+fine locally and is why the repo still ships a seed file. It is *not* safe in
+production on a free instance — `/api/debug/storage` will tell you so.

@@ -6,12 +6,40 @@ services:
     plan: free
     buildCommand: npm install && npm run build
     startCommand: node server/index.js
-    disk:
-      name: portfolio-data
-      mountPath: /opt/render/project/src/data
-      sizeGB: 1
+
+    # NOTE: there is deliberately no `disk:` block here.
+    #
+    # It used to declare a 1GB disk alongside `plan: free`, which cannot work:
+    # Render only attaches persistent disks to PAID instances. So the disk was never
+    # provisioned and the app fell back to the container filesystem — which on a free
+    # instance is wiped on every deploy, every restart, and every spin-down (after 15
+    # minutes without traffic). Data was being lost within minutes of going idle.
+    #
+    # Persistence now comes from a private GitHub repo instead (see githubStore.js):
+    # free, no pause, no expiry, and every save is a commit, so the history is a
+    # complete backup. Set GITHUB_TOKEN and GITHUB_DATA_REPO below in the Render
+    # dashboard and the app switches to it automatically.
+    #
+    # Check which backend is live at any time: GET /api/debug/storage
+
     envVars:
       - key: NODE_ENV
         value: production
+
+      # ── Persistence: private GitHub repo (recommended, free, permanent) ────────
+      # GITHUB_DATA_REPO — "owner/repo" of a PRIVATE repo you created for this data
+      # GITHUB_TOKEN     — fine-grained PAT, Contents: Read+Write, that repo only
+      - key: GITHUB_DATA_REPO
+        sync: false
+      - key: GITHUB_TOKEN
+        sync: false
+      # Optional: defaults to main / repo root
+      - key: GITHUB_DATA_BRANCH
+        sync: false
+      - key: GITHUB_DATA_DIR
+        sync: false
+
+      # ── Alternative persistence: MongoDB Atlas. Used only if the GitHub vars are
+      # unset. Free M0 clusters pause after 30 days with no connections.
       - key: MONGODB_URI
         sync: false

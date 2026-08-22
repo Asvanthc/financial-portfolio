@@ -75,6 +75,19 @@ from every allocation %, target %, goal-seek and rebalance figure. Endpoints:
 This is distinct from holdings with `platform: 'bank'` or `assetType: 'fd'`, which *are* part of
 the portfolio.
 
+## Where the data lives
+
+Three backends, picked automatically in this order:
+
+| Priority | Backend | Enabled by | Durable? |
+|---|---|---|---|
+| 1 | Private GitHub repo | `GITHUB_TOKEN` + `GITHUB_DATA_REPO` | yes — no pause, no expiry, full commit history |
+| 2 | MongoDB Atlas | `MONGODB_URI` | yes, but free M0 pauses after 30 days idle |
+| 3 | `data/*.json` on disk | nothing set | **local dev only** — a Render free instance wipes it on every deploy, restart and 15-minute spin-down |
+
+`GET /api/debug/storage` reports which one is live and whether it's durable. Full setup
+in [PERSISTENCE_SETUP.md](PERSISTENCE_SETUP.md).
+
 ## Targets & goal seek
 
 One rule at every level: **a target is a percentage of its immediate parent, and it competes
