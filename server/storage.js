@@ -19,6 +19,7 @@ let bankCollection = null
 // (wait) apart from "Mongo will never be ready" (use the file), instead of guessing
 // from a null collection.
 let mongoState = process.env.MONGODB_URI ? 'connecting' : 'absent'
+let mongoError = null
 
 if (process.env.MONGODB_URI) {
   const { MongoClient } = require('mongodb')
@@ -35,7 +36,9 @@ if (process.env.MONGODB_URI) {
     })
     .catch(err => {
       mongoState = 'failed'
-      console.error('[STORAGE] MongoDB connection failed, using file system:', err.message)
+      mongoError = err.message
+      console.error('[STORAGE] MongoDB connection FAILED — falling back to the container filesystem,')
+      console.error('[STORAGE] which a Render free instance wipes on restart. Reason:', err.message)
     })
 }
 
@@ -486,8 +489,21 @@ function createHolding({ name, invested = 0, current = 0, targetPercent = undefi
   return h
 }
 
+// The truth about Mongo, for /api/debug/storage. "Configured" is not the same as
+// "connected": if the cluster is paused or unreachable, reads and writes quietly go to
+// the ephemeral disk instead, and the endpoint must say so rather than reassure.
+function mongoStatus() {
+  return {
+    configured: !!process.env.MONGODB_URI,
+    state: mongoState,          // absent | connecting | connected | failed
+    connected: mongoState === 'connected',
+    lastError: mongoError,
+  }
+}
+
 module.exports = {
   DATA_FILE,
+  mongoStatus,
   loadPortfolio,
   savePortfolio,
   loadExpenses,

@@ -795,16 +795,38 @@ app.get('/api/debug/price-sources', async (_req, res) => {
 app.get('/api/debug/storage', (_req, res) => {
   const gh = require('./githubStore')
   const ghStatus = gh.status()
-  const mongo = !!process.env.MONGODB_URI
-  const backend = ghStatus.enabled ? 'github' : mongo ? 'mongodb' : 'file'
-  const durable = backend !== 'file'
+  const mongo = require('./storage').mongoStatus()
+
+  // What is ACTUALLY serving reads and writes right now — not what is configured.
+  // Mongo being configured but unreachable (a paused Atlas cluster, a changed IP
+  // allowlist, a rotated password) silently routes everything to the container
+  // filesystem, which a free instance wipes. Saying "mongodb, durable" there would be
+  // the same false reassurance as the persistent disk that never existed.
+  let backend, durable, warning = null
+  if (ghStatus.enabled) {
+    backend = 'github'
+    durable = true
+  } else if (mongo.connected) {
+    backend = 'mongodb'
+    durable = true
+  } else if (mongo.configured) {
+    backend = mongo.state === 'connecting' ? 'mongodb (connecting)' : 'file (mongodb unavailable)'
+    durable = false
+    warning = mongo.state === 'connecting'
+      ? 'Still connecting to MongoDB. Requests served before it connects fall through to the local file.'
+      : `MONGODB_URI is set but the connection failed, so data is going to the container filesystem and will be LOST on the next restart or spin-down. Reason: ${mongo.lastError || 'unknown'}. Common causes: a free Atlas cluster paused after 30 days idle, an IP allowlist that no longer includes 0.0.0.0/0, or rotated credentials.`
+  } else {
+    backend = 'file'
+    durable = false
+    warning = 'No external storage configured. On a Render free instance the filesystem is wiped on every deploy, restart and 15-minute spin-down — set MONGODB_URI, or GITHUB_TOKEN + GITHUB_DATA_REPO.'
+  }
+
   res.json({
     backend,
     durable,
-    warning: durable ? null
-      : 'Local JSON file. On a Render free instance the filesystem is wiped on every deploy, restart and 15-minute spin-down — set GITHUB_TOKEN + GITHUB_DATA_REPO, or MONGODB_URI.',
+    warning,
+    mongodb: mongo,
     github: ghStatus,
-    mongodbConfigured: mongo,
     dataFile: require('./storage').DATA_FILE,
   })
 })
