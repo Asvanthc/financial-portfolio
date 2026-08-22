@@ -75,6 +75,37 @@ from every allocation %, target %, goal-seek and rebalance figure. Endpoints:
 This is distinct from holdings with `platform: 'bank'` or `assetType: 'fd'`, which *are* part of
 the portfolio.
 
+## Targets & goal seek
+
+One rule at every level: **a target is a percentage of its immediate parent, and it competes
+with that parent's other children.**
+
+```
+portfolio → divisions                        division.targetPercent   = % of portfolio
+division  → subdivisions AND direct holdings each targetPercent       = % of the division
+subdivision → its holdings                   holding.targetPercent    = % of the subdivision
+```
+
+Treating a division's subdivisions and its directly-held stocks as one sibling group is what
+makes the mixed case work — three funds in groups plus one stock held directly still share a
+single set of weights adding to 100%.
+
+Set them with the **◎** button on any division or subdivision header: it opens the whole
+sibling group at once with a running total, because a weight only means anything next to its
+siblings. `Even split`, `Match current` and `Scale to 100%` do the fiddly arithmetic.
+
+Goal Seek then answers two different questions:
+
+| Mode | Question | Behaviour |
+|---|---|---|
+| **Add money** | Where does new money go? | Buy-only. With a budget it splits by how far below target each item is; without one it shows the minimum needed to bring everything up to target. |
+| **Rebalance** | What do I sell and buy? | Cash-neutral by construction (buys == sells), cascading ideal values portfolio → division → group → holding. |
+
+Both drill down to individual holdings, because "put ₹20k into MF" isn't actionable but "put
+₹12.3k into Nippon Nifty50" is. Targets that don't add up to 100% still work — the gap is
+reported as unassigned rather than silently absorbed. Endpoints: `GET /api/goal-seek?budget=`,
+`GET /api/rebalance-plan?budget=`, `POST /api/targets`.
+
 ## Export & backup
 
 The **Export** button in the header opens everything data-related.

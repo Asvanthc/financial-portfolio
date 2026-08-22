@@ -2,6 +2,7 @@ import React, { useState, useRef } from 'react'
 import { api } from '../api'
 import { toast } from '../toast'
 import { money } from '../format'
+import TargetsEditor from './TargetsEditor'
 import { SECTORS, CAP_CATEGORIES, CAP_SECTOR_ELIGIBLE, sectorColor, capColor } from '../constants'
 
 const PLATFORMS = {
@@ -108,6 +109,7 @@ export default function DivisionCard({ division, analytics, onUpdate }) {
   const [newSubName, setNewSubName] = useState('')
   const [newSubTarget, setNewSubTarget] = useState('')
   const [refreshingId, setRefreshingId] = useState(null)
+  const [showTargets, setShowTargets] = useState(false)
   const isSaving = useRef(false)
 
   React.useEffect(() => {
@@ -131,6 +133,18 @@ export default function DivisionCard({ division, analytics, onUpdate }) {
     const bA = divAna.subdivisions?.find(s => s.id === b.id) || {}
     return (bA.current||0) - (aA.current||0)
   })
+
+  // A division's children for target purposes: its subdivisions and its direct
+  // holdings together, since they share the division's 100%.
+  const childRows = [
+    ...sortedSubdivisions.map(sub => {
+      const a = divAna.subdivisions?.find(s => s.id === sub.id) || {}
+      return { id: sub.id, kind: 'subdivision', name: sub.name, current: a.current || 0,
+               targetPercent: Number(sub.targetPercent) || 0, sub: `${(sub.holdings||[]).length} holdings` }
+    }),
+    ...allDirectHoldings.map(h => ({ id: h.id, kind: 'holding', name: h.name, current: Number(h.current) || 0,
+                                     targetPercent: Number(h.targetPercent) || 0, sub: h.ticker || '' })),
+  ]
 
   async function saveHeader() {
     if (isSaving.current) return
@@ -212,8 +226,10 @@ export default function DivisionCard({ division, analytics, onUpdate }) {
                 <span className="text-dim"> / {targetPct}% target</span>
               </span>
               {delta > 0.5 && <span className="div-stat" style={{ color:'var(--orange)' }}>↑ {fmt(divAna.requiredAddition||0)} needed</span>}
+              {childRows.length > 1 && <TargetSumChip sum={divAna.childTargetSum} count={childRows.length} />}
             </div>
             <div className="action-group" onClick={e => e.stopPropagation()}>
+              <button className="btn-icon" title="Set targets for everything in this division" onClick={() => setShowTargets(true)}>◎</button>
               <button className="btn-icon" title="Edit" onClick={() => setEditingHeader(true)}>✏️</button>
               <button className="btn-icon" title="Delete" onClick={deleteDivision}>🗑️</button>
             </div>
@@ -235,7 +251,8 @@ export default function DivisionCard({ division, analytics, onUpdate }) {
             <HoldingsTable holdings={allDirectHoldings} onUpdate={onUpdate}
               onRefresh={refreshPrice} refreshingId={refreshingId}
               editingHolding={editingHolding} setEditingHolding={setEditingHolding}
-              parentCurrent={current} totalCurrent={totalPortfolioCurrent} />
+              parentCurrent={current} totalCurrent={totalPortfolioCurrent}
+              onEditTargets={() => setShowTargets(true)} />
           )}
 
           {showAddHolding ? (
@@ -260,7 +277,32 @@ export default function DivisionCard({ division, analytics, onUpdate }) {
           )}
         </div>
       )}
+
+      {showTargets && (
+        <TargetsEditor
+          isOpen={showTargets}
+          onClose={() => setShowTargets(false)}
+          groupLabel={division.name}
+          parentValue={current}
+          rows={childRows}
+          onSaved={onUpdate}
+        />
+      )}
     </div>
+  )
+}
+
+// A division/subdivision's children should add up to 100%. Surfacing the sum where
+// the targets live is what stops a set quietly drifting to 85% and skewing the plan.
+function TargetSumChip({ sum, count }) {
+  const s = Number(sum) || 0
+  if (s === 0) return <span className="div-stat text-dim" title={`None of the ${count} items here has a target`}>no targets</span>
+  const ok = Math.abs(s - 100) < 0.05
+  return (
+    <span className="div-stat" style={{ color: ok ? 'var(--green)' : s > 100 ? 'var(--red)' : 'var(--orange)' }}
+      title={ok ? 'Targets add up to 100%' : s > 100 ? `Targets add up to ${s}% — over by ${(s-100).toFixed(1)}%` : `Targets add up to ${s}% — ${(100-s).toFixed(1)}% unallocated`}>
+      {ok ? '◎ 100%' : `◎ ${s}%`}
+    </span>
   )
 }
 
@@ -270,6 +312,7 @@ function SubdivisionBlock({ subdivision, divisionId, analytics, divisionCurrent,
   const [name, setName] = useState(subdivision.name)
   const [targetPct, setTargetPct] = useState(subdivision.targetPercent)
   const [showAdd, setShowAdd] = useState(false)
+  const [showTargets, setShowTargets] = useState(false)
 
   async function save() {
     await api.updateSubdivision(subdivision.id, { name, targetPercent: Number(targetPct)||0 })
@@ -356,7 +399,10 @@ function SubdivisionBlock({ subdivision, divisionId, analytics, divisionCurrent,
               </span>
             )}
 
+            {count > 1 && <TargetSumChip sum={analytics.targetSum} count={count} />}
+
             <div className="action-group">
+              <button className="btn-icon" title={`Set targets for the ${count} holdings in ${subdivision.name}`} onClick={() => setShowTargets(true)}>◎</button>
               <button className="btn-icon" title="Edit" onClick={() => setEditMode(true)}>✏️</button>
               <button className="btn-icon" title="Delete" onClick={del}>🗑️</button>
             </div>
@@ -381,13 +427,29 @@ function SubdivisionBlock({ subdivision, divisionId, analytics, divisionCurrent,
         <HoldingsTable holdings={sortedHoldings} onUpdate={onUpdate}
           onRefresh={onRefresh} refreshingId={refreshingId}
           editingHolding={editingHolding} setEditingHolding={setEditingHolding}
-          parentCurrent={subCurrent} totalCurrent={totalPortfolioCurrent} indent />
+          parentCurrent={subCurrent} totalCurrent={totalPortfolioCurrent}
+          onEditTargets={() => setShowTargets(true)} indent />
+      )}
+
+      {showTargets && (
+        <TargetsEditor
+          isOpen={showTargets}
+          onClose={() => setShowTargets(false)}
+          groupLabel={subdivision.name}
+          parentValue={subCurrent}
+          rows={sortedHoldings.map(h => ({
+            id: h.id, kind: 'holding', name: h.name, current: Number(h.current) || 0,
+            targetPercent: Number(h.targetPercent) || 0, sub: h.ticker || (h.schemeCode ? `MF #${h.schemeCode}` : ''),
+          }))}
+          onSaved={onUpdate}
+        />
       )}
     </div>
   )
 }
 
-function HoldingsTable({ holdings, onUpdate, onRefresh, refreshingId, editingHolding, setEditingHolding, indent, parentCurrent, totalCurrent }) {
+function HoldingsTable({ holdings, onUpdate, onRefresh, refreshingId, editingHolding, setEditingHolding, indent, parentCurrent, totalCurrent, onEditTargets }) {
+  const groupTargetSum = holdings.reduce((s, h) => s + (Number(h.targetPercent) || 0), 0)
   return (
     <div className="scroll-x" style={{ paddingLeft: indent ? 16 : 0 }}>
       <table className="holdings-table">
@@ -396,7 +458,12 @@ function HoldingsTable({ holdings, onUpdate, onRefresh, refreshingId, editingHol
             <th>Name</th><th className="col-optional">Platform</th><th className="col-optional">Type</th>
             <th className="right col-optional">Units</th><th className="right col-optional">Avg ₹</th>
             <th className="right">Cur ₹</th><th className="right">Invested</th>
-            <th className="right">Current</th><th className="right">P/L</th><th></th>
+            <th className="right">Current</th><th className="right">P/L</th>
+            <th className="right col-optional" style={{ cursor: onEditTargets ? 'pointer' : undefined }}
+              onClick={onEditTargets} title={onEditTargets ? 'Edit targets for this group' : 'Share of its group, now vs target'}>
+              Now / target{onEditTargets && <span style={{ color:'var(--cyan)', marginLeft:4 }}>◎</span>}
+            </th>
+            <th></th>
           </tr>
         </thead>
         <tbody>
@@ -405,7 +472,7 @@ function HoldingsTable({ holdings, onUpdate, onRefresh, refreshingId, editingHol
               ? <EditHoldingRow key={h.id} holding={h} onSave={() => { setEditingHolding(null); onUpdate?.() }} onCancel={() => setEditingHolding(null)} />
               : <HoldingRow key={h.id} holding={h} onEdit={() => setEditingHolding(h.id)} onRefresh={onRefresh}
                   refreshing={refreshingId === h.id} parentCurrent={parentCurrent} totalCurrent={totalCurrent}
-                  onUpdate={onUpdate}
+                  onUpdate={onUpdate} onEditTargets={onEditTargets}
                   onDelete={async () => { if (confirm(`Delete "${h.name}"?`)) { await api.deleteHolding(h.id); onUpdate?.() } }} />
           ))}
         </tbody>
@@ -414,7 +481,7 @@ function HoldingsTable({ holdings, onUpdate, onRefresh, refreshingId, editingHol
   )
 }
 
-function HoldingRow({ holding: h, onEdit, onRefresh, refreshing, onDelete, parentCurrent, totalCurrent, onUpdate }) {
+function HoldingRow({ holding: h, onEdit, onRefresh, refreshing, onDelete, parentCurrent, totalCurrent, onUpdate, onEditTargets }) {
   const [editingPrice, setEditingPrice] = useState(false)
   const [priceInput, setPriceInput]     = useState('')
   const committingRef = useRef(false)
@@ -425,6 +492,10 @@ function HoldingRow({ holding: h, onEdit, onRefresh, refreshing, onDelete, paren
   const canRefresh = h.ticker || h.schemeCode
   const pctOfParent = parentCurrent > 0 && h.current > 0 ? (h.current / parentCurrent * 100) : 0
   const pctOfTotal  = totalCurrent  > 0 && h.current > 0 ? (h.current / totalCurrent  * 100) : 0
+  const targetPct = Number(h.targetPercent) || 0
+  const targetGap = targetPct > 0 ? targetPct - pctOfParent : 0
+  // What it would take to close the gap at today's group size — the actionable number.
+  const targetGapValue = targetGap > 0 ? (targetGap / 100) * parentCurrent : 0
   const isForeign = !!(h.currency && h.exchangeRate)
   const currSym   = isForeign ? (CURRENCIES[h.currency]?.symbol || h.currency) : '₹'
   const displayPrice = isForeign && h.foreignCurrentPrice > 0 ? h.foreignCurrentPrice : h.currentPrice
@@ -554,6 +625,34 @@ function HoldingRow({ holding: h, onEdit, onRefresh, refreshing, onDelete, paren
           <span className="text-xs">{profitPct>=0?'+':''}{profitPct.toFixed(1)}%</span>
         </span>
       </td>
+      {/* Now vs target within its group, with the gap spelled out in rupees */}
+      <td className="right num col-optional"
+        onClick={onEditTargets}
+        style={{ cursor: onEditTargets ? 'pointer' : undefined, minWidth: 92 }}
+        title={onEditTargets ? 'Click to edit this group\u2019s targets' : undefined}>
+        {targetPct > 0 ? (
+          <div>
+            <div style={{ fontSize:12 }}>
+              <span style={{ color:'var(--cyan)' }}>{pctOfParent.toFixed(1)}%</span>
+              <span style={{ color:'var(--text3)' }}> / </span>
+              <span style={{ color:'var(--green)' }}>{targetPct}%</span>
+            </div>
+            <div className="progress-bar" style={{ marginTop:3 }}>
+              <div className="progress-fill" style={{
+                width: `${Math.min(100, (pctOfParent / Math.max(targetPct, pctOfParent, 1)) * 100)}%`,
+                background: Math.abs(targetGap) < 1 ? 'var(--green)' : targetGap > 0 ? 'var(--orange)' : 'var(--purple)',
+              }} />
+            </div>
+            {Math.abs(targetGap) >= 1 && (
+              <div style={{ fontSize:10, marginTop:2, color: targetGap > 0 ? 'var(--orange)' : 'var(--text3)' }}>
+                {targetGap > 0 ? `add ${fmt(targetGapValue)}` : `${Math.abs(targetGap).toFixed(1)}% over`}
+              </div>
+            )}
+          </div>
+        ) : (
+          <span className="text-dim" style={{ fontSize:11 }}>{onEditTargets ? 'set target' : '—'}</span>
+        )}
+      </td>
       <td>
         <div className="flex gap-1 items-center">
           {canRefresh && <button className="btn-icon" title="Refresh price" onClick={() => onRefresh(h)}>{refreshing ? <span className="spin">⟳</span> : '⟳'}</button>}
@@ -672,7 +771,7 @@ function EditHoldingRow({ holding, onSave, onCancel }) {
 
   return (
     <tr style={{ background:'rgba(34,211,238,0.04)' }}>
-      <td colSpan={10}>
+      <td colSpan={11}>
         {/* Row 1: Platform / Type / Name / Ticker */}
         <div className="flex gap-2 flex-wrap items-center" style={{ padding:'8px 0 4px' }}>
           <select className="input input-sm" style={{ width:100 }} value={form.platform} onChange={e => set('platform', e.target.value)}>

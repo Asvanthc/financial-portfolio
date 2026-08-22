@@ -276,6 +276,13 @@
       .scroll-x-hint::after { content: ''; position: absolute; top: 0; right: 0; bottom: 0; width: 26px;
                               pointer-events: none; background: linear-gradient(to right, rgba(13,17,23,0), rgba(13,17,23,0.92)); }
 
+      /* Segmented control (goal-seek modes) */
+      .mode-switch { display: inline-flex; background: var(--surface2); border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 2px; }
+      .mode-btn { border: none; background: transparent; color: var(--text2); font-family: inherit; font-size: 12px; font-weight: 700;
+                  padding: 5px 12px; border-radius: 4px; cursor: pointer; white-space: nowrap; transition: all 0.15s; }
+      .mode-btn:hover { color: var(--text); }
+      .mode-btn.active { background: var(--indigo-dim); color: var(--indigo); box-shadow: inset 0 0 0 1px rgba(129,140,248,0.35); }
+
       /* Sortable table headers */
       .sortable { cursor: pointer; user-select: none; white-space: nowrap; }
       .sortable:hover { color: var(--text); }

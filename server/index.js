@@ -20,7 +20,13 @@ const {
   createSubdivision,
   createHolding,
 } = require('./storage')
-const { computeAnalytics, computeBudgetAllocation, computeSubdivisionGoalSeek } = require('./analytics')
+const {
+  computeAnalytics,
+  computeBudgetAllocation,
+  computeSubdivisionGoalSeek,
+  computeGoalSeekTree,
+  computeRebalancePlan,
+} = require('./analytics')
 
 const app = express();
 const PORT = process.env.PORT || 3001;
@@ -1044,6 +1050,66 @@ app.get('/api/portfolio/analytics', async (req, res) => {
     const analytics = computeAnalytics(p)
     const budgetAdds = budget !== undefined ? computeBudgetAllocation(analytics.divisions, budget) : {}
     res.json({ ...analytics, budget, budgetAdditions: budgetAdds })
+  } catch (e) { res.status(500).json({ error: e.message }) }
+})
+
+// Goal seek across all three levels: division → subdivision → individual holding.
+// `?budget=` switches from "minimum needed to balance" to "split this money".
+app.get('/api/goal-seek', async (req, res) => {
+  try {
+    const p = await loadPortfolio()
+    res.json(computeGoalSeekTree(p, { budget: Number(req.query.budget) || 0 }))
+  } catch (e) { res.status(500).json({ error: e.message }) }
+})
+
+// The same targets, but allowed to sell: what to buy and sell to land exactly on
+// target. With no budget it's cash-neutral (buys == sells).
+app.get('/api/rebalance-plan', async (req, res) => {
+  try {
+    const p = await loadPortfolio()
+    res.json(computeRebalancePlan(p, { budget: Number(req.query.budget) || 0 }))
+  } catch (e) { res.status(500).json({ error: e.message }) }
+})
+
+// Bulk-set targets for a set of holdings and/or subdivisions in one request, so the
+// targets editor can save a whole sibling group atomically instead of one PATCH per
+// row (which would leave the group half-updated if one failed).
+app.post('/api/targets', async (req, res) => {
+  try {
+    const { holdings = {}, subdivisions = {}, divisions = {} } = req.body || {}
+    const bad = Object.entries({ ...holdings, ...subdivisions, ...divisions })
+      .find(([, v]) => !Number.isFinite(Number(v)) || Number(v) < 0 || Number(v) > 100)
+    if (bad) return res.status(400).json({ error: `target for ${bad[0]} must be a number between 0 and 100` })
+
+    const p = await loadPortfolio()
+    let updated = 0
+    const missing = []
+
+    const applyHolding = (id, value) => {
+      for (const d of p.divisions) {
+        const direct = (d.holdings || []).find(h => h.id === id)
+        if (direct) { direct.targetPercent = Number(value) || 0; return true }
+        for (const sd of (d.subdivisions || [])) {
+          const h = (sd.holdings || []).find(x => x.id === id)
+          if (h) { h.targetPercent = Number(value) || 0; return true }
+        }
+      }
+      return false
+    }
+
+    Object.entries(holdings).forEach(([id, v]) => { applyHolding(id, v) ? updated++ : missing.push(id) })
+    Object.entries(subdivisions).forEach(([id, v]) => {
+      const sd = p.divisions.flatMap(d => d.subdivisions || []).find(x => x.id === id)
+      if (sd) { sd.targetPercent = Number(v) || 0; updated++ } else missing.push(id)
+    })
+    Object.entries(divisions).forEach(([id, v]) => {
+      const d = p.divisions.find(x => x.id === id)
+      if (d) { d.targetPercent = Number(v) || 0; updated++ } else missing.push(id)
+    })
+
+    if (missing.length) return res.status(404).json({ error: `not found: ${missing.join(', ')}` })
+    await savePortfolio(p)
+    res.json({ ok: true, updated })
   } catch (e) { res.status(500).json({ error: e.message }) }
 })
 

@@ -117,7 +117,15 @@ export default function DeepAnalytics({ divisions, analytics }) {
   }, [divisions, analytics, totalCurrent])
 
   const returnPct = totalInvested > 0 ? (totalProfit / totalInvested) * 100 : 0
-  const healthColor = metrics.health >= 70 ? 'var(--green)' : metrics.health >= 45 ? 'var(--orange)' : 'var(--red)'
+  // Server-computed; fall back so an older payload can't crash the tab.
+  const conc = analytics.concentration || { positions: metrics.positions, top1: 0, top3: 0, top5: 0, effectiveHoldings: 0, largest: null }
+  const drift = analytics.drift || { divisionDrift: metrics.avgDev, maxGap: 0, worst: null }
+  // Health, rebuilt on measures that mean something: how many bets are winning, how
+  // spread the money actually is, and how far from target it has drifted. The old
+  // score counted positions, which can't tell a balanced book from a one-bet one.
+  const spreadScore = Math.min(100, (conc.effectiveHoldings / 15) * 100)
+  const health = (metrics.winRate * 0.4) + (spreadScore * 0.3) + (Math.max(0, 100 - drift.divisionDrift * 4) * 0.3)
+  const healthColor = health >= 70 ? 'var(--green)' : health >= 45 ? 'var(--orange)' : 'var(--red)'
 
   // Allocation chart
   const allocData = {
@@ -196,7 +204,8 @@ export default function DeepAnalytics({ divisions, analytics }) {
       <div className="metric-grid mb-4">
         <div className="metric-card">
           <div className="metric-label">Portfolio Health</div>
-          <div className="metric-value" style={{ color: healthColor }}>{metrics.health.toFixed(0)}<span style={{ fontSize: 14 }}>/100</span></div>
+          <div className="metric-value" style={{ color: healthColor }}>{health.toFixed(0)}<span style={{ fontSize: 14 }}>/100</span></div>
+          <div style={{ fontSize: 11, color: 'var(--text3)', marginTop: 2 }}>win rate · spread · drift</div>
         </div>
         <div className="metric-card">
           <div className="metric-label">Win Rate</div>
@@ -220,13 +229,28 @@ export default function DeepAnalytics({ divisions, analytics }) {
           <div className="metric-label">Positions</div>
           <div className="metric-value" style={{ color: 'var(--cyan)' }}>{metrics.positions}</div>
         </div>
-        <div className="metric-card">
-          <div className="metric-label">Avg Allocation Gap</div>
-          <div className="metric-value" style={{ color: metrics.avgDev < 3 ? 'var(--green)' : 'var(--orange)' }}>{metrics.avgDev.toFixed(1)}%</div>
+        <div className="metric-card" title="Share of the portfolio that would have to change hands to sit exactly on target">
+          <div className="metric-label">Off Target</div>
+          <div className="metric-value" style={{ color: drift.divisionDrift < 3 ? 'var(--green)' : drift.divisionDrift < 8 ? 'var(--orange)' : 'var(--red)' }}>
+            {drift.divisionDrift.toFixed(1)}%
+          </div>
+          {drift.worst && (
+            <div style={{ fontSize: 11, color: 'var(--text3)', marginTop: 2 }}>
+              {drift.worst.name} {drift.worst.deltaPercent > 0 ? 'under' : 'over'} by {Math.abs(drift.worst.deltaPercent).toFixed(1)}%
+            </div>
+          )}
         </div>
-        <div className="metric-card">
-          <div className="metric-label">Diversification</div>
-          <div className="metric-value" style={{ color: 'var(--purple)' }}>{metrics.diversification.toFixed(0)}<span style={{ fontSize: 14 }}>/100</span></div>
+        <div className="metric-card" title="Equal-sized holdings this portfolio behaves like (1/HHI). Far below the position count means a few names dominate.">
+          <div className="metric-label">Effective Holdings</div>
+          <div className="metric-value" style={{ color: 'var(--purple)' }}>{conc.effectiveHoldings.toFixed(1)}</div>
+          <div style={{ fontSize: 11, color: 'var(--text3)', marginTop: 2 }}>of {conc.positions} positions</div>
+        </div>
+        <div className="metric-card" title="Weight of the single biggest position">
+          <div className="metric-label">Biggest Position</div>
+          <div className="metric-value" style={{ color: conc.top1 > 25 ? 'var(--orange)' : 'var(--cyan)' }}>{conc.top1.toFixed(1)}%</div>
+          <div style={{ fontSize: 11, color: 'var(--text3)', marginTop: 2 }}>
+            {conc.largest?.name || '—'} · top 5 = {conc.top5.toFixed(0)}%
+          </div>
         </div>
       </div>
 
@@ -300,11 +324,122 @@ export default function DeepAnalytics({ divisions, analytics }) {
         </div>
       )}
 
+      {/* Every target in one place, worst gap first */}
+      <TargetDrift divisions={analytics.divisions || []} />
+
       {/* Forward projection of the current portfolio */}
       <ProjectionPanel currentValue={totalCurrent} investedValue={totalInvested} />
 
       {/* Holdings detail */}
       {metrics.allItems.length > 0 && <AllPositions items={metrics.allItems} />}
+    </div>
+  )
+}
+
+// One list of everything that has a target, ordered by how far off it is. Per-holding
+// targets are only useful if you can see all of them at once — hunting through
+// division cards to find what has drifted is the thing this replaces.
+function TargetDrift({ divisions }) {
+  const rows = useMemo(() => {
+    const out = []
+    divisions.forEach(d => {
+      if (d.targetPercent > 0) {
+        out.push({ key: `d-${d.id}`, level: 'Division', name: d.name, scope: 'of portfolio',
+                   current: d.current, nowPct: d.currentPercent || 0, targetPct: d.targetPercent, parentValue: null })
+      }
+      ;(d.holdings || []).forEach(h => {
+        if (h.targetPercent > 0) out.push({ key: `h-${h.id}`, level: 'Holding', name: h.name, scope: `of ${d.name}`,
+                                            current: h.current, nowPct: h.currentPercent || 0, targetPct: h.targetPercent, parentValue: d.current })
+      })
+      ;(d.subdivisions || []).forEach(sd => {
+        if (sd.targetPercent > 0) {
+          out.push({ key: `s-${sd.id}`, level: 'Group', name: sd.name, scope: `of ${d.name}`,
+                     current: sd.current, nowPct: sd.currentPercent || 0, targetPct: sd.targetPercent, parentValue: d.current })
+        }
+        ;(sd.holdings || []).forEach(h => {
+          if (h.targetPercent > 0) out.push({ key: `h-${h.id}`, level: 'Holding', name: h.name, scope: `of ${sd.name}`,
+                                              current: h.current, nowPct: h.currentPercent || 0, targetPct: h.targetPercent, parentValue: sd.current })
+        })
+      })
+    })
+    return out
+      .map(r => ({ ...r, gap: r.targetPct - r.nowPct, gapValue: r.parentValue ? ((r.targetPct - r.nowPct) / 100) * r.parentValue : null }))
+      .sort((a, b) => Math.abs(b.gap) - Math.abs(a.gap))
+  }, [divisions])
+
+  const untargeted = useMemo(() => {
+    let n = 0
+    divisions.forEach(d => {
+      ;(d.holdings || []).forEach(h => { if (!(h.targetPercent > 0)) n++ })
+      ;(d.subdivisions || []).forEach(sd => (sd.holdings || []).forEach(h => { if (!(h.targetPercent > 0)) n++ }))
+    })
+    return n
+  }, [divisions])
+
+  if (!rows.length) {
+    return (
+      <div className="card-lg mb-4" style={{ textAlign: 'center', color: 'var(--text3)', padding: 24 }}>
+        No targets set yet. Open a division and use the <strong style={{ color: 'var(--cyan)' }}>◎</strong> button
+        to set target weights — for whole divisions, for groups, or for individual stocks and funds.
+        Everything below then tells you how far off you are and what to buy to fix it.
+      </div>
+    )
+  }
+
+  return (
+    <div className="card-lg mb-4">
+      <div className="section-header" style={{ marginBottom: 10 }}>
+        <div className="card-title" style={{ margin: 0 }}>
+          Target drift
+          <span className="text-xs text-dim" style={{ fontWeight: 500, marginLeft: 8 }}>
+            {rows.length} target{rows.length === 1 ? '' : 's'}{untargeted > 0 ? ` · ${untargeted} holding${untargeted === 1 ? '' : 's'} untargeted` : ''}
+          </span>
+        </div>
+      </div>
+      <div className="scroll-x">
+        <table className="holdings-table">
+          <thead>
+            <tr>
+              <th>Name</th>
+              <th className="col-optional">Level</th>
+              <th className="right">Value</th>
+              <th className="right">Now</th>
+              <th className="right">Target</th>
+              <th className="right">Gap</th>
+              <th className="right">To close it</th>
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map(r => (
+              <tr key={r.key}>
+                <td>
+                  <div style={{ fontWeight: 600 }}>{r.name}</div>
+                  <div className="text-xs text-dim">{r.scope}</div>
+                </td>
+                <td className="col-optional"><span className="asset-type">{r.level}</span></td>
+                <td className="right num" style={{ color: 'var(--purple)' }}>{fmt(r.current)}</td>
+                <td className="right num" style={{ color: 'var(--cyan)' }}>{r.nowPct.toFixed(1)}%</td>
+                <td className="right num" style={{ color: 'var(--green)' }}>{r.targetPct.toFixed(1)}%</td>
+                <td className="right num">
+                  <span className={Math.abs(r.gap) < 1 ? 'neu' : r.gap > 0 ? 'neg' : 'pos'}>
+                    {r.gap > 0 ? '+' : ''}{r.gap.toFixed(1)}%
+                  </span>
+                </td>
+                <td className="right num">
+                  {r.gapValue == null ? <span className="text-dim">—</span>
+                    : Math.abs(r.gap) < 1 ? <span className="text-dim">on target</span>
+                    : r.gapValue > 0 ? <span style={{ color: 'var(--orange)' }}>add {fmt(r.gapValue)}</span>
+                    : <span className="text-dim">{fmt(-r.gapValue)} over</span>}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+      <div className="text-xs text-dim mt-2">
+        "To close it" is what the gap is worth at today's group size — the Goal Seek panel on
+        Overview turns these into an actual buy list.
+      </div>
     </div>
   )
 }

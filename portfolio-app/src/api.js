@@ -64,6 +64,10 @@ export const api = {
   // shape is guaranteed and the failure is reported through onApiError.
   analytics: (budget) => getObj(`/api/portfolio/analytics${budget !== undefined ? `?budget=${encodeURIComponent(budget)}` : ''}`),
   subdivisionGoalSeek: () => getObj('/api/subdivision-goal-seek'),
+  // Three-level goal seek (division → subdivision → holding) and its sell-allowed twin.
+  goalSeek: (budget) => getObj(`/api/goal-seek${budget ? `?budget=${encodeURIComponent(budget)}` : ''}`),
+  rebalancePlan: (budget) => getObj(`/api/rebalance-plan${budget ? `?budget=${encodeURIComponent(budget)}` : ''}`),
+  setTargets: (payload) => json('POST', '/api/targets', payload),
   getExpenses: () => getArr('/api/expenses'),
   addExpense: (exp) => json('POST', '/api/expenses', exp),
   deleteExpense: (id) => json('DELETE', `/api/expenses/${id}`),

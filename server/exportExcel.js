@@ -130,7 +130,8 @@ async function buildWorkbook({ portfolio, bankAccounts = [], expenses = [], anal
   const H_COLS = [
     'Division', 'Subdivision', 'Holding', 'Type', 'Platform', 'Ticker / Scheme',
     'Units', 'Avg buy ₹', 'Current ₹', 'Invested ₹', 'Current value ₹',
-    'P/L ₹', 'Return %', 'Weight %', 'Sector', 'Market cap', 'Priced on', 'Source',
+    'P/L ₹', 'Return %', 'Weight %', 'Target % of group', 'Drift %',
+    'Sector', 'Market cap', 'Priced on', 'Source',
   ]
   titleBlock(hs, 'Holdings', `Every position. P/L, return and weight are live formulas — edit "Current ₹" and everything recalculates. Exported ${stamp}.`, H_COLS.length)
   const H_HEAD = 4
@@ -159,10 +160,17 @@ async function buildWorkbook({ portfolio, bankAccounts = [], expenses = [], anal
     row.getCell(12).value = { formula: `K${r}-J${r}` }
     row.getCell(13).value = { formula: `IF(J${r}=0,"",L${r}/J${r})` }
     row.getCell(14).value = { formula: `IF($K$${H_TOTAL}=0,"",K${r}/$K$${H_TOTAL})` }
-    row.getCell(15).value = h.sector || '—'
-    row.getCell(16).value = h.capCategory || '—'
-    row.getCell(17).value = h.priceDate || '—'
-    row.getCell(18).value = h.priceSource || '—'
+    // Target is a share of the holding's own group (its subdivision, or its division
+    // when held directly), so the "now" side of the drift is a group-scoped SUMIFS.
+    row.getCell(15).value = (Number(h.targetPercent) || 0) / 100
+    const groupNow = h.subdivisionName
+      ? `K${r}/SUMIFS($K$${H_FIRST}:$K$${Math.max(H_LAST, H_FIRST)},$A$${H_FIRST}:$A$${Math.max(H_LAST, H_FIRST)},A${r},$B$${H_FIRST}:$B$${Math.max(H_LAST, H_FIRST)},B${r})`
+      : `K${r}/SUMIF($A$${H_FIRST}:$A$${Math.max(H_LAST, H_FIRST)},A${r},$K$${H_FIRST}:$K$${Math.max(H_LAST, H_FIRST)})`
+    row.getCell(16).value = { formula: `IF(O${r}=0,"",O${r}-IFERROR(${groupNow},0))` }
+    row.getCell(17).value = h.sector || '—'
+    row.getCell(18).value = h.capCategory || '—'
+    row.getCell(19).value = h.priceDate || '—'
+    row.getCell(20).value = h.priceSource || '—'
 
     row.getCell(7).numFmt = NUM4
     row.getCell(8).numFmt = INR2
@@ -172,8 +180,10 @@ async function buildWorkbook({ portfolio, bankAccounts = [], expenses = [], anal
     row.getCell(12).numFmt = INR
     row.getCell(13).numFmt = PCT
     row.getCell(14).numFmt = PCT
+    row.getCell(15).numFmt = PCT
+    row.getCell(16).numFmt = PCT
     row.getCell(3).font = { bold: true, color: { argb: INK } }
-    for (let c = 7; c <= 14; c++) row.getCell(c).alignment = { horizontal: 'right' }
+    for (let c = 7; c <= 16; c++) row.getCell(c).alignment = { horizontal: 'right' }
   })
 
   finishTable(hs, H_HEAD, Math.max(H_LAST, H_HEAD), H_COLS.length, { freezeCols: 3 })
@@ -186,7 +196,7 @@ async function buildWorkbook({ portfolio, bankAccounts = [], expenses = [], anal
       14: { f: `IF(K${H_TOTAL}=0,"",SUM(N${H_FIRST}:N${H_LAST}))`, z: PCT },
     })
     // Colour the P/L and Return columns by sign.
-    ;['L', 'M'].forEach(col => {
+    ;['L', 'M', 'P'].forEach(col => {
       hs.addConditionalFormatting({
         ref: `${col}${H_FIRST}:${col}${H_TOTAL}`,
         rules: [
@@ -201,7 +211,7 @@ async function buildWorkbook({ portfolio, bankAccounts = [], expenses = [], anal
       rules: [{ type: 'dataBar', cfvo: [{ type: 'min' }, { type: 'max' }], color: { argb: ACCENT }, priority: 3 }],
     })
   }
-  hs.columns.forEach((c, i) => { c.width = [18, 18, 30, 13, 11, 18, 11, 12, 12, 14, 15, 14, 10, 10, 20, 14, 12, 11][i] || 12 })
+  hs.columns.forEach((c, i) => { c.width = [18, 18, 30, 13, 11, 18, 11, 12, 12, 14, 15, 14, 10, 10, 15, 10, 20, 14, 12, 11][i] || 12 })
 
   // ══ DIVISIONS ══════════════════════════════════════════════════════════════
   // Rolled up from Holdings with SUMIF, so it stays correct if you edit prices.
@@ -421,8 +431,8 @@ async function buildWorkbook({ portfolio, bankAccounts = [], expenses = [], anal
       r += 2
       return { first, last }
     }
-    block('By sector', sectors, 'O')
-    block('By market cap', caps, 'P')
+    block('By sector', sectors, 'Q')
+    block('By market cap', caps, 'R')
     bk.columns.forEach((c, i) => { c.width = [28, 16, 16, 15, 12][i] || 12 })
   }
 
