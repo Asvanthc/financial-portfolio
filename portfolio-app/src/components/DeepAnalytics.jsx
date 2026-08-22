@@ -23,7 +23,7 @@ export default function DeepAnalytics({ divisions, analytics }) {
   const totalProfit = analytics?.totals?.profit || 0
 
   const metrics = useMemo(() => {
-    let positions = 0, profitable = 0, maxGain = 0, maxLoss = 0, totalDev = 0
+    let positions = 0, profitable = 0, priced = 0, maxGain = 0, maxLoss = 0, totalDev = 0
     const allItems = []
 
     // Gather all holdings (direct + from subdivisions)
@@ -39,6 +39,9 @@ export default function DeepAnalytics({ divisions, analytics }) {
         const currentPct = totalCurrent > 0 ? (current / totalCurrent) * 100 : 0
         positions++
         if (profit > 0) profitable++
+        // A holding with no price has current == invested. Counting those as losses put
+        // the win rate at 15% when only 2 of 13 holdings were actually priced.
+        if (profit !== 0) priced++
         if (roi > maxGain) maxGain = roi
         if (roi < maxLoss) maxLoss = roi
         allItems.push({ name: h.name, parent: parentName, invested, current, profit, roi, currentPct, platform: h.platform, assetType: h.assetType, sector: h.sector || '', capCategory: h.capCategory || '' })
@@ -55,7 +58,7 @@ export default function DeepAnalytics({ divisions, analytics }) {
       totalDev += dev
     })
 
-    const winRate = positions > 0 ? (profitable / positions) * 100 : 0
+    const winRate = priced > 0 ? (profitable / priced) * 100 : 0
     const avgDev = analytics.divisions?.length > 0 ? totalDev / analytics.divisions.length : 0
     const diversification = Math.min(100, (positions / 12) * 100)
     const health = (winRate * 0.4) + (diversification * 0.3) + (Math.max(0, 100 - avgDev * 3) * 0.3)
@@ -113,7 +116,7 @@ export default function DeepAnalytics({ divisions, analytics }) {
     const sectorCoverage = analyzableTotal > 0 ? (classifiedSectorCurrent / analyzableTotal) * 100 : 0
     const capCoverage = analyzableTotal > 0 ? (classifiedCapCurrent / analyzableTotal) * 100 : 0
 
-    return { positions, profitable, winRate, maxGain, maxLoss, avgDev, diversification, health, allItems, byPlatform, byAsset, bySector, byCap, sectorCoverage, capCoverage, analyzableTotal }
+    return { positions, profitable, priced, winRate, maxGain, maxLoss, avgDev, diversification, health, allItems, byPlatform, byAsset, bySector, byCap, sectorCoverage, capCoverage, analyzableTotal }
   }, [divisions, analytics, totalCurrent])
 
   const returnPct = totalInvested > 0 ? (totalProfit / totalInvested) * 100 : 0
@@ -210,7 +213,10 @@ export default function DeepAnalytics({ divisions, analytics }) {
         <div className="metric-card">
           <div className="metric-label">Win Rate</div>
           <div className="metric-value" style={{ color: metrics.winRate >= 60 ? 'var(--green)' : 'var(--orange)' }}>{metrics.winRate.toFixed(0)}%</div>
-          <div style={{ fontSize: 11, color: 'var(--text3)', marginTop: 2 }}>{metrics.profitable}/{metrics.positions} profitable</div>
+          <div style={{ fontSize: 11, color: 'var(--text3)', marginTop: 2 }}>
+            {metrics.profitable}/{metrics.priced} priced holdings
+            {metrics.positions > metrics.priced ? ` · ${metrics.positions - metrics.priced} unpriced` : ''}
+          </div>
         </div>
         <div className="metric-card">
           <div className="metric-label">Total Return</div>
@@ -234,11 +240,10 @@ export default function DeepAnalytics({ divisions, analytics }) {
           <div className="metric-value" style={{ color: drift.divisionDrift < 3 ? 'var(--green)' : drift.divisionDrift < 8 ? 'var(--orange)' : 'var(--red)' }}>
             {drift.divisionDrift.toFixed(1)}%
           </div>
-          {drift.worst && (
-            <div style={{ fontSize: 11, color: 'var(--text3)', marginTop: 2 }}>
-              {drift.worst.name} {drift.worst.deltaPercent > 0 ? 'under' : 'over'} by {Math.abs(drift.worst.deltaPercent).toFixed(1)}%
-            </div>
-          )}
+          <div style={{ fontSize: 11, color: 'var(--text3)', marginTop: 2 }}>
+            of the portfolio must change hands
+            {drift.worst ? ` · worst: ${drift.worst.name}, ${Math.abs(drift.worst.deltaPercent).toFixed(1)} pts ${drift.worst.deltaPercent > 0 ? 'under' : 'over'}` : ''}
+          </div>
         </div>
         <div className="metric-card" title="Equal-sized holdings this portfolio behaves like (1/HHI). Far below the position count means a few names dominate.">
           <div className="metric-label">Effective Holdings</div>
@@ -249,7 +254,7 @@ export default function DeepAnalytics({ divisions, analytics }) {
           <div className="metric-label">Biggest Position</div>
           <div className="metric-value" style={{ color: conc.top1 > 25 ? 'var(--orange)' : 'var(--cyan)' }}>{conc.top1.toFixed(1)}%</div>
           <div style={{ fontSize: 11, color: 'var(--text3)', marginTop: 2 }}>
-            {conc.largest?.name || '—'} · top 5 = {conc.top5.toFixed(0)}%
+            {conc.largest?.name || '—'} · top 5 hold {conc.top5.toFixed(0)}% of the portfolio
           </div>
         </div>
       </div>
@@ -340,12 +345,16 @@ export default function DeepAnalytics({ divisions, analytics }) {
 // targets are only useful if you can see all of them at once — hunting through
 // division cards to find what has drifted is the thing this replaces.
 function TargetDrift({ divisions }) {
+  const portfolioTotal = divisions.reduce((s, d) => s + (Number(d.current) || 0), 0)
   const rows = useMemo(() => {
     const out = []
     divisions.forEach(d => {
       if (d.targetPercent > 0) {
+        // A division's parent is the portfolio, so it does have a value to size the gap
+        // against — passing null here left the biggest gaps as the only rows with no
+        // rupee figure, which is exactly backwards.
         out.push({ key: `d-${d.id}`, level: 'Division', name: d.name, scope: 'of portfolio',
-                   current: d.current, nowPct: d.currentPercent || 0, targetPct: d.targetPercent, parentValue: null })
+                   current: d.current, nowPct: d.currentPercent || 0, targetPct: d.targetPercent, parentValue: portfolioTotal })
       }
       ;(d.holdings || []).forEach(h => {
         if (h.targetPercent > 0) out.push({ key: `h-${h.id}`, level: 'Holding', name: h.name, scope: `of ${d.name}`,
@@ -365,7 +374,7 @@ function TargetDrift({ divisions }) {
     return out
       .map(r => ({ ...r, gap: r.targetPct - r.nowPct, gapValue: r.parentValue ? ((r.targetPct - r.nowPct) / 100) * r.parentValue : null }))
       .sort((a, b) => Math.abs(b.gap) - Math.abs(a.gap))
-  }, [divisions])
+  }, [divisions, portfolioTotal])
 
   const untargeted = useMemo(() => {
     let n = 0
@@ -420,9 +429,12 @@ function TargetDrift({ divisions }) {
                 <td className="right num" style={{ color: 'var(--purple)' }}>{fmt(r.current)}</td>
                 <td className="right num" style={{ color: 'var(--cyan)' }}>{r.nowPct.toFixed(1)}%</td>
                 <td className="right num" style={{ color: 'var(--green)' }}>{r.targetPct.toFixed(1)}%</td>
+                {/* Colour by how far off it is, not by direction: green-for-overweight
+                    made the three worst-drifted rows look like the healthy ones. */}
                 <td className="right num">
-                  <span className={Math.abs(r.gap) < 1 ? 'neu' : r.gap > 0 ? 'neg' : 'pos'}>
-                    {r.gap > 0 ? '+' : ''}{r.gap.toFixed(1)}%
+                  <span style={{ color: Math.abs(r.gap) < 1 ? 'var(--text2)' : Math.abs(r.gap) <= 10 ? 'var(--orange)' : 'var(--red)' }}>
+                    {r.gap > 0 ? '+' : ''}{r.gap.toFixed(1)} pts
+                    <span className="text-dim"> {Math.abs(r.gap) < 1 ? '' : r.gap > 0 ? 'under' : 'over'}</span>
                   </span>
                 </td>
                 <td className="right num">
@@ -450,15 +462,17 @@ function TargetDrift({ divisions }) {
 const PCLS = { kite: 'platform-kite', groww: 'platform-groww', indmoney: 'platform-indmoney', bank: 'platform-bank', other: 'platform-other' }
 const PLABELS = { kite: 'Kite', groww: 'Groww', indmoney: 'IndMoney', bank: 'Bank', other: 'Other' }
 
+// `optional` columns drop out on phones so the money stays on screen, matching the
+// holdings tables. Without it this table hid the money and kept Division/Platform.
 const POSITION_COLS = [
   { key: 'name', label: 'Name', align: 'left' },
-  { key: 'parent', label: 'Division', align: 'left' },
-  { key: 'platform', label: 'Platform', align: 'left' },
+  { key: 'parent', label: 'Division', align: 'left', optional: true },
+  { key: 'platform', label: 'Platform', align: 'left', optional: true },
   { key: 'invested', label: 'Invested', align: 'right' },
   { key: 'current', label: 'Current', align: 'right' },
   { key: 'profit', label: 'P/L', align: 'right' },
-  { key: 'roi', label: 'ROI', align: 'right' },
-  { key: 'currentPct', label: '% of Portfolio', align: 'right' },
+  { key: 'roi', label: 'ROI', align: 'right', optional: true },
+  { key: 'currentPct', label: '% of portfolio', align: 'right' },
 ]
 
 function AllPositions({ items }) {
@@ -519,7 +533,7 @@ function AllPositions({ items }) {
               {POSITION_COLS.map(c => (
                 <th
                   key={c.key}
-                  className={`sortable${c.align === 'right' ? ' right' : ''}`}
+                  className={`sortable${c.align === 'right' ? ' right' : ''}${c.optional ? ' col-optional' : ''}`}
                   onClick={() => toggle(c.key)}
                   aria-sort={sort.key === c.key ? (sort.dir === 'asc' ? 'ascending' : 'descending') : 'none'}
                   title={`Sort by ${c.label}`}
@@ -535,12 +549,12 @@ function AllPositions({ items }) {
             {rows.map((h, i) => (
               <tr key={`${h.parent}-${h.name}-${i}`}>
                 <td style={{ fontWeight: 600 }}>{h.name}</td>
-                <td className="text-sm text-muted">{h.parent}</td>
-                <td><span className={`platform-badge ${PCLS[h.platform] || 'platform-other'}`}>{PLABELS[h.platform] || h.platform || 'Other'}</span></td>
+                <td className="text-sm text-muted col-optional">{h.parent}</td>
+                <td className="col-optional"><span className={`platform-badge ${PCLS[h.platform] || 'platform-other'}`}>{PLABELS[h.platform] || h.platform || 'Other'}</span></td>
                 <td className="right num">{fmt(h.invested)}</td>
                 <td className="right num" style={{ color: 'var(--purple)' }}>{fmt(h.current)}</td>
                 <td className="right num"><span className={h.profit >= 0 ? 'pos' : 'neg'}>{h.profit >= 0 ? '+' : ''}{fmt(h.profit)}</span></td>
-                <td className="right num"><span className={h.roi >= 0 ? 'pos' : 'neg'}>{h.roi >= 0 ? '+' : ''}{h.roi.toFixed(1)}%</span></td>
+                <td className="right num col-optional"><span className={h.roi >= 0 ? 'pos' : 'neg'}>{h.roi >= 0 ? '+' : ''}{h.roi.toFixed(1)}%</span></td>
                 <td className="right num text-muted">{h.currentPct.toFixed(1)}%</td>
               </tr>
             ))}
@@ -552,13 +566,13 @@ function AllPositions({ items }) {
             {rows.length > 1 && (
               <tr style={{ background: 'rgba(255,255,255,0.03)' }}>
                 <td style={{ fontWeight: 800 }}>{rows.length === items.length ? 'Total' : 'Filtered total'}</td>
-                <td /><td />
+                <td className="col-optional" /><td className="col-optional" />
                 <td className="right num" style={{ fontWeight: 800 }}>{fmt(totals.invested)}</td>
                 <td className="right num" style={{ fontWeight: 800, color: 'var(--purple)' }}>{fmt(totals.current)}</td>
                 <td className="right num" style={{ fontWeight: 800 }}>
                   <span className={totals.profit >= 0 ? 'pos' : 'neg'}>{totals.profit >= 0 ? '+' : ''}{fmt(totals.profit)}</span>
                 </td>
-                <td className="right num" style={{ fontWeight: 800 }}>
+                <td className="right num col-optional" style={{ fontWeight: 800 }}>
                   <span className={totals.profit >= 0 ? 'pos' : 'neg'}>
                     {totals.invested > 0 ? `${totals.profit >= 0 ? '+' : ''}${((totals.profit / totals.invested) * 100).toFixed(1)}%` : '—'}
                   </span>

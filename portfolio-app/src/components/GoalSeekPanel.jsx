@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react'
 import { api } from '../api'
 import { money, percent } from '../format'
+import useNarrow from '../useNarrow'
 
 // Two questions people actually ask, so two modes:
 //
@@ -47,7 +48,43 @@ function SumWarning({ label, sum, untargeted }) {
   )
 }
 
+
+// On a phone the 5-column table clipped its own numbers — the "After" column was
+// entirely off-screen and "₹2.77L" painted as "₹2.77", i.e. wrong by 100,000x.
+// Stacked rows have no columns to overflow.
+function StackedRow({ name, meta, note, current, nowPct, targetPct, amount, after, amountLabel, depth = 0 }) {
+  const gap = targetPct > 0 ? targetPct - nowPct : 0
+  return (
+    <div className="gs-stack-row" style={{ paddingLeft: 12 + depth * 14 }}>
+      <div className="gs-stack-head">
+        <span className="gs-stack-name">{depth > 0 ? (depth > 1 ? '· ' : '↳ ') : ''}{name}</span>
+        {amount > 0 && (
+          <span className="gs-stack-amount">{amountLabel}<strong>{money(amount)}</strong></span>
+        )}
+      </div>
+      <div className="gs-stack-meta">
+        <span>now <strong style={{ color: 'var(--purple)' }}>{money(current)}</strong></span>
+        {targetPct > 0 && (
+          <span>
+            <span style={{ color: 'var(--cyan)' }}>{nowPct.toFixed(1)}%</span>
+            {' / '}<span style={{ color: 'var(--green)' }}>{targetPct.toFixed(1)}%</span>
+            {Math.abs(gap) >= 0.5 && (
+              <span style={{ color: gap > 0 ? 'var(--orange)' : 'var(--text3)' }}>
+                {' '}({Math.abs(gap).toFixed(1)}% {gap > 0 ? 'under' : 'over'})
+              </span>
+            )}
+            {meta && <span className="text-dim"> {meta}</span>}
+          </span>
+        )}
+        {amount > 0 && <span>after <strong>{money(after)}</strong></span>}
+      </div>
+      {note}
+    </div>
+  )
+}
+
 export default function GoalSeekPanel({ analytics, totalCurrent, portfolio, budget, setBudget, onOpenTargets }) {
+  const narrow = useNarrow()
   const [open, setOpen] = useState(false)
   const [mode, setMode] = useState('add')
   const [detailed, setDetailed] = useState(true)
@@ -73,16 +110,13 @@ export default function GoalSeekPanel({ analytics, totalCurrent, portfolio, budg
   }, [open, mode, budgetNum, totalCurrent, analytics])
 
   const projTotal = totalCurrent + (budgetNum > 0 ? budgetNum : minRequired)
-  const amountFor = (divId, childId) => {
-    const d = tree?.divisions?.[divId]
-    if (!d) return 0
-    return (budgetNum > 0 ? d.allocationByChild?.[childId] : d.additionsByChild?.[childId]) || 0
-  }
-  const holdingAmountFor = (divId, subId, hId) => {
-    const s = tree?.divisions?.[divId]?.subdivisions?.[subId]
-    if (!s) return 0
-    return (budgetNum > 0 ? s.allocationByHolding?.[hId] : s.additionsByHolding?.[hId]) || 0
-  }
+  // Always the cascaded split, in both modes. Mixing the two quantities — parent rows
+  // showing the division's own minimum while children showed each child's independent
+  // minimum — meant the indented rows never added up to the row above them.
+  // `allocationByChild` is derived from whatever the parent actually receives, so it does.
+  const amountFor = (divId, childId) => tree?.divisions?.[divId]?.allocationByChild?.[childId] || 0
+  const holdingAmountFor = (divId, subId, hId) =>
+    tree?.divisions?.[divId]?.subdivisions?.[subId]?.allocationByHolding?.[hId] || 0
 
   const divisionAmount = (d) => {
     if (budgetNum > 0) return tree?.divisions?.[d.id]?.incoming || 0
@@ -152,6 +186,64 @@ export default function GoalSeekPanel({ analytics, totalCurrent, portfolio, budg
           {loading && <div className="text-xs text-dim mt-3">calculating…</div>}
 
           {mode === 'add' ? (
+            narrow ? (
+              <div className="mt-3">
+                {divisions.map(d => {
+                  const add = divisionAmount(d)
+                  const divNode = tree?.divisions?.[d.id]
+                  const div = portfolio.divisions?.find(x => x.id === d.id)
+                  return (
+                    <React.Fragment key={d.id}>
+                      <StackedRow
+                        name={d.name} meta="of portfolio" current={d.current}
+                        nowPct={d.currentPercent || 0} targetPct={d.targetPercent || 0}
+                        amount={add} after={(Number(d.current) || 0) + add}
+                        amountLabel={budgetNum > 0 ? 'allocate ' : 'add '}
+                        note={<SumWarning label="Its children's" sum={d.childTargetSum} untargeted={divNode?.untargeted || 0} />}
+                      />
+                      {detailed && (div?.subdivisions || []).map(sub => {
+                        const subAna = (d.subdivisions || []).find(x => x.id === sub.id) || {}
+                        const subAdd = amountFor(d.id, sub.id)
+                        return (
+                          <React.Fragment key={sub.id}>
+                            <StackedRow
+                              depth={1} name={sub.name} meta={`of ${d.name}`} current={subAna.current || 0}
+                              nowPct={subAna.currentPercent || 0} targetPct={subAna.targetPercent || 0}
+                              amount={subAdd} after={(subAna.current || 0) + subAdd}
+                              amountLabel={budgetNum > 0 ? 'allocate ' : 'add '}
+                            />
+                            {(subAna.holdings || []).map(h => {
+                              const hAdd = holdingAmountFor(d.id, sub.id, h.id)
+                              if (!(hAdd > 0) && !(h.targetPercent > 0)) return null
+                              return (
+                                <StackedRow
+                                  key={h.id} depth={2} name={h.name} meta={`of ${sub.name}`} current={h.current}
+                                  nowPct={h.currentPercent || 0} targetPct={h.targetPercent || 0}
+                                  amount={hAdd} after={(h.current || 0) + hAdd}
+                                  amountLabel={budgetNum > 0 ? 'allocate ' : 'add '}
+                                />
+                              )
+                            })}
+                          </React.Fragment>
+                        )
+                      })}
+                      {detailed && (d.holdings || []).map(h => {
+                        const hAdd = amountFor(d.id, h.id)
+                        if (!(hAdd > 0) && !(h.targetPercent > 0)) return null
+                        return (
+                          <StackedRow
+                            key={h.id} depth={1} name={h.name} meta={`of ${d.name}`} current={h.current}
+                            nowPct={h.currentPercent || 0} targetPct={h.targetPercent || 0}
+                            amount={hAdd} after={(h.current || 0) + hAdd}
+                            amountLabel={budgetNum > 0 ? 'allocate ' : 'add '}
+                          />
+                        )
+                      })}
+                    </React.Fragment>
+                  )
+                })}
+              </div>
+            ) : (
             <div className="scroll-x mt-3">
               <table className="gs-table">
                 <thead>
@@ -256,6 +348,7 @@ export default function GoalSeekPanel({ analytics, totalCurrent, portfolio, budg
                 </div>
               )}
             </div>
+            )
           ) : (
             <div className="mt-3">
               {plan && plan.actions?.length > 0 ? (

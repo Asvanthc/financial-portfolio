@@ -175,7 +175,7 @@ export default function FIRECalculator({ currentPortfolioValue = 0, expenses = [
       {
         label: 'Portfolio Value',
         data: results.chart.data,
-        borderColor: 'var(--cyan)',
+        borderColor: '#22d3ee',   // canvas can't resolve var(--cyan); it fell back to black
         backgroundColor: 'rgba(34,211,238,0.08)',
         fill: true,
         tension: 0.4,

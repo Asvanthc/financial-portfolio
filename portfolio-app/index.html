@@ -87,6 +87,8 @@
       .holdings-table td.right { text-align: right; }
       .holdings-table td.center { text-align: center; }
       .holdings-table .num { font-variant-numeric: tabular-nums; font-weight: 600; }
+      /* "+₹13,100" was wrapping after the sign in narrow columns. */
+      .num, .gs-table .num { white-space: nowrap; }
 
       /* Platform badges */
       .platform-badge { display: inline-flex; align-items: center; gap: 4px; padding: 2px 8px; border-radius: 99px; font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px; white-space: nowrap; }
@@ -109,6 +111,7 @@
       .form-label { font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px; color: var(--text3); }
       .input { background: var(--surface2); color: var(--text); border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 8px 10px; font-size: 13px; font-family: inherit; width: 100%; transition: border-color 0.15s; }
       .input:focus { outline: none; border-color: var(--cyan); background: #0f1724; }
+      .input:focus-visible { outline: 2px solid var(--cyan); outline-offset: 1px; }
       .input::placeholder { color: var(--text3); }
       .input-sm { padding: 6px 8px; font-size: 12px; }
       select.input { cursor: pointer; }
@@ -159,8 +162,20 @@
       .gs-table td.right { text-align: right; }
 
       /* Inline action group */
-      .action-group { display: flex; gap: 4px; align-items: center; opacity: 0; transition: opacity 0.15s; }
-      tr:hover .action-group, .div-header:hover .action-group, .sub-row:hover .action-group { opacity: 1; }
+      /* Hidden means hidden: opacity:0 alone left these fully clickable, so on a phone
+         (no hover, so never revealed) a tap on apparently blank header space could hit
+         "Delete division". pointer-events goes with the opacity. */
+      .action-group { display: flex; gap: 4px; align-items: center; opacity: 0; pointer-events: none; transition: opacity 0.15s; }
+      tr:hover .action-group, .div-header:hover .action-group, .sub-row:hover .action-group,
+      .action-group:focus-within { opacity: 1; pointer-events: auto; }
+      /* Touch devices never hover, so the controls must simply be present. */
+      @media (hover: none) {
+        .action-group { opacity: 1; pointer-events: auto; }
+      }
+
+      /* Keyboard focus was invisible everywhere — there was no :focus-visible rule at all. */
+      :focus-visible { outline: 2px solid var(--cyan); outline-offset: 2px; border-radius: 3px; }
+      .input:focus-visible { outline-offset: 0; }
 
       /* Collapsible add form */
       .add-holding-panel { background: var(--surface2); border-top: 1px solid var(--border); padding: 14px 16px; }
@@ -276,6 +291,21 @@
       .scroll-x-hint::after { content: ''; position: absolute; top: 0; right: 0; bottom: 0; width: 26px;
                               pointer-events: none; background: linear-gradient(to right, rgba(13,17,23,0), rgba(13,17,23,0.92)); }
 
+      /* Goal Seek stacked rows (phones) — see GoalSeekPanel's StackedRow */
+      .gs-stack-row { padding: 10px 12px; border-bottom: 1px solid var(--border); }
+      .gs-stack-row:last-child { border-bottom: none; }
+      .gs-stack-head { display: flex; align-items: baseline; gap: 8px; }
+      .gs-stack-name { font-size: 13px; font-weight: 700; color: var(--text); flex: 1; min-width: 0; }
+      .gs-stack-amount { font-size: 12px; color: var(--orange); white-space: nowrap; }
+      .gs-stack-amount strong { color: var(--orange); }
+      .gs-stack-meta { display: flex; flex-wrap: wrap; gap: 4px 12px; margin-top: 4px; font-size: 11px; color: var(--text2); }
+
+      /* Cash-flow reconciliation lines */
+      .reconcile-line { display: flex; flex-wrap: wrap; gap: 8px 22px; margin-top: 14px; padding-top: 12px;
+                        border-top: 1px solid var(--border); font-size: 12px; color: var(--text2);
+                        font-variant-numeric: tabular-nums; }
+      .reconcile-eq { white-space: nowrap; }
+
       /* Segmented control (goal-seek modes) */
       .mode-switch { display: inline-flex; background: var(--surface2); border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 2px; }
       .mode-btn { border: none; background: transparent; color: var(--text2); font-family: inherit; font-size: 12px; font-weight: 700;
@@ -293,6 +323,16 @@
         /* Labels drop out before the buttons start wrapping onto a second line */
         .btn-label { display: none; }
         .btn-sync { min-width: 0; }
+      }
+
+      /* The six tabs stop fitting on one line well before the 640px phone breakpoint,
+         and .tab-nav's overflow:auto hid the rest with no scrollbar. Wrap from here. */
+      @media (max-width: 925px) {
+        .app-header-inner { flex-wrap: wrap; height: auto; padding: 8px 0; row-gap: 8px; }
+        .tab-nav { order: 3; flex: 0 0 100%; flex-wrap: wrap; overflow: visible; }
+        /* Wide tables lose their least useful columns here rather than slicing the
+           action buttons in half between 861 and 925px. */
+        .col-optional { display: none; }
       }
       @media (max-width: 640px) {
         .app-header { padding: 0 12px; }
@@ -318,9 +358,44 @@
         .div-name { flex: 1 1 auto; min-width: 0; }
         .holdings-table th, .holdings-table td { padding: 8px 9px; }
         .holdings-table { font-size: 12px; }
+
+        /* iOS Safari zooms the whole page when a focused input is under 16px. */
+        .input, .input-sm, select.input, input[type="number"], input[type="search"], input[type="text"] { font-size: 16px; }
+
+        /* Touch targets. The smallest was a 14x17px collapse chevron. */
+        .btn-icon { min-width: 40px; min-height: 40px; padding: 8px; font-size: 15px; }
+        .btn-xs, .btn-sm { min-height: 40px; }
+        .header-actions .btn-sm { min-width: 44px; justify-content: center; }
+        input[type="checkbox"] { width: 20px; height: 20px; }
+        .tab-btn { min-height: 38px; }
+        .mode-btn { min-height: 38px; padding: 8px 14px; }
+        .action-group { gap: 6px; }
+
+        /* Sliders were a 16px-tall hit area. */
+        input[type="range"] { height: 40px; }
+        input[type="range"]::-webkit-slider-thumb { width: 24px; height: 24px; }
+
+        /* Tables scroll on a phone; give the edge a cue. An inset shadow is painted on
+           the padding box, so unlike ::after it doesn't scroll away with the content. */
+        .scroll-x { box-shadow: inset -14px 0 12px -12px rgba(0,0,0,0.9); }
+
+        /* The action column is last, so it sat off-screen at rest. Pin it. */
+        .holdings-table th:last-child, .holdings-table td:last-child { position: sticky; right: 0; }
+        .holdings-table td:last-child { background: var(--surface); box-shadow: -6px 0 8px -6px rgba(0,0,0,0.7); }
+        .holdings-table th:last-child { background: var(--surface2); }
+
+        /* An inline-editable value needs to look editable when there's no hover. */
+        .editable { border-bottom-color: var(--border2); }
+
+        /* Goal Seek's 5 columns squeezed until amounts clipped mid-number
+           ("₹2.77L" → "₹2.77"). Let the table keep its natural width and scroll. */
+        .gs-table { font-size: 12px; }
+        .gs-table th, .gs-table td { padding: 9px 8px; white-space: nowrap; }
         /* On a phone, invested/current/P&L matter more than units, avg price,
            platform and asset type — drop those so the money fits on screen. */
         .col-optional { display: none; }
+        /* Secondary header meta that would otherwise crowd a phone header row */
+        .hide-sm { display: none !important; }
         .toast-stack { right: 8px; left: 8px; width: auto; bottom: 8px; }
         .data-row { flex-wrap: wrap; }
         .data-row > div:last-child { width: 100%; }

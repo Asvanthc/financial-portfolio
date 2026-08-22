@@ -2,16 +2,42 @@ import React from 'react'
 import ReactDOM from 'react-dom'
 
 export default function Modal({ isOpen, title, children, onClose, size = 'md' }) {
+  const boxRef = React.useRef(null)
   if (!isOpen) return null
 
-  // Prevent background scroll
+  // Prevent background scroll, close on Escape, and keep the keyboard inside the dialog.
+  // Previously Escape did nothing, focus stayed on whatever opened the modal, and Tab
+  // walked straight into the page behind it.
   React.useEffect(() => {
     const previousOverflow = document.body.style.overflow
+    const opener = document.activeElement
     document.body.style.overflow = 'hidden'
-    return () => { 
-      document.body.style.overflow = previousOverflow 
+
+    const focusables = () => Array.from(
+      boxRef.current?.querySelectorAll('button, [href], input:not([type="hidden"]), select, textarea, [tabindex]:not([tabindex="-1"])') || []
+    ).filter(el => !el.disabled && el.offsetParent !== null)
+
+    // Move focus in, preferring the first real control over the close button.
+    const initial = focusables()
+    ;(initial.find(el => el.tagName === 'INPUT' || el.tagName === 'SELECT') || initial[0] || boxRef.current)?.focus?.()
+
+    function onKeyDown(e) {
+      if (e.key === 'Escape') { e.stopPropagation(); onClose?.(); return }
+      if (e.key !== 'Tab') return
+      const list = focusables()
+      if (!list.length) return
+      const first = list[0], last = list[list.length - 1]
+      if (e.shiftKey && document.activeElement === first) { e.preventDefault(); last.focus() }
+      else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first.focus() }
     }
-  }, [])
+
+    document.addEventListener('keydown', onKeyDown, true)
+    return () => {
+      document.removeEventListener('keydown', onKeyDown, true)
+      document.body.style.overflow = previousOverflow
+      opener?.focus?.()
+    }
+  }, [onClose])
 
   const modalContent = (
     <div 
@@ -30,6 +56,11 @@ export default function Modal({ isOpen, title, children, onClose, size = 'md' })
       onClick={(e) => e.target === e.currentTarget && onClose()}
     >
       <div 
+        ref={boxRef}
+        role="dialog"
+        aria-modal="true"
+        aria-label={typeof title === 'string' ? title : 'Dialog'}
+        tabIndex={-1}
         style={{
           background: 'linear-gradient(135deg, #1a2332 0%, #131a2a 100%)',
           border: '2px solid #2d3f5f',
@@ -56,6 +87,7 @@ export default function Modal({ isOpen, title, children, onClose, size = 'md' })
           <h2 style={{ margin: 0, fontSize: 20, fontWeight: 800, color: '#e6e9ef' }}>{title}</h2>
           <button
             onClick={onClose}
+            aria-label="Close dialog"
             style={{
               background: 'transparent',
               border: 'none',

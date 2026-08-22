@@ -129,6 +129,8 @@ export default function MonthlyPlanner({ analytics, divisions }) {
     }
   }, [monthlyAmount, analytics, divisions])
 
+  const recommendedIsZero = v => !(Number(v) > 0)
+
   const plan = useMemo(() => {
     const amount = Number(monthlyAmount) || 0
     const biasPct = Math.min(100, Math.max(0, Number(gapBias) || 0))
@@ -159,8 +161,17 @@ export default function MonthlyPlanner({ analytics, divisions }) {
       const basePool = amount * baseFrac
       const gapPool = amount * gapFrac
 
+      // The base pool used to be split across ALL divisions by target weight, so money
+      // went into divisions that were already over target — contradicting Goal Seek,
+      // which never funds an over-weight bucket. Restrict the base pool to the
+      // divisions still short of target (falling back to target weights only when
+      // nothing is short, i.e. there's nothing to correct).
+      const baseEligible = positiveGaps.length ? positiveGaps : items
+      const baseTargetSum = baseEligible.reduce((a, b) => a + (b.targetPct || 0), 0) || targetSum
+
       allocations = items.map(i => {
-        const baseShare = (i.targetPct || 0) / targetSum
+        const eligible = baseEligible.some(e => e.id === i.id)
+        const baseShare = eligible ? (i.targetPct || 0) / baseTargetSum : 0
         const baseAlloc = basePool * baseShare
 
         let gapAlloc = 0
@@ -172,9 +183,9 @@ export default function MonthlyPlanner({ analytics, divisions }) {
         const recommended = baseAlloc + gapAlloc
         const note = gapAlloc > 0
           ? `Base + gap boost (${biasPct}% to gaps)`
-          : basePool > 0
-            ? 'Base by target %'
-            : 'Over / on target'
+          : recommendedIsZero(baseAlloc)
+            ? 'Already at / over target'
+            : 'Base by target %'
         return { ...i, recommended, note }
       })
     } else {
@@ -286,7 +297,7 @@ export default function MonthlyPlanner({ analytics, divisions }) {
             onMouseLeave={(e) => e.currentTarget.style.transform = 'translateY(0)'}>
               <div style={{ fontSize: 'clamp(10px, 1.6vw, 11px)', color: '#fbbf24', marginBottom: 8, textTransform: 'uppercase', fontWeight: 900, letterSpacing: '1px' }}>💰 Total Required</div>
               <div style={{ fontSize: 'clamp(26px, 5vw, 36px)', fontWeight: 900, color: '#fb923c', lineHeight: 1.1 }}>
-                ₹{Math.ceil(goalSeekTimeline.totalRequired).toLocaleString()}
+                ₹{Math.ceil(goalSeekTimeline.totalRequired).toLocaleString('en-IN')}
               </div>
             </div>
 
@@ -303,7 +314,7 @@ export default function MonthlyPlanner({ analytics, divisions }) {
             onMouseLeave={(e) => e.currentTarget.style.transform = 'translateY(0)'}>
               <div style={{ fontSize: 'clamp(10px, 1.6vw, 11px)', color: '#7dd3fc', marginBottom: 8, textTransform: 'uppercase', fontWeight: 900, letterSpacing: '1px' }}>📊 Per Month</div>
               <div style={{ fontSize: 'clamp(26px, 5vw, 36px)', fontWeight: 900, color: '#22d3ee', lineHeight: 1.1 }}>
-                ₹{Number(monthlyAmount || 0).toLocaleString()}
+                ₹{Number(monthlyAmount || 0).toLocaleString('en-IN')}
               </div>
             </div>
           </div>
@@ -375,12 +386,12 @@ export default function MonthlyPlanner({ analytics, divisions }) {
                         fontSize: 'clamp(14px, 2.2vw, 16px)', 
                         fontWeight: 900 
                       }}>
-                        ₹{Math.ceil(month.total).toLocaleString()}
+                        ₹{Math.ceil(month.total).toLocaleString('en-IN')}
                       </span>
                     </div>
                     <div style={{ fontSize: 'clamp(10px, 1.6vw, 11px)', color: '#64748b' }}>
-                      Cumulative: <span style={{ color: '#c084fc', fontWeight: 800 }}>₹{Math.ceil(month.cumulativeInvested).toLocaleString()}</span>
-                      {' '} | Remaining: <span style={{ color: '#fb923c', fontWeight: 800 }}>₹{Math.ceil(month.remainingTotal).toLocaleString()}</span>
+                      Cumulative: <span style={{ color: '#c084fc', fontWeight: 800 }}>₹{Math.ceil(month.cumulativeInvested).toLocaleString('en-IN')}</span>
+                      {' '} | Remaining: <span style={{ color: '#fb923c', fontWeight: 800 }}>₹{Math.ceil(month.remainingTotal).toLocaleString('en-IN')}</span>
                     </div>
                   </div>
 
@@ -400,7 +411,7 @@ export default function MonthlyPlanner({ analytics, divisions }) {
                             {alloc.name}
                           </span>
                           <span style={{ color: '#3b82f6', fontSize: 'clamp(12px, 2vw, 14px)', fontWeight: 900 }}>
-                            ₹{Math.ceil(alloc.amount).toLocaleString()}
+                            ₹{Math.ceil(alloc.amount).toLocaleString('en-IN')}
                           </span>
                         </div>
 
@@ -423,7 +434,7 @@ export default function MonthlyPlanner({ analytics, divisions }) {
                                   ↳ {sub.name}
                                 </span>
                                 <span style={{ color: '#fb923c', fontSize: 'clamp(11px, 1.8vw, 12px)', fontWeight: 800 }}>
-                                  ₹{Math.ceil(sub.amount).toLocaleString()}
+                                  ₹{Math.ceil(sub.amount).toLocaleString('en-IN')}
                                 </span>
                               </div>
                             ))}
@@ -544,9 +555,17 @@ export default function MonthlyPlanner({ analytics, divisions }) {
                   onMouseLeave={(e) => e.currentTarget.style.background = isPositive ? 'rgba(99,102,241,0.08)' : 'transparent'}>
                     <td style={{ padding: 'clamp(12px, 2vw, 14px)', color: '#f1f5f9', fontWeight: 700 }}>{row.name}</td>
                     <td style={{ padding: 'clamp(12px, 2vw, 14px)', color: '#22d3ee', textAlign: 'right', fontWeight: 700 }}>{row.targetPct.toFixed(1)}%</td>
-                    <td style={{ padding: 'clamp(12px, 2vw, 14px)', color: '#c084fc', textAlign: 'right', fontWeight: 700 }}>₹{row.current.toLocaleString()}</td>
-                    <td style={{ padding: 'clamp(12px, 2vw, 14px)', color: isPositive ? '#fb923c' : '#4ade80', textAlign: 'right', fontWeight: 700 }}>₹{Math.max(0, row.gap).toLocaleString()}</td>
-                    <td style={{ padding: 'clamp(12px, 2vw, 14px)', color: '#818cf8', textAlign: 'right', fontWeight: 900 }}>₹{Math.round(row.recommended).toLocaleString()}</td>
+                    <td style={{ padding: 'clamp(12px, 2vw, 14px)', color: '#c084fc', textAlign: 'right', fontWeight: 700 }}>₹{row.current.toLocaleString('en-IN')}</td>
+                    {/* Clamping to zero showed "₹0" in green for the divisions that were
+                        furthest OVER target, which read as "nothing to do here". */}
+                    <td style={{ padding: 'clamp(12px, 2vw, 14px)', color: isPositive ? '#fb923c' : '#94a3b8', textAlign: 'right', fontWeight: 700, whiteSpace: 'nowrap' }}>
+                      {row.gap > 0
+                        ? `₹${Math.round(row.gap).toLocaleString('en-IN')} short`
+                        : row.gap < -1
+                          ? `₹${Math.round(-row.gap).toLocaleString('en-IN')} over`
+                          : 'on target'}
+                    </td>
+                    <td style={{ padding: 'clamp(12px, 2vw, 14px)', color: '#818cf8', textAlign: 'right', fontWeight: 900 }}>₹{Math.round(row.recommended).toLocaleString('en-IN')}</td>
                     <td style={{ padding: 'clamp(12px, 2vw, 14px)', color: '#94a3b8', textAlign: 'right', fontSize: 'clamp(9px, 1.5vw, 10px)' }}>{row.note}</td>
                   </tr>
                 )
@@ -555,7 +574,7 @@ export default function MonthlyPlanner({ analytics, divisions }) {
             <tfoot>
               <tr style={{ background: 'linear-gradient(180deg, #1e293b 0%, #0f1724 100%)', borderTop: '2px solid #334155' }}>
                 <td style={{ padding: 'clamp(12px, 2vw, 14px)', color: '#94a3b8', fontWeight: 800, textTransform: 'uppercase', fontSize: 'clamp(10px, 1.6vw, 11px)' }} colSpan={4}>Total</td>
-                <td style={{ padding: 'clamp(12px, 2vw, 14px)', color: '#22d3ee', textAlign: 'right', fontWeight: 900 }}>₹{Math.round(plan.totalReco).toLocaleString()}</td>
+                <td style={{ padding: 'clamp(12px, 2vw, 14px)', color: '#22d3ee', textAlign: 'right', fontWeight: 900 }}>₹{Math.round(plan.totalReco).toLocaleString('en-IN')}</td>
                 <td></td>
               </tr>
             </tfoot>

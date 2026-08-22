@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react'
 import { api } from '../api'
+import { toast } from '../toast'
 
 const MS  = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec']
 const MFL = ['January','February','March','April','May','June','July','August','September','October','November','December']
@@ -92,7 +93,7 @@ export default function ExpenseTracker({ expenses = [], onUpdate }) {
     })
     setSaving(true)
     try { await api.saveMonthExpenses(year, month, entries); setDirty(false); await onUpdate?.() }
-    catch (e) { alert('Save failed: ' + e.message) }
+    catch (e) { toast.error('Could not save the month', { detail: e.message }) }
     finally { setSaving(false) }
   }
 
@@ -106,8 +107,18 @@ export default function ExpenseTracker({ expenses = [], onUpdate }) {
     } catch (_) {}
   }
 
-  const totalIncome  = cats.income.reduce((s,c)  => s + (Number(sheet[`income:${c}`])  || 0), 0)
-  const totalExpense = cats.expense.reduce((s,c) => s + (Number(sheet[`expense:${c}`]) || 0), 0)
+  // A category stored for this month but absent from the category list used to get no
+  // row at all AND was left out of the month's total, so the app quietly displayed less
+  // than it held. Show the union of the configured list and whatever is actually saved.
+  const shownCats = (type) => {
+    const prefix = `${type}:`
+    const inSheet = Object.keys(sheet).filter(k => k.startsWith(prefix)).map(k => k.slice(prefix.length))
+    return [...new Set([...(cats[type] || []), ...inSheet])]
+  }
+  const incomeCats  = shownCats('income')
+  const expenseCats = shownCats('expense')
+  const totalIncome  = incomeCats.reduce((s,c)  => s + (Number(sheet[`income:${c}`])  || 0), 0)
+  const totalExpense = expenseCats.reduce((s,c) => s + (Number(sheet[`expense:${c}`]) || 0), 0)
   const savings      = totalIncome - totalExpense
   const savingsRate  = totalIncome > 0 ? (savings / totalIncome * 100) : 0
 
@@ -145,8 +156,14 @@ export default function ExpenseTracker({ expenses = [], onUpdate }) {
 
   const { inc: pInc, exp: pExp, totalInc: pTotalInc, totalExp: pTotalExp, savings: pSavings } = aggregateMonths(expenses, summaryMonths)
   const nMonths       = summaryMonths.length
-  const avgMonthlyInc = nMonths > 0 ? pTotalInc / nMonths : 0
-  const avgMonthlyExp = nMonths > 0 ? pTotalExp / nMonths : 0
+  // Averaging over the whole window understated everything whenever the window was
+  // longer than the data: on "12M" with 4 months logged, every "avg /mo" was 3x too
+  // low. Divide by months that actually have entries.
+  const trackedMonths = summaryMonths.filter(({ year: y, month: m }) =>
+    expenses.some(e => Number(e.year) === y && Number(e.month) === m)).length
+  const avgDivisor    = trackedMonths || nMonths
+  const avgMonthlyInc = avgDivisor > 0 ? pTotalInc / avgDivisor : 0
+  const avgMonthlyExp = avgDivisor > 0 ? pTotalExp / avgDivisor : 0
   const pSavingsRate  = pTotalInc > 0 ? (pSavings / pTotalInc * 100) : 0
 
   // Per-month data for trend table and insights
@@ -200,8 +217,8 @@ export default function ExpenseTracker({ expenses = [], onUpdate }) {
           </div>
 
           <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fit,minmax(260px,1fr))', gap:16, marginBottom:14 }}>
-            <CatSheet label="Income"   type="income"  categories={cats.income}  sheet={sheet} setAmt={setAmt} />
-            <CatSheet label="Expenses" type="expense" categories={cats.expense} sheet={sheet} setAmt={setAmt} />
+            <CatSheet label="Income"   type="income"  categories={incomeCats}  sheet={sheet} setAmt={setAmt} />
+            <CatSheet label="Expenses" type="expense" categories={expenseCats} sheet={sheet} setAmt={setAmt} />
           </div>
 
           {addingCat ? (
@@ -283,8 +300,8 @@ export default function ExpenseTracker({ expenses = [], onUpdate }) {
 
           {/* KPI bar */}
           <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fit,minmax(150px,1fr))', gap:12, marginBottom:20 }}>
-            <KpiCard label="Total Income"    value={fmt(pTotalInc)}     color="var(--green)"  sub={`avg ${fmt(avgMonthlyInc)}/mo`} />
-            <KpiCard label="Total Expenses"  value={fmt(pTotalExp)}     color="var(--red)"    sub={`avg ${fmt(avgMonthlyExp)}/mo`} />
+            <KpiCard label="Total Income"    value={fmt(pTotalInc)}     color="var(--green)"  sub={`avg ${fmt(avgMonthlyInc)}/mo over ${avgDivisor} tracked`} />
+            <KpiCard label="Total Expenses"  value={fmt(pTotalExp)}     color="var(--red)"    sub={`avg ${fmt(avgMonthlyExp)}/mo over ${avgDivisor} tracked`} />
             <KpiCard label="Net Savings"     value={fmt(pSavings)}      color={pSavings>=0?'var(--cyan)':'var(--red)'} sub={pTotalInc>0?`${pSavingsRate.toFixed(1)}% rate`:''} />
             <KpiCard label="Months Tracked"  value={activeMos.length}   color="var(--indigo)" sub={`of ${nMonths} in period`} />
           </div>
@@ -339,7 +356,7 @@ export default function ExpenseTracker({ expenses = [], onUpdate }) {
                     <div style={{ height:5, background:'var(--surface2)', borderRadius:99 }}>
                       <div style={{ height:'100%', width:`${pct}%`, background:'var(--red)', borderRadius:99, opacity:0.7 }} />
                     </div>
-                    <div style={{ fontSize:10, color:'var(--text3)', marginTop:2 }}>avg {fmt(amt/nMonths)}/mo</div>
+                    <div style={{ fontSize:10, color:'var(--text3)', marginTop:2 }}>avg {fmt(amt/avgDivisor)}/mo</div>
                   </div>
                 )
               })}
@@ -365,7 +382,7 @@ export default function ExpenseTracker({ expenses = [], onUpdate }) {
                     <div style={{ height:5, background:'var(--surface2)', borderRadius:99 }}>
                       <div style={{ height:'100%', width:`${pct}%`, background:'var(--green)', borderRadius:99, opacity:0.7 }} />
                     </div>
-                    <div style={{ fontSize:10, color:'var(--text3)', marginTop:2 }}>avg {fmt(amt/nMonths)}/mo</div>
+                    <div style={{ fontSize:10, color:'var(--text3)', marginTop:2 }}>avg {fmt(amt/avgDivisor)}/mo</div>
                   </div>
                 )
               })}

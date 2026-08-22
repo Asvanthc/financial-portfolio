@@ -152,7 +152,7 @@ export default function DivisionCard({ division, analytics, onUpdate }) {
     try {
       await api.updateDivision(division.id, { name: editingName, targetPercent: Number(editingTarget)||0 })
       onUpdate?.()
-    } catch (e) { alert('Save failed: ' + e.message) }
+    } catch (e) { toast.error('Could not save', { detail: e.message }) }
     finally { isSaving.current = false; setEditingHeader(false) }
   }
 
@@ -332,8 +332,12 @@ function SubdivisionBlock({ subdivision, divisionId, analytics, divisionCurrent,
   const pctOfTotal  = totalPortfolioCurrent > 0 ? (subCurrent / totalPortfolioCurrent * 100) : 0
   const targetOfDiv = Number(subdivision.targetPercent) || 0
   const divGap      = targetOfDiv - pctOfDiv   // positive = under-weight vs division target
+  // This used to grow the division by the gap first and then take the target share of
+  // the inflated total, so it over-stated what was needed (₹10,694 where the Analytics
+  // table said ₹7,375 for the same subdivision). It's just target share minus what's
+  // there, at today's division size — the same formula every other panel uses.
   const needed      = targetOfDiv > 0 && divisionCurrent > 0
-    ? Math.max(0, (targetOfDiv / 100) * (divisionCurrent + Math.max(0, divGap / 100 * divisionCurrent)) - subCurrent)
+    ? Math.max(0, (targetOfDiv / 100) * divisionCurrent - subCurrent)
     : 0
 
   // Sort holdings by current value desc
@@ -759,7 +763,7 @@ function EditHoldingRow({ holding, onSave, onCancel }) {
       }
       await api.updateHolding(holding.id, payload)
       onSave()
-    } catch (e) { alert('Save failed: ' + e.message) }
+    } catch (e) { toast.error('Could not save', { detail: e.message }) }
     finally { setSaving(false) }
   }
 

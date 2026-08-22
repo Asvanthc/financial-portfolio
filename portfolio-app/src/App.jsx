@@ -15,6 +15,7 @@ import OverlapAnalysis from './components/OverlapAnalysis'
 import BulkPriceEditor from './components/BulkPriceEditor'
 import BankSection from './components/BankSection'
 import GoalSeekPanel from './components/GoalSeekPanel'
+import CashflowSummary from './components/CashflowSummary'
 
 const TABS = [
   { id: 'overview', label: 'Overview' },
@@ -119,6 +120,7 @@ export default function App() {
             <button
               className="btn btn-secondary btn-sm"
               onClick={() => setShowData(true)}
+              aria-label="Export and backup"
               title="Export an Excel workbook, a CSV, or a JSON backup — and restore from one"
             >
               <span aria-hidden="true">⇩</span> <span className="btn-label">Export</span>
@@ -126,6 +128,7 @@ export default function App() {
             <button
               className="btn btn-secondary btn-sm"
               onClick={() => setShowBulkPrices(true)}
+              aria-label="Edit prices"
               title="Manually set prices for all holdings"
             >
               <span aria-hidden="true">✏</span> <span className="btn-label">Prices</span>
@@ -135,6 +138,8 @@ export default function App() {
               style={{ background: syncing ? 'var(--surface2)' : 'var(--indigo)', color: '#fff' }}
               onClick={syncAllPrices}
               disabled={syncing}
+              aria-label="Sync all prices"
+              title="Fetch the latest price for every holding"
             >
               <span className={syncing ? 'spin' : ''} aria-hidden="true">⟳</span>{' '}
               <span className="btn-label">{syncing ? 'Syncing…' : 'Sync All'}</span>
@@ -221,10 +226,12 @@ export default function App() {
                 {pct(returnPct)} returns
               </div>
             </div>
+            {/* Buy-only figure. Naming it "To Rebalance" contradicted Goal Seek's
+                Rebalance mode, which reaches the same targets by selling for ₹0. */}
             <div className="kpi-card">
-              <div className="kpi-label">To Rebalance</div>
+              <div className="kpi-label">New Money Needed</div>
               <div className="kpi-value" style={{ color: 'var(--orange)' }}>{fmt(minRequired)}</div>
-              <div className="kpi-sub text-dim">min. to reach all targets</div>
+              <div className="kpi-sub text-dim">to hit targets without selling</div>
             </div>
             {/* Bank cash sits outside the portfolio — shown, never counted in the % maths */}
             <div className="kpi-card" style={{ borderColor: 'rgba(74,222,128,0.28)' }}>
@@ -235,6 +242,11 @@ export default function App() {
               </div>
             </div>
           </div>
+        )}
+
+        {/* Income, expenses and net savings, reconciled against what's actually invested */}
+        {activeTab === 'overview' && !loading && (
+          <CashflowSummary expenses={expenses} totalInvested={totalInvested} bankTotal={bank.total} />
         )}
 
         {activeTab === 'overview' && (
