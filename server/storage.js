@@ -15,6 +15,7 @@ let portfolioCollection = null
 let expensesCollection = null
 let categoriesCollection = null
 let bankCollection = null
+let brokersCollection = null
 // 'connecting' | 'connected' | 'failed' — lets a handler tell "Mongo isn't ready yet"
 // (wait) apart from "Mongo will never be ready" (use the file), instead of guessing
 // from a null collection.
@@ -31,8 +32,9 @@ if (process.env.MONGODB_URI) {
       expensesCollection = db.collection('expenses')
       categoriesCollection = db.collection('categories')
       bankCollection = db.collection('bank')
+      brokersCollection = db.collection('brokers')
       mongoState = 'connected'
-      console.log('[STORAGE] Connected to MongoDB with collections: portfolio, expenses, categories, bank')
+      console.log('[STORAGE] Connected to MongoDB with collections: portfolio, expenses, categories, bank, brokers')
     })
     .catch(err => {
       mongoState = 'failed'
@@ -252,6 +254,84 @@ async function saveBankAccounts(accounts) {
   data.bankAccounts = list
   fs.writeFileSync(DATA_FILE, JSON.stringify(data, null, 2))
   return list
+}
+
+// ── Broker ledgers ───────────────────────────────────────────────────────────
+// What the holdings table cannot know: the cash actually deposited with a broker, the
+// profit and loss already booked, what the brokerage and taxes ate, and the dividends
+// received. Without these the app's P/L is only the unrealised part, which reads far
+// better than reality.
+async function brokerStore(waitMs = 5000) {
+  if (mongoState === 'absent' || mongoState === 'failed') return null
+  const deadline = Date.now() + waitMs
+  while (mongoState === 'connecting' && Date.now() < deadline) {
+    await new Promise(r => setTimeout(r, 100))
+  }
+  return mongoState === 'connected' ? brokersCollection : null
+}
+
+async function loadBrokers() {
+  if (gh.isEnabled()) return gh.readJson(gh.FILES.brokers, [])
+
+  const coll = await brokerStore()
+  if (coll) {
+    const doc = await coll.findOne({ _id: 'ledgers' })
+    return Array.isArray(doc?.brokers) ? doc.brokers : []
+  }
+  ensureDataFile()
+  try {
+    const data = JSON.parse(fs.readFileSync(DATA_FILE, 'utf8'))
+    return Array.isArray(data.brokers) ? data.brokers : []
+  } catch (_) {
+    return []
+  }
+}
+
+async function saveBrokers(brokers) {
+  const list = Array.isArray(brokers) ? brokers : []
+  if (gh.isEnabled()) {
+    await gh.writeJson(gh.FILES.brokers, list, `brokers: ${list.length} ledgers`)
+    return list
+  }
+
+  const coll = await brokerStore()
+  if (coll) {
+    await coll.updateOne(
+      { _id: 'ledgers' },
+      { $set: { brokers: list, updatedAt: new Date().toISOString() } },
+      { upsert: true }
+    )
+    console.log('[STORAGE] Broker ledgers saved to MongoDB:', list.length)
+    return list
+  }
+  ensureDataFile()
+  const data = JSON.parse(fs.readFileSync(DATA_FILE, 'utf8'))
+  data.brokers = list
+  fs.writeFileSync(DATA_FILE, JSON.stringify(data, null, 2))
+  return list
+}
+
+const num0 = v => {
+  const n = Number(v)
+  return Number.isFinite(n) && n >= 0 ? n : 0
+}
+
+function createBroker({ platform = 'other', name = '', netDeposited = 0, realisedProfit = 0,
+                        realisedLoss = 0, charges = 0, dividends = 0, note = '' }) {
+  return {
+    id: randomUUID(),
+    platform,
+    name: String(name || '').trim(),
+    // The cash actually transferred in, tracked by the user elsewhere. Deliberately
+    // NOT derived from holdings: the two are meant to be compared, not equated.
+    netDeposited: num0(netDeposited),
+    realisedProfit: num0(realisedProfit),   // booked gains, positive
+    realisedLoss: num0(realisedLoss),       // booked losses, positive magnitude
+    charges: num0(charges),                 // brokerage + STT + GST + DP + stamp duty
+    dividends: num0(dividends),             // net of TDS
+    note: String(note || '').trim(),
+    updatedAt: new Date().toISOString(),
+  }
 }
 
 function createBankAccount({ name, bankName = '', accountType = 'savings', balance = 0, note = '' }) {
@@ -515,6 +595,9 @@ module.exports = {
   loadBankAccounts,
   saveBankAccounts,
   createBankAccount,
+  loadBrokers,
+  saveBrokers,
+  createBroker,
   createDivision,
   createSubdivision,
   createHolding,

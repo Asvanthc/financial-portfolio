@@ -221,4 +221,5 @@ module.exports = { isEnabled, readJson, writeJson, verify, status, FILES: {
   expenses: 'expenses.json',
   categories: 'categories.json',
   bank: 'bank.json',
+  brokers: 'brokers.json',
 } }

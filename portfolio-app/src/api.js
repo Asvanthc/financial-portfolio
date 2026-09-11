@@ -85,6 +85,11 @@ export const api = {
   addBankAccount: (a) => json('POST', '/api/bank-accounts', a),
   updateBankAccount: (id, a) => json('PATCH', `/api/bank-accounts/${id}`, a),
   deleteBankAccount: (id) => json('DELETE', `/api/bank-accounts/${id}`),
+  // Broker ledgers — deposits, booked P&L, charges and dividends per broker.
+  getBrokers: () => getObj('/api/brokers'),
+  addBroker: (b) => json('POST', '/api/brokers', b),
+  updateBroker: (id, b) => json('PATCH', `/api/brokers/${id}`, b),
+  deleteBroker: (id) => json('DELETE', `/api/brokers/${id}`),
   portfolioOverlap: () => fetch(`${API_ROOT}/api/portfolio/overlap`).then(r => r.json()),
   getExchangeRate: (currency) => fetch(`${API_ROOT}/api/exchange-rate/${encodeURIComponent(currency)}`).then(r => r.json()),
 

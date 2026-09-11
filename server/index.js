@@ -16,6 +16,9 @@ const {
   loadBankAccounts,
   saveBankAccounts,
   createBankAccount,
+  loadBrokers,
+  saveBrokers,
+  createBroker,
   createDivision,
   createSubdivision,
   createHolding,
@@ -1205,20 +1208,183 @@ app.delete('/api/subdivisions/:sid', async (req, res) => {
   } catch (e) { res.status(500).json({ error: e.message }) }
 })
 
+// ===== BROKER LEDGERS =====
+// The holdings tree knows what you hold; it cannot know what you actually paid in, what
+// you already booked, what the brokerage took, or what dividends landed. Those live here
+// and are what turn an unrealised-only "P/L" into a true one.
+
+const BROKER_PLATFORMS = ['kite', 'groww', 'indmoney', 'bank', 'other']
+const BROKER_MONEY_FIELDS = ['netDeposited', 'realisedProfit', 'realisedLoss', 'charges', 'dividends']
+
+function validateBroker(body, { requirePlatform }) {
+  const { platform, name, note } = body
+  if (requirePlatform || platform !== undefined) {
+    if (typeof platform !== 'string' || !BROKER_PLATFORMS.includes(platform)) {
+      return { error: `platform must be one of: ${BROKER_PLATFORMS.join(', ')}` }
+    }
+  }
+  for (const [k, v] of Object.entries({ name, note })) {
+    if (v !== undefined && typeof v !== 'string') return { error: `${k} must be a string` }
+  }
+  for (const f of BROKER_MONEY_FIELDS) {
+    if (body[f] === undefined) continue
+    const n = Number(body[f])
+    // Losses and charges are entered as positive magnitudes; a negative here almost
+    // always means a sign mistake, and silently storing it would flip the net profit.
+    if (!Number.isFinite(n) || n < 0) return { error: `${f} must be a number of 0 or more` }
+  }
+  return null
+}
+
+// Roll the portfolio up by platform so each ledger can be compared against what that
+// broker actually holds today.
+function holdingsByPlatform(portfolio) {
+  const acc = {}
+  const add = h => {
+    const key = h.platform || 'other'
+    if (!acc[key]) acc[key] = { invested: 0, current: 0, count: 0 }
+    acc[key].invested += Number(h.invested) || 0
+    acc[key].current += Number(h.current) || 0
+    acc[key].count++
+  }
+  ;(portfolio.divisions || []).forEach(d => {
+    ;(d.holdings || []).forEach(add)
+    ;(d.subdivisions || []).forEach(sd => (sd.holdings || []).forEach(add))
+  })
+  return acc
+}
+
+function decorateBroker(b, byPlatform) {
+  const held = byPlatform[b.platform] || { invested: 0, current: 0, count: 0 }
+  const n = v => Number(v) || 0
+  const unrealised = held.current - held.invested
+  const realisedNet = n(b.realisedProfit) - n(b.realisedLoss)
+  // The number the whole feature exists for: what's left after the costs and the
+  // already-booked trades, not just the paper gain on what's still open.
+  const netProfit = unrealised + realisedNet - n(b.charges) + n(b.dividends)
+  const netDeposited = n(b.netDeposited)
+  return {
+    ...b,
+    holdingsValue: Math.round(held.current * 100) / 100,
+    holdingsInvested: Math.round(held.invested * 100) / 100,
+    holdingsCount: held.count,
+    unrealised: Math.round(unrealised * 100) / 100,
+    realisedNet: Math.round(realisedNet * 100) / 100,
+    netProfit: Math.round(netProfit * 100) / 100,
+    // Return on the cash actually put in, which is the honest denominator.
+    returnPercent: netDeposited > 0 ? Math.round((netProfit / netDeposited) * 10000) / 100 : null,
+    // How much of the gross gain the broker and the taxman took.
+    costDragPercent: (unrealised + realisedNet + n(b.dividends)) > 0
+      ? Math.round((n(b.charges) / (unrealised + realisedNet + n(b.dividends))) * 10000) / 100
+      : null,
+    // Cash in vs what's invested there now — they drift apart when profit is withdrawn
+    // or booked gains are left sitting as cash at the broker.
+    uninvestedCash: Math.round((netDeposited + realisedNet + n(b.dividends) - n(b.charges) - held.invested) * 100) / 100,
+  }
+}
+
+function brokerTotals(list) {
+  const sum = k => list.reduce((s, b) => s + (Number(b[k]) || 0), 0)
+  const r2 = v => Math.round(v * 100) / 100
+  const netProfit = r2(sum('netProfit'))
+  const netDeposited = r2(sum('netDeposited'))
+  return {
+    netDeposited,
+    holdingsValue: r2(sum('holdingsValue')),
+    holdingsInvested: r2(sum('holdingsInvested')),
+    unrealised: r2(sum('unrealised')),
+    realisedProfit: r2(sum('realisedProfit')),
+    realisedLoss: r2(sum('realisedLoss')),
+    realisedNet: r2(sum('realisedNet')),
+    charges: r2(sum('charges')),
+    dividends: r2(sum('dividends')),
+    netProfit,
+    returnPercent: netDeposited > 0 ? Math.round((netProfit / netDeposited) * 10000) / 100 : null,
+  }
+}
+
+app.get('/api/brokers', async (_req, res) => {
+  try {
+    const [brokers, portfolio] = await Promise.all([loadBrokers(), loadPortfolio()])
+    const byPlatform = holdingsByPlatform(portfolio)
+    const decorated = brokers.map(b => decorateBroker(b, byPlatform))
+    res.json({
+      brokers: decorated,
+      totals: brokerTotals(decorated),
+      // Platforms that hold money but have no ledger yet — otherwise their costs and
+      // booked trades are simply missing from the true-profit figure.
+      untracked: Object.entries(byPlatform)
+        .filter(([p, v]) => v.current > 0 && !brokers.some(b => b.platform === p))
+        .map(([platform, v]) => ({ platform, holdingsValue: Math.round(v.current * 100) / 100, holdingsCount: v.count })),
+    })
+  } catch (e) { res.status(500).json({ error: e.message }) }
+})
+
+app.post('/api/brokers', async (req, res) => {
+  try {
+    const body = req.body || {}
+    const bad = validateBroker(body, { requirePlatform: true })
+    if (bad) return res.status(400).json(bad)
+    const brokers = await loadBrokers()
+    if (brokers.some(b => b.platform === body.platform)) {
+      return res.status(409).json({ error: `a ledger for ${body.platform} already exists — edit that one instead` })
+    }
+    const broker = createBroker(body)
+    brokers.push(broker)
+    await saveBrokers(brokers)
+    res.json(broker)
+  } catch (e) { res.status(500).json({ error: e.message }) }
+})
+
+app.patch('/api/brokers/:id', async (req, res) => {
+  try {
+    const body = req.body || {}
+    const bad = validateBroker(body, { requirePlatform: false })
+    if (bad) return res.status(400).json(bad)
+    const brokers = await loadBrokers()
+    const b = brokers.find(x => x.id === req.params.id)
+    if (!b) return res.status(404).json({ error: 'broker ledger not found' })
+    if (body.platform !== undefined && body.platform !== b.platform
+        && brokers.some(x => x.platform === body.platform)) {
+      return res.status(409).json({ error: `a ledger for ${body.platform} already exists` })
+    }
+    if (body.platform !== undefined) b.platform = body.platform
+    if (body.name !== undefined) b.name = body.name.trim()
+    if (body.note !== undefined) b.note = body.note.trim()
+    BROKER_MONEY_FIELDS.forEach(f => { if (body[f] !== undefined) b[f] = Number(body[f]) })
+    b.updatedAt = new Date().toISOString()
+    await saveBrokers(brokers)
+    res.json(b)
+  } catch (e) { res.status(500).json({ error: e.message }) }
+})
+
+app.delete('/api/brokers/:id', async (req, res) => {
+  try {
+    const brokers = await loadBrokers()
+    const idx = brokers.findIndex(b => b.id === req.params.id)
+    if (idx === -1) return res.status(404).json({ error: 'broker ledger not found' })
+    const [removed] = brokers.splice(idx, 1)
+    await saveBrokers(brokers)
+    res.json(removed)
+  } catch (e) { res.status(500).json({ error: e.message }) }
+})
+
 // ===== BACKUP / EXPORT / IMPORT =====
 
 const BACKUP_VERSION = 1
 
 async function collectEverything() {
-  const [portfolio, bankAccounts, expenses, categories] = await Promise.all([
+  const [portfolio, bankAccounts, expenses, categories, brokers] = await Promise.all([
     loadPortfolio(),
     loadBankAccounts().catch(() => []),
     loadExpenses().catch(() => []),
     loadCategories().catch(() => ({ expense: [], income: [] })),
+    loadBrokers().catch(() => []),
   ])
   return {
     portfolio: { divisions: portfolio.divisions || [] },
     bankAccounts,
+    brokers,
     // Strip Mongo's _id so a backup can be restored into either storage backend.
     expenses: (expenses || []).map(({ _id, id, ...rest }) => rest),
     categories,
@@ -1238,6 +1404,7 @@ app.get('/api/backup', async (_req, res) => {
       holdings: data.portfolio.divisions.reduce((n, d) =>
         n + (d.holdings || []).length + (d.subdivisions || []).reduce((m, s) => m + (s.holdings || []).length, 0), 0),
       bankAccounts: data.bankAccounts.length,
+      brokers: data.brokers.length,
       expenses: data.expenses.length,
     }
     const body = {
@@ -1264,6 +1431,7 @@ app.get('/api/backup/summary', async (_req, res) => {
         n + (d.holdings || []).length + (d.subdivisions || []).reduce((m, s) => m + (s.holdings || []).length, 0), 0),
       subdivisions: data.portfolio.divisions.reduce((n, d) => n + (d.subdivisions || []).length, 0),
       bankAccounts: data.bankAccounts.length,
+      brokers: data.brokers.length,
       expenses: data.expenses.length,
       categories: (data.categories.expense || []).length + (data.categories.income || []).length,
     })
@@ -1282,6 +1450,7 @@ function validateBackup(body) {
     if (d.subdivisions && !Array.isArray(d.subdivisions)) return `division "${d.name}" has a malformed subdivisions list`
   }
   if (body.bankAccounts && !Array.isArray(body.bankAccounts)) return 'bankAccounts is not an array'
+  if (body.brokers && !Array.isArray(body.brokers)) return 'brokers is not an array'
   if (body.expenses && !Array.isArray(body.expenses)) return 'expenses is not an array'
   return null
 }
@@ -1301,13 +1470,17 @@ app.post('/api/backup/restore', async (req, res) => {
     const before = await collectEverything()
     const divisions = payload.portfolio?.divisions ?? payload.divisions
 
-    const restored = { divisions: 0, bankAccounts: 0, expenses: 0, categories: 0 }
+    const restored = { divisions: 0, bankAccounts: 0, brokers: 0, expenses: 0, categories: 0 }
     await savePortfolio({ divisions })
     restored.divisions = divisions.length
 
     if (Array.isArray(payload.bankAccounts)) {
       await saveBankAccounts(payload.bankAccounts)
       restored.bankAccounts = payload.bankAccounts.length
+    }
+    if (Array.isArray(payload.brokers)) {
+      await saveBrokers(payload.brokers)
+      restored.brokers = payload.brokers.length
     }
     if (payload.categories && typeof payload.categories === 'object') {
       await saveCategories({
@@ -1346,13 +1519,16 @@ app.post('/api/backup/restore', async (req, res) => {
 app.get('/api/export/excel', async (_req, res) => {
   try {
     const { buildWorkbook } = require('./exportExcel')
-    const [portfolio, bankAccounts, expenses] = await Promise.all([
+    const [portfolio, bankAccounts, expenses, brokerList] = await Promise.all([
       loadPortfolio(),
       loadBankAccounts().catch(() => []),
       loadExpenses().catch(() => []),
+      loadBrokers().catch(() => []),
     ])
     const analytics = computeAnalytics(portfolio)
-    const wb = await buildWorkbook({ portfolio, bankAccounts, expenses, analytics })
+    const byPlatform = holdingsByPlatform(portfolio)
+    const brokers = brokerList.map(b => decorateBroker(b, byPlatform))
+    const wb = await buildWorkbook({ portfolio, bankAccounts, expenses, brokers, analytics })
     res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
     res.setHeader('Content-Disposition', `attachment; filename="finfolio-${new Date().toISOString().slice(0, 10)}.xlsx"`)
     await wb.xlsx.write(res)

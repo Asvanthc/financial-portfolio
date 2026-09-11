@@ -1,0 +1,399 @@
+import React, { useEffect, useState } from 'react'
+import { api } from '../api'
+import { toast } from '../toast'
+import { money, signedMoney, percent } from '../format'
+
+// What the holdings tree cannot know.
+//
+// The app's P/L is current − invested: purely unrealised, and blind to everything a
+// broker actually charges. So it reads better than reality. This ledger adds the three
+// missing pieces per broker — what you really paid in, what you already booked, and
+// what it cost — and turns them into one honest number:
+//
+//     net profit = unrealised + (booked profit − booked loss) − charges + dividends
+//
+// Cash in is entered, not derived: it's tracked elsewhere and is meant to be compared
+// against what the broker holds, not silently reconciled with it.
+
+const PLATFORMS = [
+  { id: 'kite', label: 'Zerodha Kite', cls: 'platform-kite' },
+  { id: 'groww', label: 'Groww', cls: 'platform-groww' },
+  { id: 'indmoney', label: 'IndMoney', cls: 'platform-indmoney' },
+  { id: 'bank', label: 'Bank', cls: 'platform-bank' },
+  { id: 'other', label: 'Other', cls: 'platform-other' },
+]
+const platformOf = id => PLATFORMS.find(p => p.id === id) || PLATFORMS[4]
+
+const FIELDS = [
+  { key: 'netDeposited', label: 'Cash put in', hint: 'Net of withdrawals — your own figure', color: 'var(--cyan)' },
+  { key: 'realisedProfit', label: 'Booked profit', hint: 'Gains already realised', color: 'var(--green)' },
+  { key: 'realisedLoss', label: 'Booked loss', hint: 'Losses already realised (enter positive)', color: 'var(--red)' },
+  { key: 'charges', label: 'Charges & taxes', hint: 'Brokerage, STT, GST, DP, stamp duty', color: 'var(--orange)' },
+  { key: 'dividends', label: 'Dividends', hint: 'Net of TDS', color: 'var(--purple)' },
+]
+
+function Tile({ label, value, color, sub, title }) {
+  return (
+    <div className="metric-card" title={title}>
+      <div className="metric-label">{label}</div>
+      <div className="metric-value" style={{ color, fontSize: 17 }}>{value}</div>
+      {sub && <div style={{ fontSize: 11, color: 'var(--text3)', marginTop: 2 }}>{sub}</div>}
+    </div>
+  )
+}
+
+function BrokerCard({ broker, onSaved, onDeleted }) {
+  const [editing, setEditing] = useState(false)
+  const [draft, setDraft] = useState({})
+  const [busy, setBusy] = useState(false)
+  const p = platformOf(broker.platform)
+
+  function startEdit() {
+    setDraft(Object.fromEntries(FIELDS.map(f => [f.key, String(Number(broker[f.key]) || 0)])
+      .concat([['name', broker.name || ''], ['note', broker.note || '']])))
+    setEditing(true)
+  }
+
+  async function save() {
+    const payload = { name: draft.name, note: draft.note }
+    for (const f of FIELDS) {
+      const v = Number(draft[f.key])
+      if (!Number.isFinite(v) || v < 0) {
+        toast.error(`${f.label} must be 0 or more`, { detail: 'Losses and charges go in as positive numbers.' })
+        return
+      }
+      payload[f.key] = v
+    }
+    setBusy(true)
+    try {
+      await api.updateBroker(broker.id, payload)
+      setEditing(false)
+      await onSaved?.()
+      toast.success(`${broker.name || p.label} updated`)
+    } catch (e) {
+      toast.error('Could not save', { detail: e.message })
+    } finally { setBusy(false) }
+  }
+
+  async function remove() {
+    if (!window.confirm(`Remove the ${broker.name || p.label} ledger? Your holdings are not touched.`)) return
+    try { await api.deleteBroker(broker.id); await onDeleted?.() }
+    catch (e) { toast.error('Could not remove', { detail: e.message }) }
+  }
+
+  const net = Number(broker.netProfit) || 0
+  const netColor = net > 0 ? 'var(--green)' : net < 0 ? 'var(--red)' : 'var(--text2)'
+
+  return (
+    <div className="card-lg mb-4">
+      <div className="section-header" style={{ marginBottom: 12 }}>
+        <div className="flex items-center gap-2" style={{ flexWrap: 'wrap' }}>
+          <span className={`platform-badge ${p.cls}`}>{p.label}</span>
+          {broker.name && broker.name !== p.label && (
+            <span style={{ fontWeight: 800, fontSize: 15 }}>{broker.name}</span>
+          )}
+          <span className="text-xs text-dim">
+            {broker.holdingsCount} holding{broker.holdingsCount === 1 ? '' : 's'} tagged to this broker
+          </span>
+        </div>
+        <div className="flex items-center gap-2">
+          <div style={{ textAlign: 'right' }}>
+            <div style={{ fontSize: 11, color: 'var(--text3)', textTransform: 'uppercase', letterSpacing: '0.6px', fontWeight: 700 }}>
+              True net profit
+            </div>
+            <div style={{ fontSize: 22, fontWeight: 900, color: netColor }}>
+              {signedMoney(net)}
+              {broker.returnPercent != null && (
+                <span style={{ fontSize: 12, fontWeight: 700, marginLeft: 6 }}>
+                  ({broker.returnPercent >= 0 ? '+' : ''}{broker.returnPercent}%)
+                </span>
+              )}
+            </div>
+          </div>
+          <div className="flex items-center gap-1">
+            {!editing && (
+              <button className="btn btn-secondary btn-xs" aria-label="Edit ledger" onClick={startEdit}>✏️ Edit</button>
+            )}
+            <button className="btn-icon" aria-label="Remove ledger" title="Remove ledger" onClick={remove}>🗑️</button>
+          </div>
+        </div>
+      </div>
+
+      {editing ? (
+        <>
+          <div className="fire-inputs">
+            <div className="form-group">
+              <label className="form-label" htmlFor={`nm-${broker.id}`}>Display name</label>
+              <input id={`nm-${broker.id}`} className="input" value={draft.name}
+                placeholder={p.label} onChange={e => setDraft(d => ({ ...d, name: e.target.value }))} />
+            </div>
+            {FIELDS.map(f => (
+              <div className="form-group" key={f.key}>
+                <label className="form-label" htmlFor={`${f.key}-${broker.id}`}>{f.label}</label>
+                <input id={`${f.key}-${broker.id}`} className="input" type="number" min="0" step="any"
+                  value={draft[f.key]} onChange={e => setDraft(d => ({ ...d, [f.key]: e.target.value }))} />
+                <span style={{ fontSize: 10, color: 'var(--text3)' }}>{f.hint}</span>
+              </div>
+            ))}
+            <div className="form-group">
+              <label className="form-label" htmlFor={`nt-${broker.id}`}>Note</label>
+              <input id={`nt-${broker.id}`} className="input" value={draft.note}
+                placeholder="optional" onChange={e => setDraft(d => ({ ...d, note: e.target.value }))} />
+            </div>
+          </div>
+          <div className="flex gap-2 mt-3">
+            <button className="btn btn-primary btn-sm" onClick={save} disabled={busy}>{busy ? 'Saving…' : 'Save'}</button>
+            <button className="btn btn-ghost btn-sm" onClick={() => setEditing(false)} disabled={busy}>Cancel</button>
+          </div>
+        </>
+      ) : (
+        <>
+          <div className="metric-grid">
+            {FIELDS.map(f => (
+              <Tile key={f.key} label={f.label} value={money(broker[f.key])} color={f.color} title={f.hint} />
+            ))}
+            <Tile label="Held now" value={money(broker.holdingsValue)} color="var(--purple)"
+              sub={`${signedMoney(broker.unrealised)} unrealised`}
+              title="Current value of the holdings tagged to this broker" />
+          </div>
+
+          <div className="broker-equation">
+            {signedMoney(broker.unrealised)} <span className="text-dim">unrealised</span>
+            {' '}{broker.realisedNet >= 0 ? '+' : '−'} {money(Math.abs(broker.realisedNet))} <span className="text-dim">booked</span>
+            {' '}− {money(broker.charges)} <span className="text-dim">charges</span>
+            {' '}+ {money(broker.dividends)} <span className="text-dim">dividends</span>
+            {' = '}<strong style={{ color: netColor }}>{signedMoney(broker.netProfit)}</strong>
+          </div>
+
+          <div className="text-xs text-dim mt-2">
+            {broker.charges > 0 && broker.costDragPercent != null && (
+              <>Charges ate {percent(broker.costDragPercent)} of the gross gain. </>
+            )}
+            {Math.abs(broker.uninvestedCash) > 1000 && (
+              <>Cash in minus what's invested here leaves {money(Math.abs(broker.uninvestedCash))}
+                {broker.uninvestedCash > 0 ? ' unaccounted — idle at the broker, or withdrawn.' : ' more invested than deposited — check the figures.'}</>
+            )}
+          </div>
+          {broker.note && <div className="text-xs text-muted mt-2">{broker.note}</div>}
+        </>
+      )}
+    </div>
+  )
+}
+
+function AddBrokerForm({ existing, untracked, onAdded }) {
+  const taken = new Set(existing.map(b => b.platform))
+  const available = PLATFORMS.filter(p => !taken.has(p.id))
+  const [open, setOpen] = useState(false)
+  const [platform, setPlatform] = useState(available[0]?.id || '')
+  const [busy, setBusy] = useState(false)
+
+  useEffect(() => { if (!available.some(p => p.id === platform)) setPlatform(available[0]?.id || '') }, [existing])
+
+  if (!available.length) return null
+
+  async function add() {
+    setBusy(true)
+    try {
+      await api.addBroker({ platform, netDeposited: 0 })
+      setOpen(false)
+      await onAdded?.()
+    } catch (e) { toast.error('Could not add', { detail: e.message }) }
+    finally { setBusy(false) }
+  }
+
+  return open ? (
+    <div className="card-lg mb-4">
+      <div className="flex items-center gap-2" style={{ flexWrap: 'wrap' }}>
+        <label className="form-label" htmlFor="new-broker">Broker</label>
+        <select id="new-broker" className="input" style={{ width: 180 }} value={platform} onChange={e => setPlatform(e.target.value)}>
+          {available.map(p => <option key={p.id} value={p.id}>{p.label}</option>)}
+        </select>
+        <button className="btn btn-primary btn-sm" onClick={add} disabled={busy || !platform}>
+          {busy ? 'Adding…' : 'Add ledger'}
+        </button>
+        <button className="btn btn-ghost btn-sm" onClick={() => setOpen(false)}>Cancel</button>
+      </div>
+      <div className="text-xs text-dim mt-2">
+        Holdings are matched to a ledger by their Platform, so tag your holdings to the same broker.
+      </div>
+    </div>
+  ) : (
+    <button className="btn btn-secondary btn-sm mb-4" onClick={() => setOpen(true)}>+ Add a broker ledger</button>
+  )
+}
+
+export default function BrokerLedger({ onUpdate }) {
+  const [data, setData] = useState({ brokers: [], totals: {}, untracked: [] })
+  const [loading, setLoading] = useState(true)
+
+  async function load() {
+    const d = await api.getBrokers()
+    setData({ brokers: d.brokers || [], totals: d.totals || {}, untracked: d.untracked || [] })
+    setLoading(false)
+  }
+  useEffect(() => { load() }, [])
+
+  const refresh = async () => { await load(); await onUpdate?.() }
+  const t = data.totals
+  const net = Number(t.netProfit) || 0
+  const netColor = net > 0 ? 'var(--green)' : net < 0 ? 'var(--red)' : 'var(--text2)'
+  const dividendBrokers = data.brokers.filter(b => Number(b.dividends) > 0)
+
+  return (
+    <div>
+      <div className="section-header">
+        <h2 className="section-title">Brokers</h2>
+        <span className="text-xs text-dim">
+          What you actually paid in, what you booked, and what it cost
+        </span>
+      </div>
+
+      {loading ? (
+        <div className="kpi-row" aria-hidden="true">
+          {[0, 1, 2, 3].map(i => (
+            <div className="kpi-card" key={i}>
+              <div className="skeleton" style={{ width: '55%', height: 10, marginBottom: 10 }} />
+              <div className="skeleton" style={{ width: '80%', height: 22 }} />
+            </div>
+          ))}
+        </div>
+      ) : data.brokers.length === 0 ? (
+        <div className="empty-state">
+          <div className="empty-state-icon" aria-hidden="true">⚖</div>
+          <div className="empty-state-title">No broker ledgers yet</div>
+          <div className="empty-state-body">
+            The P/L on Overview is only the unrealised part — it can't see brokerage, taxes,
+            the profit and loss you've already booked, or dividends received. Add a ledger per
+            broker with the cash you actually put in, and this tab works out the real number.
+          </div>
+          <AddBrokerForm existing={data.brokers} untracked={data.untracked} onAdded={refresh} />
+        </div>
+      ) : (
+        <>
+          <div className="kpi-row">
+            <div className="kpi-card">
+              <div className="kpi-label">Cash put in</div>
+              <div className="kpi-value" style={{ color: 'var(--cyan)', fontSize: 22 }}>{money(t.netDeposited)}</div>
+              <div className="kpi-sub text-dim">across {data.brokers.length} broker{data.brokers.length === 1 ? '' : 's'}</div>
+            </div>
+            <div className="kpi-card">
+              <div className="kpi-label">Held now</div>
+              <div className="kpi-value" style={{ color: 'var(--purple)', fontSize: 22 }}>{money(t.holdingsValue)}</div>
+              <div className="kpi-sub text-dim">{signedMoney(t.unrealised)} unrealised</div>
+            </div>
+            <div className="kpi-card">
+              <div className="kpi-label">Booked net</div>
+              <div className="kpi-value" style={{ color: (t.realisedNet || 0) >= 0 ? 'var(--green)' : 'var(--red)', fontSize: 22 }}>
+                {signedMoney(t.realisedNet)}
+              </div>
+              <div className="kpi-sub text-dim">{money(t.realisedProfit)} won · {money(t.realisedLoss)} lost</div>
+            </div>
+            <div className="kpi-card">
+              <div className="kpi-label">Charges & taxes</div>
+              <div className="kpi-value" style={{ color: 'var(--orange)', fontSize: 22 }}>−{money(t.charges)}</div>
+              <div className="kpi-sub text-dim">brokerage, STT, GST, DP</div>
+            </div>
+            <div className="kpi-card">
+              <div className="kpi-label">Dividends</div>
+              <div className="kpi-value" style={{ color: 'var(--purple)', fontSize: 22 }}>+{money(t.dividends)}</div>
+              <div className="kpi-sub text-dim">net of TDS</div>
+            </div>
+            <div className="kpi-card" style={{ borderColor: 'rgba(34,211,238,0.35)' }}>
+              <div className="kpi-label">True net profit</div>
+              <div className="kpi-value" style={{ color: netColor, fontSize: 22 }}>{signedMoney(net)}</div>
+              <div className="kpi-sub text-dim">
+                {t.returnPercent != null ? `${t.returnPercent >= 0 ? '+' : ''}${t.returnPercent}% on cash put in` : 'enter cash put in for a %'}
+              </div>
+            </div>
+          </div>
+
+          {data.untracked.length > 0 && (
+            <div className="banner banner-warn" role="status">
+              <span aria-hidden="true">⚠</span>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <strong>
+                  {data.untracked.map(u => `${platformOf(u.platform).label} holds ${money(u.holdingsValue)}`).join(', ')} with no ledger.
+                </strong>{' '}
+                <span className="text-muted">
+                  Those holdings count towards the portfolio but their charges, booked trades and
+                  dividends are missing from the figures above.
+                </span>
+              </div>
+            </div>
+          )}
+
+          {data.brokers.map(b => (
+            <BrokerCard key={b.id} broker={b} onSaved={refresh} onDeleted={refresh} />
+          ))}
+
+          <AddBrokerForm existing={data.brokers} untracked={data.untracked} onAdded={refresh} />
+
+          {/* Dividends get their own section — it's income, not a price movement, and it
+              never shows up anywhere else in the app. */}
+          <div className="card-lg section">
+            <div className="card-title">Dividends earned</div>
+            {dividendBrokers.length === 0 ? (
+              <div className="text-sm text-dim">
+                No dividends recorded yet. Add them per broker above — they're income, so they
+                never appear in the price-based P/L.
+              </div>
+            ) : (
+              <div className="scroll-x">
+                <table className="holdings-table">
+                  <thead>
+                    <tr>
+                      <th>Broker</th>
+                      <th className="right">Dividends</th>
+                      <th className="right col-optional">Share</th>
+                      <th className="right col-optional">Yield on cash put in</th>
+                      <th className="right">% of true profit</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {dividendBrokers.map(b => {
+                      const div = Number(b.dividends) || 0
+                      const share = t.dividends > 0 ? (div / t.dividends) * 100 : 0
+                      const yieldPct = b.netDeposited > 0 ? (div / b.netDeposited) * 100 : null
+                      const ofProfit = b.netProfit > 0 ? (div / b.netProfit) * 100 : null
+                      return (
+                        <tr key={b.id}>
+                          <td>
+                            <span className={`platform-badge ${platformOf(b.platform).cls}`}>{platformOf(b.platform).label}</span>
+                            {b.name && b.name !== platformOf(b.platform).label && (
+                              <span style={{ marginLeft: 8, fontWeight: 600 }}>{b.name}</span>
+                            )}
+                          </td>
+                          <td className="right num" style={{ color: 'var(--purple)', fontWeight: 700 }}>{money(div)}</td>
+                          <td className="right num text-muted col-optional">{percent(share)}</td>
+                          <td className="right num col-optional">{yieldPct == null ? '—' : percent(yieldPct)}</td>
+                          <td className="right num text-muted">{ofProfit == null ? '—' : percent(ofProfit)}</td>
+                        </tr>
+                      )
+                    })}
+                    <tr style={{ background: 'rgba(255,255,255,0.03)' }}>
+                      <td style={{ fontWeight: 800 }}>Total</td>
+                      <td className="right num" style={{ fontWeight: 800, color: 'var(--purple)' }}>{money(t.dividends)}</td>
+                      <td className="right num text-dim col-optional">100%</td>
+                      <td className="right num col-optional">
+                        {t.netDeposited > 0 ? percent((t.dividends / t.netDeposited) * 100) : '—'}
+                      </td>
+                      <td className="right num text-dim">
+                        {net > 0 ? percent((t.dividends / net) * 100) : '—'}
+                      </td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+
+          <div className="text-xs text-dim">
+            Overview's P/L is unrealised only — current value minus invested. The figure here
+            adds what you booked and subtracts what it cost, which is why the two differ.
+          </div>
+        </>
+      )}
+    </div>
+  )
+}

@@ -113,7 +113,7 @@ const ASSET_LABEL = { stock: 'Stock', etf: 'ETF', mf: 'Mutual fund', foreign: 'F
 const PLATFORM_LABEL = { kite: 'Kite', groww: 'Groww', indmoney: 'IndMoney', bank: 'Bank', other: 'Other' }
 
 // ─────────────────────────────────────────────────────────────────────────────
-async function buildWorkbook({ portfolio, bankAccounts = [], expenses = [], analytics }) {
+async function buildWorkbook({ portfolio, bankAccounts = [], expenses = [], brokers = [], analytics }) {
   const wb = new ExcelJS.Workbook()
   wb.creator = 'FinFolio'
   wb.lastModifiedBy = 'FinFolio'
@@ -326,6 +326,56 @@ async function buildWorkbook({ portfolio, bankAccounts = [], expenses = [], anal
   }
   bs.columns.forEach((c, i) => { c.width = [26, 18, 16, 16, 15, 30, 12][i] || 12 })
 
+  // ══ BROKERS ════════════════════════════════════════════════════════════════
+  // The workbook would otherwise repeat the app's old mistake of showing only the
+  // unrealised gain; true net profit is a formula over these columns.
+  let brokerTotalRow = null
+  if (brokers.length) {
+    const ks = wb.addWorksheet('Brokers', { properties: { tabColor: { argb: 'FF818CF8' } } })
+    const K_COLS = ['Broker', 'Cash put in ₹', 'Held now ₹', 'Unrealised ₹', 'Booked profit ₹',
+      'Booked loss ₹', 'Charges ₹', 'Dividends ₹', 'True net profit ₹', 'Return %', 'Note']
+    titleBlock(ks, 'Brokers', 'Cash actually deposited, profit and loss already booked, what the brokerage and taxes took, and dividends received. True net profit and return are formulas.', K_COLS.length)
+    const K_HEAD = 4
+    headerRow(ks, K_HEAD, K_COLS)
+    const K_FIRST = K_HEAD + 1
+    brokers.forEach((b, i) => {
+      const r = K_FIRST + i
+      const row = ks.getRow(r)
+      row.getCell(1).value = b.name || b.platform
+      row.getCell(1).font = { bold: true, color: { argb: INK } }
+      row.getCell(2).value = Number(b.netDeposited) || 0
+      row.getCell(3).value = Number(b.holdingsValue) || 0
+      row.getCell(4).value = Number(b.unrealised) || 0
+      row.getCell(5).value = Number(b.realisedProfit) || 0
+      row.getCell(6).value = Number(b.realisedLoss) || 0
+      row.getCell(7).value = Number(b.charges) || 0
+      row.getCell(8).value = Number(b.dividends) || 0
+      // unrealised + (booked profit − booked loss) − charges + dividends
+      row.getCell(9).value = { formula: `D${r}+E${r}-F${r}-G${r}+H${r}` }
+      row.getCell(10).value = { formula: `IF(B${r}=0,"",I${r}/B${r})` }
+      row.getCell(11).value = b.note || ''
+      for (let c = 2; c <= 9; c++) row.getCell(c).numFmt = INR
+      row.getCell(10).numFmt = PCT
+    })
+    const K_LAST = K_FIRST + brokers.length - 1
+    brokerTotalRow = K_LAST + 1
+    finishTable(ks, K_HEAD, K_LAST, K_COLS.length)
+    totalRow(ks, brokerTotalRow, K_COLS.length, 'TOTAL', Object.fromEntries(
+      [2, 3, 4, 5, 6, 7, 8, 9].map(c => {
+        const col = String.fromCharCode(64 + c)
+        return [c, { f: `SUM(${col}${K_FIRST}:${col}${K_LAST})`, z: INR }]
+      }).concat([[10, { f: `IF(B${brokerTotalRow}=0,"",I${brokerTotalRow}/B${brokerTotalRow})`, z: PCT }]])
+    ))
+    ks.addConditionalFormatting({
+      ref: `I${K_FIRST}:I${brokerTotalRow}`,
+      rules: [
+        { type: 'cellIs', operator: 'lessThan', formulae: [0], style: { font: { color: { argb: RED } } }, priority: 1 },
+        { type: 'cellIs', operator: 'greaterThan', formulae: [0], style: { font: { color: { argb: GREEN } } }, priority: 2 },
+      ],
+    })
+    ks.columns.forEach((c, i) => { c.width = [22, 15, 14, 14, 15, 14, 13, 13, 17, 10, 30][i] || 12 })
+  }
+
   // ══ SUMMARY ════════════════════════════════════════════════════════════════
   // Built last but moved to the front: it only references the other sheets.
   const sum = wb.addWorksheet('Summary', { properties: { tabColor: { argb: 'FFFBBF24' } } })
@@ -340,6 +390,13 @@ async function buildWorkbook({ portfolio, bankAccounts = [], expenses = [], anal
     ['Losers', `COUNTIF(Holdings!L${H_FIRST}:L${Math.max(H_LAST, H_FIRST)},"<0")`, '#,##0'],
     ['Biggest position', `IFERROR(INDEX(Holdings!C${H_FIRST}:C${Math.max(H_LAST, H_FIRST)},MATCH(MAX(Holdings!K${H_FIRST}:K${Math.max(H_LAST, H_FIRST)}),Holdings!K${H_FIRST}:K${Math.max(H_LAST, H_FIRST)},0)),"—")`, null],
     ['To invest to hit all targets', `Divisions!I${D_TOTAL}`, INR],
+    ...(brokerTotalRow ? [
+      [null, null, null],
+      ['Charges & taxes paid', `Brokers!G${brokerTotalRow}`, INR],
+      ['Profit/loss already booked', `Brokers!E${brokerTotalRow}-Brokers!F${brokerTotalRow}`, INR],
+      ['Dividends received', `Brokers!H${brokerTotalRow}`, INR],
+      ['True net profit (after costs)', `Brokers!I${brokerTotalRow}`, INR],
+    ] : []),
     [null, null, null],
     ['Bank cash (outside portfolio)', bankAccounts.length ? `'Bank cash'!D${B_TOTAL}` : null, INR],
     ['Net worth (portfolio + bank)', bankAccounts.length ? `Divisions!C${D_TOTAL}+'Bank cash'!D${B_TOTAL}` : `Divisions!C${D_TOTAL}`, INR],
@@ -570,7 +627,7 @@ async function buildWorkbook({ portfolio, bankAccounts = [], expenses = [], anal
 
   // Present the sheets in reading order. `wb.worksheets` hands back a copy, so
   // sorting it does nothing — the writer orders by each sheet's orderNo.
-  const order = ['Summary', 'Holdings', 'Divisions', 'Subdivisions', 'Breakdown', 'Bank cash', 'Expenses', 'Monthly', 'Projection']
+  const order = ['Summary', 'Holdings', 'Divisions', 'Subdivisions', 'Breakdown', 'Brokers', 'Bank cash', 'Expenses', 'Monthly', 'Projection']
   wb.worksheets.forEach(w => {
     const i = order.indexOf(w.name)
     w.orderNo = i === -1 ? order.length : i

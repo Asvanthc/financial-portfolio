@@ -16,11 +16,13 @@ import BulkPriceEditor from './components/BulkPriceEditor'
 import BankSection from './components/BankSection'
 import GoalSeekPanel from './components/GoalSeekPanel'
 import CashflowSummary from './components/CashflowSummary'
+import BrokerLedger from './components/BrokerLedger'
 
 const TABS = [
   { id: 'overview', label: 'Overview' },
   { id: 'analytics', label: 'Analytics' },
   { id: 'overlap', label: 'Overlap' },
+  { id: 'brokers', label: 'Brokers' },
   { id: 'expenses', label: 'Expenses' },
   { id: 'fire', label: 'FIRE' },
   { id: 'planner', label: 'Planner' },
@@ -41,6 +43,7 @@ export default function App() {
   const [showBulkPrices, setShowBulkPrices] = useState(false)
   const [showData, setShowData] = useState(false)
   const [bank, setBank] = useState({ accounts: [], total: 0 })
+  const [brokerTotals, setBrokerTotals] = useState(null)
   const [loading, setLoading] = useState(true)      // first paint only
   const [refreshing, setRefreshing] = useState(false)
   const [apiError, setApiError] = useState(null)
@@ -56,16 +59,18 @@ export default function App() {
     setRefreshing(true)
     setApiError(null)
     try {
-      const [p, a, exp, bk] = await Promise.all([
+      const [p, a, exp, bk, br] = await Promise.all([
         api.getPortfolio(),
         api.analytics(budget || undefined),
         api.getExpenses(),
         api.getBankAccounts(),
+        api.getBrokers(),
       ])
       setPortfolio(p)
       setAnalytics(a)
       setExpenses(exp)
       setBank({ accounts: Array.isArray(bk.accounts) ? bk.accounts : [], total: Number(bk.total) || 0 })
+      setBrokerTotals(Array.isArray(br.brokers) && br.brokers.length ? br.totals : null)
     } catch (e) {
       setApiError({ path: '/api/portfolio', message: e.message })
     } finally {
@@ -225,6 +230,13 @@ export default function App() {
               <div className="kpi-sub" style={{ color: totalProfit >= 0 ? 'var(--green)' : 'var(--red)' }}>
                 {pct(returnPct)} returns
               </div>
+              {/* This KPI is unrealised only. Once broker ledgers exist we know the real
+                  figure, and showing it here is the point of tracking charges at all. */}
+              {brokerTotals && (
+                <div className="kpi-sub text-dim" title="Unrealised, plus profit and loss already booked, minus charges, plus dividends">
+                  {signedMoney(brokerTotals.netProfit)} after costs & booked
+                </div>
+              )}
             </div>
             {/* Buy-only figure. Naming it "To Rebalance" contradicted Goal Seek's
                 Rebalance mode, which reaches the same targets by selling for ₹0. */}
@@ -298,6 +310,10 @@ export default function App() {
 
         {activeTab === 'overlap' && (
           <OverlapAnalysis divisions={portfolio.divisions} totalCurrent={totalCurrent} />
+        )}
+
+        {activeTab === 'brokers' && (
+          <BrokerLedger onUpdate={refreshAll} />
         )}
 
         {activeTab === 'expenses' && (

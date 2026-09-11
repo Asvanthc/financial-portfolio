@@ -88,6 +88,35 @@ Three backends, picked automatically in this order:
 `GET /api/debug/storage` reports which one is live and whether it's durable. Full setup
 in [PERSISTENCE_SETUP.md](PERSISTENCE_SETUP.md).
 
+## Broker ledgers
+
+The P/L on Overview is `current − invested`: **unrealised only**. It cannot see brokerage,
+STT, GST or DP charges, the profit and loss you have already booked, or dividends received —
+so it reads better than reality. The **Brokers** tab fixes that with one ledger per broker:
+
+| You enter | Derived from your holdings |
+|---|---|
+| Cash actually put in (net of withdrawals) | Value held at that broker |
+| Booked profit / booked loss | Unrealised gain |
+| Charges & taxes | |
+| Dividends received (net of TDS) | |
+
+```
+true net profit = unrealised + (booked profit − booked loss) − charges + dividends
+```
+
+Holdings join a ledger by their **Platform** field, so tag holdings to the same broker. Any
+platform holding money without a ledger is called out, because its costs would otherwise be
+missing from the totals. Return % is against the cash you actually put in, not against
+invested, and Overview's P/L card gains a line showing the figure after costs.
+
+Cash in is entered rather than derived — it's tracked elsewhere and is meant to be *compared*
+with what the broker holds, not silently reconciled. The gap between the two is reported
+(idle cash at the broker, or money withdrawn).
+
+Dividends get their own section: they're income, not a price movement, so they appear nowhere
+else in the app. Endpoints: `GET/POST /api/brokers`, `PATCH/DELETE /api/brokers/:id`.
+
 ## Targets & goal seek
 
 One rule at every level: **a target is a percentage of its immediate parent, and it competes
