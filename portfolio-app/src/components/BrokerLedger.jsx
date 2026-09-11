@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react'
 import { api } from '../api'
 import { toast } from '../toast'
 import { money, signedMoney, percent } from '../format'
+import BrokerAmountsEditor from './BrokerAmountsEditor'
 
 // What the holdings tree cannot know: the net amount actually put into each broker.
 //
@@ -232,6 +233,7 @@ function AddBrokerForm({ existing, untracked, onAdded }) {
 export default function BrokerLedger({ onUpdate }) {
   const [data, setData] = useState({ brokers: [], totals: {}, untracked: [] })
   const [loading, setLoading] = useState(true)
+  const [editAmounts, setEditAmounts] = useState(false)
 
   async function load() {
     const d = await api.getBrokers()
@@ -250,9 +252,16 @@ export default function BrokerLedger({ onUpdate }) {
     <div>
       <div className="section-header">
         <h2 className="section-title">Brokers</h2>
-        <span className="text-xs text-dim">
-          What you actually paid in, what you booked, and what it cost
-        </span>
+        <div className="flex items-center gap-2">
+          <span className="text-xs text-dim hide-sm">
+            What you actually put in, against what it's worth now
+          </span>
+          {data.brokers.length > 0 && (
+            <button className="btn btn-secondary btn-sm" onClick={() => setEditAmounts(true)}>
+              ✏️ Edit all amounts
+            </button>
+          )}
+        </div>
       </div>
 
       {loading ? (
@@ -331,6 +340,97 @@ export default function BrokerLedger({ onUpdate }) {
 
           <AddBrokerForm existing={data.brokers} untracked={data.untracked} onAdded={refresh} />
 
+          {/* Where the two halves of the app disagree, and why. */}
+          <div className="card-lg section">
+            <div className="card-title">Portfolio's return vs actual</div>
+            <div className="text-xs text-dim" style={{ marginTop: -8, marginBottom: 12 }}>
+              The portfolio measures against the buy prices recorded on each holding and only
+              counts unrealised movement. The difference between the two columns is everything
+              it can't see: the profit and loss you've already booked, the brokerage and taxes
+              you've paid, and dividends received.
+            </div>
+            <div className="scroll-x">
+              <table className="holdings-table">
+                <thead>
+                  <tr>
+                    <th>Broker</th>
+                    <th className="right">Portfolio shows</th>
+                    <th className="right">Actually</th>
+                    <th className="right">Difference</th>
+                    <th className="col-optional">What the difference is</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {data.brokers.map(b => {
+                    const diff = Number(b.returnDifference) || 0
+                    return (
+                      <tr key={b.id}>
+                        <td>
+                          <span className={`platform-badge ${platformOf(b.platform).cls}`}>{platformOf(b.platform).label}</span>
+                        </td>
+                        <td className="right num">
+                          <span className={(b.portfolioReturn || 0) >= 0 ? 'pos' : 'neg'}>{signedMoney(b.portfolioReturn)}</span>
+                          {b.portfolioReturnPercent != null && (
+                            <div style={{ fontSize: 10, color: 'var(--text3)' }}>
+                              {b.portfolioReturnPercent >= 0 ? '+' : ''}{b.portfolioReturnPercent}% on invested
+                            </div>
+                          )}
+                        </td>
+                        <td className="right num">
+                          <span className={(b.totalReturn || 0) >= 0 ? 'pos' : 'neg'}>{signedMoney(b.totalReturn)}</span>
+                          {b.returnPercent != null && (
+                            <div style={{ fontSize: 10, color: 'var(--text3)' }}>
+                              {b.returnPercent >= 0 ? '+' : ''}{b.returnPercent}% on cash in
+                            </div>
+                          )}
+                        </td>
+                        <td className="right num" style={{ fontWeight: 700, color: Math.abs(diff) < 1 ? 'var(--text3)' : diff > 0 ? 'var(--green)' : 'var(--orange)' }}>
+                          {Math.abs(diff) < 1 ? '—' : signedMoney(diff)}
+                        </td>
+                        <td className="text-xs text-dim col-optional">
+                          {Math.abs(diff) < 1
+                            ? 'the two agree'
+                            : [
+                                b.dividends > 0 ? `${money(b.dividends)} dividends` : null,
+                                Math.abs(b.investedGap) > 1 ? `${money(Math.abs(b.investedGap))} of booked P&L and charges` : null,
+                              ].filter(Boolean).join(' + ') || 'booked P&L and charges'}
+                        </td>
+                      </tr>
+                    )
+                  })}
+                  <tr style={{ background: 'rgba(255,255,255,0.03)' }}>
+                    <td style={{ fontWeight: 800 }}>Total</td>
+                    <td className="right num" style={{ fontWeight: 800 }}>
+                      <span className={(t.portfolioReturn || 0) >= 0 ? 'pos' : 'neg'}>{signedMoney(t.portfolioReturn)}</span>
+                      {t.portfolioReturnPercent != null && (
+                        <div style={{ fontSize: 10, color: 'var(--text3)', fontWeight: 400 }}>
+                          {t.portfolioReturnPercent >= 0 ? '+' : ''}{t.portfolioReturnPercent}%
+                        </div>
+                      )}
+                    </td>
+                    <td className="right num" style={{ fontWeight: 800 }}>
+                      <span className={net >= 0 ? 'pos' : 'neg'}>{signedMoney(net)}</span>
+                      {t.returnPercent != null && (
+                        <div style={{ fontSize: 10, color: 'var(--text3)', fontWeight: 400 }}>
+                          {t.returnPercent >= 0 ? '+' : ''}{t.returnPercent}%
+                        </div>
+                      )}
+                    </td>
+                    <td className="right num" style={{ fontWeight: 800, color: Math.abs(t.returnDifference || 0) < 1 ? 'var(--text3)' : (t.returnDifference || 0) > 0 ? 'var(--green)' : 'var(--orange)' }}>
+                      {Math.abs(t.returnDifference || 0) < 1 ? '—' : signedMoney(t.returnDifference)}
+                    </td>
+                    <td className="col-optional" />
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+            <div className="text-xs text-dim mt-2">
+              A positive difference means you're doing better than the portfolio tab suggests —
+              usually dividends. A negative one means worse: costs and booked losses the
+              portfolio never recorded.
+            </div>
+          </div>
+
           {/* Dividends get their own section — it's income, not a price movement, and it
               never shows up anywhere else in the app. */}
           <div className="card-lg section">
@@ -397,6 +497,15 @@ export default function BrokerLedger({ onUpdate }) {
             the two differ, and this one is the real result.
           </div>
         </>
+      )}
+
+      {editAmounts && (
+        <BrokerAmountsEditor
+          isOpen={editAmounts}
+          onClose={() => setEditAmounts(false)}
+          brokers={data.brokers}
+          onSaved={refresh}
+        />
       )}
     </div>
   )

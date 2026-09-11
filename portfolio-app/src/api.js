@@ -90,6 +90,7 @@ export const api = {
   addBroker: (b) => json('POST', '/api/brokers', b),
   updateBroker: (id, b) => json('PATCH', `/api/brokers/${id}`, b),
   deleteBroker: (id) => json('DELETE', `/api/brokers/${id}`),
+  setBrokerAmounts: (amounts) => json('POST', '/api/brokers/amounts', { amounts }),
   portfolioOverlap: () => fetch(`${API_ROOT}/api/portfolio/overlap`).then(r => r.json()),
   getExchangeRate: (currency) => fetch(`${API_ROOT}/api/exchange-rate/${encodeURIComponent(currency)}`).then(r => r.json()),
 

@@ -1271,6 +1271,14 @@ function decorateBroker(b, byPlatform) {
   const capitalGain = held.current - netDeposited
   const totalReturn = capitalGain + dividends
 
+  // What the Overview/portfolio side reports for the same holdings: unrealised only,
+  // measured against the `invested` recorded on each holding.
+  const portfolioReturn = held.current - held.invested
+  // The gap between the two is exactly what the portfolio cannot see — the profit and
+  // loss already booked, the brokerage and taxes paid (both already inside the user's
+  // net figure), plus dividends.
+  const returnDifference = totalReturn - portfolioReturn
+
   const { realisedProfit, realisedLoss, charges, ...rest } = b   // drop legacy fields
   return {
     ...rest,
@@ -1280,6 +1288,9 @@ function decorateBroker(b, byPlatform) {
     capitalGain: r2(capitalGain),
     totalReturn: r2(totalReturn),
     returnPercent: netDeposited > 0 ? Math.round((totalReturn / netDeposited) * 10000) / 100 : null,
+    portfolioReturn: r2(portfolioReturn),
+    portfolioReturnPercent: held.invested > 0 ? Math.round((portfolioReturn / held.invested) * 10000) / 100 : null,
+    returnDifference: r2(returnDifference),
     // The app's own "invested" for these holdings vs the user's tracked cash. They drift
     // when a buy price was entered loosely, or when booked profit was reinvested — worth
     // showing rather than quietly picking one.
@@ -1300,6 +1311,10 @@ function brokerTotals(list) {
     dividends: r2(sum('dividends')),
     totalReturn,
     returnPercent: netDeposited > 0 ? Math.round((totalReturn / netDeposited) * 10000) / 100 : null,
+    portfolioReturn: r2(sum('portfolioReturn')),
+    portfolioReturnPercent: sum('holdingsInvested') > 0
+      ? Math.round((sum('portfolioReturn') / sum('holdingsInvested')) * 10000) / 100 : null,
+    returnDifference: r2(sum('returnDifference')),
     investedGap: r2(sum('investedGap')),
   }
 }
@@ -1357,6 +1372,41 @@ app.patch('/api/brokers/:id', async (req, res) => {
     b.updatedAt = new Date().toISOString()
     await saveBrokers(brokers)
     res.json(b)
+  } catch (e) { res.status(500).json({ error: e.message }) }
+})
+
+// Edit the net amount (and dividends) for every broker in one go. Sequential PATCHes
+// would leave the set half-updated if one failed, and these figures are only meaningful
+// against each other.
+app.post('/api/brokers/amounts', async (req, res) => {
+  try {
+    const amounts = req.body?.amounts || {}
+    const entries = Object.entries(amounts)
+    if (!entries.length) return res.status(400).json({ error: 'no amounts given' })
+
+    for (const [id, vals] of entries) {
+      if (!vals || typeof vals !== 'object') return res.status(400).json({ error: `bad payload for ${id}` })
+      for (const f of BROKER_MONEY_FIELDS) {
+        if (vals[f] === undefined) continue
+        const n = Number(vals[f])
+        if (!Number.isFinite(n) || n < 0) return res.status(400).json({ error: `${f} must be a number of 0 or more` })
+      }
+    }
+
+    const brokers = await loadBrokers()
+    const missing = entries.filter(([id]) => !brokers.some(b => b.id === id)).map(([id]) => id)
+    if (missing.length) return res.status(404).json({ error: `not found: ${missing.join(', ')}` })
+
+    let updated = 0
+    entries.forEach(([id, vals]) => {
+      const b = brokers.find(x => x.id === id)
+      BROKER_MONEY_FIELDS.forEach(f => { if (vals[f] !== undefined) b[f] = Number(vals[f]) })
+      BROKER_LEGACY_FIELDS.forEach(f => { delete b[f] })
+      b.updatedAt = new Date().toISOString()
+      updated++
+    })
+    await saveBrokers(brokers)
+    res.json({ ok: true, updated })
   } catch (e) { res.status(500).json({ error: e.message }) }
 })
 
