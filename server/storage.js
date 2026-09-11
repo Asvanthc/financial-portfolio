@@ -257,10 +257,12 @@ async function saveBankAccounts(accounts) {
 }
 
 // ── Broker ledgers ───────────────────────────────────────────────────────────
-// What the holdings table cannot know: the cash actually deposited with a broker, the
-// profit and loss already booked, what the brokerage and taxes ate, and the dividends
-// received. Without these the app's P/L is only the unrealised part, which reads far
-// better than reality.
+// One number the holdings table cannot know: the NET amount actually put into a broker.
+// It is a running figure the user maintains themselves — already net of the profit and
+// loss they have booked and of the brokerage and taxes paid — so booked P&L and charges
+// are deliberately NOT separate fields here. Comparing that single figure against what
+// the holdings are worth today is what turns the app's unrealised-only P/L into a real
+// one. Dividends are tracked separately because they are income, not a price movement.
 async function brokerStore(waitMs = 5000) {
   if (mongoState === 'absent' || mongoState === 'failed') return null
   const deadline = Date.now() + waitMs
@@ -316,18 +318,15 @@ const num0 = v => {
   return Number.isFinite(n) && n >= 0 ? n : 0
 }
 
-function createBroker({ platform = 'other', name = '', netDeposited = 0, realisedProfit = 0,
-                        realisedLoss = 0, charges = 0, dividends = 0, note = '' }) {
+function createBroker({ platform = 'other', name = '', netDeposited = 0, dividends = 0, note = '' }) {
   return {
     id: randomUUID(),
     platform,
     name: String(name || '').trim(),
-    // The cash actually transferred in, tracked by the user elsewhere. Deliberately
-    // NOT derived from holdings: the two are meant to be compared, not equated.
+    // Net cash in, as the user tracks it: deposits minus withdrawals, already adjusted
+    // for whatever they booked and whatever it cost. Never derived from holdings — the
+    // whole point is to compare the two.
     netDeposited: num0(netDeposited),
-    realisedProfit: num0(realisedProfit),   // booked gains, positive
-    realisedLoss: num0(realisedLoss),       // booked losses, positive magnitude
-    charges: num0(charges),                 // brokerage + STT + GST + DP + stamp duty
     dividends: num0(dividends),             // net of TDS
     note: String(note || '').trim(),
     updatedAt: new Date().toISOString(),

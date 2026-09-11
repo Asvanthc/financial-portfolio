@@ -332,9 +332,9 @@ async function buildWorkbook({ portfolio, bankAccounts = [], expenses = [], brok
   let brokerTotalRow = null
   if (brokers.length) {
     const ks = wb.addWorksheet('Brokers', { properties: { tabColor: { argb: 'FF818CF8' } } })
-    const K_COLS = ['Broker', 'Cash put in ₹', 'Held now ₹', 'Unrealised ₹', 'Booked profit ₹',
-      'Booked loss ₹', 'Charges ₹', 'Dividends ₹', 'True net profit ₹', 'Return %', 'Note']
-    titleBlock(ks, 'Brokers', 'Cash actually deposited, profit and loss already booked, what the brokerage and taxes took, and dividends received. True net profit and return are formulas.', K_COLS.length)
+    const K_COLS = ['Broker', 'Net amount put in ₹', 'Worth now ₹', 'Capital gain ₹',
+      'Dividends ₹', 'Actual return ₹', 'Return %', 'App-recorded invested ₹', 'Gap ₹', 'Note']
+    titleBlock(ks, 'Brokers', 'The net amount actually put into each broker — already net of booked profit, losses and charges — against what those holdings are worth today. Capital gain, return and the gap are formulas.', K_COLS.length)
     const K_HEAD = 4
     headerRow(ks, K_HEAD, K_COLS)
     const K_FIRST = K_HEAD + 1
@@ -345,35 +345,33 @@ async function buildWorkbook({ portfolio, bankAccounts = [], expenses = [], brok
       row.getCell(1).font = { bold: true, color: { argb: INK } }
       row.getCell(2).value = Number(b.netDeposited) || 0
       row.getCell(3).value = Number(b.holdingsValue) || 0
-      row.getCell(4).value = Number(b.unrealised) || 0
-      row.getCell(5).value = Number(b.realisedProfit) || 0
-      row.getCell(6).value = Number(b.realisedLoss) || 0
-      row.getCell(7).value = Number(b.charges) || 0
-      row.getCell(8).value = Number(b.dividends) || 0
-      // unrealised + (booked profit − booked loss) − charges + dividends
-      row.getCell(9).value = { formula: `D${r}+E${r}-F${r}-G${r}+H${r}` }
-      row.getCell(10).value = { formula: `IF(B${r}=0,"",I${r}/B${r})` }
-      row.getCell(11).value = b.note || ''
-      for (let c = 2; c <= 9; c++) row.getCell(c).numFmt = INR
-      row.getCell(10).numFmt = PCT
+      row.getCell(4).value = { formula: `C${r}-B${r}` }              // worth now − put in
+      row.getCell(5).value = Number(b.dividends) || 0
+      row.getCell(6).value = { formula: `D${r}+E${r}` }              // + dividends
+      row.getCell(7).value = { formula: `IF(B${r}=0,"",F${r}/B${r})` }
+      row.getCell(8).value = Number(b.holdingsInvested) || 0
+      row.getCell(9).value = { formula: `H${r}-B${r}` }
+      row.getCell(10).value = b.note || ''
+      for (const c of [2, 3, 4, 5, 6, 8, 9]) row.getCell(c).numFmt = INR
+      row.getCell(7).numFmt = PCT
     })
     const K_LAST = K_FIRST + brokers.length - 1
     brokerTotalRow = K_LAST + 1
     finishTable(ks, K_HEAD, K_LAST, K_COLS.length)
     totalRow(ks, brokerTotalRow, K_COLS.length, 'TOTAL', Object.fromEntries(
-      [2, 3, 4, 5, 6, 7, 8, 9].map(c => {
+      [2, 3, 4, 5, 6, 8, 9].map(c => {
         const col = String.fromCharCode(64 + c)
         return [c, { f: `SUM(${col}${K_FIRST}:${col}${K_LAST})`, z: INR }]
-      }).concat([[10, { f: `IF(B${brokerTotalRow}=0,"",I${brokerTotalRow}/B${brokerTotalRow})`, z: PCT }]])
+      }).concat([[7, { f: `IF(B${brokerTotalRow}=0,"",F${brokerTotalRow}/B${brokerTotalRow})`, z: PCT }]])
     ))
     ks.addConditionalFormatting({
-      ref: `I${K_FIRST}:I${brokerTotalRow}`,
+      ref: `D${K_FIRST}:F${brokerTotalRow}`,
       rules: [
         { type: 'cellIs', operator: 'lessThan', formulae: [0], style: { font: { color: { argb: RED } } }, priority: 1 },
         { type: 'cellIs', operator: 'greaterThan', formulae: [0], style: { font: { color: { argb: GREEN } } }, priority: 2 },
       ],
     })
-    ks.columns.forEach((c, i) => { c.width = [22, 15, 14, 14, 15, 14, 13, 13, 17, 10, 30][i] || 12 })
+    ks.columns.forEach((c, i) => { c.width = [22, 19, 15, 15, 13, 16, 10, 20, 13, 28][i] || 12 })
   }
 
   // ══ SUMMARY ════════════════════════════════════════════════════════════════
@@ -392,10 +390,10 @@ async function buildWorkbook({ portfolio, bankAccounts = [], expenses = [], brok
     ['To invest to hit all targets', `Divisions!I${D_TOTAL}`, INR],
     ...(brokerTotalRow ? [
       [null, null, null],
-      ['Charges & taxes paid', `Brokers!G${brokerTotalRow}`, INR],
-      ['Profit/loss already booked', `Brokers!E${brokerTotalRow}-Brokers!F${brokerTotalRow}`, INR],
-      ['Dividends received', `Brokers!H${brokerTotalRow}`, INR],
-      ['True net profit (after costs)', `Brokers!I${brokerTotalRow}`, INR],
+      ['Net amount put in (brokers)', `Brokers!B${brokerTotalRow}`, INR],
+      ['Capital gain vs amount put in', `Brokers!D${brokerTotalRow}`, INR],
+      ['Dividends received', `Brokers!E${brokerTotalRow}`, INR],
+      ['Actual return', `Brokers!F${brokerTotalRow}`, INR],
     ] : []),
     [null, null, null],
     ['Bank cash (outside portfolio)', bankAccounts.length ? `'Bank cash'!D${B_TOTAL}` : null, INR],

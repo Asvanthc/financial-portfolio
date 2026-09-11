@@ -230,11 +230,13 @@ export default function App() {
               <div className="kpi-sub" style={{ color: totalProfit >= 0 ? 'var(--green)' : 'var(--red)' }}>
                 {pct(returnPct)} returns
               </div>
-              {/* This KPI is unrealised only. Once broker ledgers exist we know the real
-                  figure, and showing it here is the point of tracking charges at all. */}
+              {/* This KPI compares against each holding's recorded "invested" and is
+                  unrealised only. The broker ledgers know the net amount actually put in,
+                  which already carries booked P&L and charges — so that comparison is the
+                  real one, and it belongs next to the optimistic number. */}
               {brokerTotals && (
-                <div className="kpi-sub text-dim" title="Unrealised, plus profit and loss already booked, minus charges, plus dividends">
-                  {signedMoney(brokerTotals.netProfit)} after costs & booked
+                <div className="kpi-sub text-dim" title="Worth now minus the net amount you actually put in, plus dividends">
+                  {signedMoney(brokerTotals.totalReturn)} vs what you put in
                 </div>
               )}
             </div>

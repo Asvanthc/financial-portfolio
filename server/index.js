@@ -1209,12 +1209,16 @@ app.delete('/api/subdivisions/:sid', async (req, res) => {
 })
 
 // ===== BROKER LEDGERS =====
-// The holdings tree knows what you hold; it cannot know what you actually paid in, what
-// you already booked, what the brokerage took, or what dividends landed. Those live here
-// and are what turn an unrealised-only "P/L" into a true one.
+// The holdings tree knows what you hold; it cannot know what you actually put in. That
+// single net figure — maintained by the user, already net of booked P&L and of brokerage
+// and taxes — compared against what the holdings are worth today is the real profit.
+// Booked P&L and charges are therefore NOT inputs: they are already inside netDeposited.
 
 const BROKER_PLATFORMS = ['kite', 'groww', 'indmoney', 'bank', 'other']
-const BROKER_MONEY_FIELDS = ['netDeposited', 'realisedProfit', 'realisedLoss', 'charges', 'dividends']
+const BROKER_MONEY_FIELDS = ['netDeposited', 'dividends']
+// Fields an earlier version of this feature stored; dropped on write so a backup taken
+// now doesn't carry figures nothing reads.
+const BROKER_LEGACY_FIELDS = ['realisedProfit', 'realisedLoss', 'charges']
 
 function validateBroker(body, { requirePlatform }) {
   const { platform, name, note } = body
@@ -1257,49 +1261,46 @@ function holdingsByPlatform(portfolio) {
 function decorateBroker(b, byPlatform) {
   const held = byPlatform[b.platform] || { invested: 0, current: 0, count: 0 }
   const n = v => Number(v) || 0
-  const unrealised = held.current - held.invested
-  const realisedNet = n(b.realisedProfit) - n(b.realisedLoss)
-  // The number the whole feature exists for: what's left after the costs and the
-  // already-booked trades, not just the paper gain on what's still open.
-  const netProfit = unrealised + realisedNet - n(b.charges) + n(b.dividends)
+  const r2 = v => Math.round(v * 100) / 100
   const netDeposited = n(b.netDeposited)
+  const dividends = n(b.dividends)
+
+  // What it's worth now versus what went in. Because netDeposited already absorbs the
+  // booked P&L and the charges, this single subtraction IS the real capital result —
+  // no separate cost or realised terms to add.
+  const capitalGain = held.current - netDeposited
+  const totalReturn = capitalGain + dividends
+
+  const { realisedProfit, realisedLoss, charges, ...rest } = b   // drop legacy fields
   return {
-    ...b,
-    holdingsValue: Math.round(held.current * 100) / 100,
-    holdingsInvested: Math.round(held.invested * 100) / 100,
+    ...rest,
+    holdingsValue: r2(held.current),
+    holdingsInvested: r2(held.invested),
     holdingsCount: held.count,
-    unrealised: Math.round(unrealised * 100) / 100,
-    realisedNet: Math.round(realisedNet * 100) / 100,
-    netProfit: Math.round(netProfit * 100) / 100,
-    // Return on the cash actually put in, which is the honest denominator.
-    returnPercent: netDeposited > 0 ? Math.round((netProfit / netDeposited) * 10000) / 100 : null,
-    // How much of the gross gain the broker and the taxman took.
-    costDragPercent: (unrealised + realisedNet + n(b.dividends)) > 0
-      ? Math.round((n(b.charges) / (unrealised + realisedNet + n(b.dividends))) * 10000) / 100
-      : null,
-    // Cash in vs what's invested there now — they drift apart when profit is withdrawn
-    // or booked gains are left sitting as cash at the broker.
-    uninvestedCash: Math.round((netDeposited + realisedNet + n(b.dividends) - n(b.charges) - held.invested) * 100) / 100,
+    capitalGain: r2(capitalGain),
+    totalReturn: r2(totalReturn),
+    returnPercent: netDeposited > 0 ? Math.round((totalReturn / netDeposited) * 10000) / 100 : null,
+    // The app's own "invested" for these holdings vs the user's tracked cash. They drift
+    // when a buy price was entered loosely, or when booked profit was reinvested — worth
+    // showing rather than quietly picking one.
+    investedGap: r2(held.invested - netDeposited),
   }
 }
 
 function brokerTotals(list) {
   const sum = k => list.reduce((s, b) => s + (Number(b[k]) || 0), 0)
   const r2 = v => Math.round(v * 100) / 100
-  const netProfit = r2(sum('netProfit'))
+  const totalReturn = r2(sum('totalReturn'))
   const netDeposited = r2(sum('netDeposited'))
   return {
     netDeposited,
     holdingsValue: r2(sum('holdingsValue')),
     holdingsInvested: r2(sum('holdingsInvested')),
-    unrealised: r2(sum('unrealised')),
-    realisedProfit: r2(sum('realisedProfit')),
-    realisedLoss: r2(sum('realisedLoss')),
-    realisedNet: r2(sum('realisedNet')),
-    charges: r2(sum('charges')),
+    capitalGain: r2(sum('capitalGain')),
     dividends: r2(sum('dividends')),
-    netProfit,
-    returnPercent: netDeposited > 0 ? Math.round((netProfit / netDeposited) * 10000) / 100 : null,
+    totalReturn,
+    returnPercent: netDeposited > 0 ? Math.round((totalReturn / netDeposited) * 10000) / 100 : null,
+    investedGap: r2(sum('investedGap')),
   }
 }
 
@@ -1352,6 +1353,7 @@ app.patch('/api/brokers/:id', async (req, res) => {
     if (body.name !== undefined) b.name = body.name.trim()
     if (body.note !== undefined) b.note = body.note.trim()
     BROKER_MONEY_FIELDS.forEach(f => { if (body[f] !== undefined) b[f] = Number(body[f]) })
+    BROKER_LEGACY_FIELDS.forEach(f => { delete b[f] })
     b.updatedAt = new Date().toISOString()
     await saveBrokers(brokers)
     res.json(b)

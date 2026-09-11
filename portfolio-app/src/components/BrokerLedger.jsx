@@ -3,17 +3,17 @@ import { api } from '../api'
 import { toast } from '../toast'
 import { money, signedMoney, percent } from '../format'
 
-// What the holdings tree cannot know.
+// What the holdings tree cannot know: the net amount actually put into each broker.
 //
-// The app's P/L is current − invested: purely unrealised, and blind to everything a
-// broker actually charges. So it reads better than reality. This ledger adds the three
-// missing pieces per broker — what you really paid in, what you already booked, and
-// what it cost — and turns them into one honest number:
+// That figure is maintained outside this app and is ALREADY net of the profit and loss
+// booked and of the brokerage and taxes paid. So booked P&L and charges are not inputs
+// here — they're inside it. Which makes the real result a single subtraction:
 //
-//     net profit = unrealised + (booked profit − booked loss) − charges + dividends
+//     capital gain  = what the holdings are worth now − net amount put in
+//     total return  = capital gain + dividends
 //
-// Cash in is entered, not derived: it's tracked elsewhere and is meant to be compared
-// against what the broker holds, not silently reconciled with it.
+// The app's own P/L (current − invested) is unrealised only and ignores every cost, so
+// it reads better than reality. This is the honest version.
 
 const PLATFORMS = [
   { id: 'kite', label: 'Zerodha Kite', cls: 'platform-kite' },
@@ -25,11 +25,9 @@ const PLATFORMS = [
 const platformOf = id => PLATFORMS.find(p => p.id === id) || PLATFORMS[4]
 
 const FIELDS = [
-  { key: 'netDeposited', label: 'Cash put in', hint: 'Net of withdrawals — your own figure', color: 'var(--cyan)' },
-  { key: 'realisedProfit', label: 'Booked profit', hint: 'Gains already realised', color: 'var(--green)' },
-  { key: 'realisedLoss', label: 'Booked loss', hint: 'Losses already realised (enter positive)', color: 'var(--red)' },
-  { key: 'charges', label: 'Charges & taxes', hint: 'Brokerage, STT, GST, DP, stamp duty', color: 'var(--orange)' },
-  { key: 'dividends', label: 'Dividends', hint: 'Net of TDS', color: 'var(--purple)' },
+  { key: 'netDeposited', label: 'Net amount put in', color: 'var(--cyan)',
+    hint: 'Deposits minus withdrawals, already net of what you booked and what it cost' },
+  { key: 'dividends', label: 'Dividends received', color: 'var(--purple)', hint: 'Net of TDS' },
 ]
 
 function Tile({ label, value, color, sub, title }) {
@@ -59,7 +57,7 @@ function BrokerCard({ broker, onSaved, onDeleted }) {
     for (const f of FIELDS) {
       const v = Number(draft[f.key])
       if (!Number.isFinite(v) || v < 0) {
-        toast.error(`${f.label} must be 0 or more`, { detail: 'Losses and charges go in as positive numbers.' })
+        toast.error(`${f.label} must be 0 or more`)
         return
       }
       payload[f.key] = v
@@ -81,7 +79,7 @@ function BrokerCard({ broker, onSaved, onDeleted }) {
     catch (e) { toast.error('Could not remove', { detail: e.message }) }
   }
 
-  const net = Number(broker.netProfit) || 0
+  const net = Number(broker.totalReturn) || 0
   const netColor = net > 0 ? 'var(--green)' : net < 0 ? 'var(--red)' : 'var(--text2)'
 
   return (
@@ -99,7 +97,7 @@ function BrokerCard({ broker, onSaved, onDeleted }) {
         <div className="flex items-center gap-2">
           <div style={{ textAlign: 'right' }}>
             <div style={{ fontSize: 11, color: 'var(--text3)', textTransform: 'uppercase', letterSpacing: '0.6px', fontWeight: 700 }}>
-              True net profit
+              Actual return
             </div>
             <div style={{ fontSize: 22, fontWeight: 900, color: netColor }}>
               {signedMoney(net)}
@@ -149,29 +147,37 @@ function BrokerCard({ broker, onSaved, onDeleted }) {
       ) : (
         <>
           <div className="metric-grid">
-            {FIELDS.map(f => (
-              <Tile key={f.key} label={f.label} value={money(broker[f.key])} color={f.color} title={f.hint} />
-            ))}
-            <Tile label="Held now" value={money(broker.holdingsValue)} color="var(--purple)"
-              sub={`${signedMoney(broker.unrealised)} unrealised`}
+            <Tile label="Net amount put in" value={money(broker.netDeposited)} color="var(--cyan)"
+              title="Your figure — already net of booked profit/loss and charges" />
+            <Tile label="Worth now" value={money(broker.holdingsValue)} color="var(--purple)"
+              sub={`${broker.holdingsCount} holding${broker.holdingsCount === 1 ? '' : 's'}`}
               title="Current value of the holdings tagged to this broker" />
+            <Tile label="Capital gain" value={signedMoney(broker.capitalGain)}
+              color={broker.capitalGain >= 0 ? 'var(--green)' : 'var(--red)'}
+              sub="worth now − put in"
+              title="The real capital result: no costs left to subtract, they're already inside your net amount" />
+            <Tile label="Dividends" value={money(broker.dividends)} color="var(--purple)" title="Net of TDS" />
           </div>
 
           <div className="broker-equation">
-            {signedMoney(broker.unrealised)} <span className="text-dim">unrealised</span>
-            {' '}{broker.realisedNet >= 0 ? '+' : '−'} {money(Math.abs(broker.realisedNet))} <span className="text-dim">booked</span>
-            {' '}− {money(broker.charges)} <span className="text-dim">charges</span>
-            {' '}+ {money(broker.dividends)} <span className="text-dim">dividends</span>
-            {' = '}<strong style={{ color: netColor }}>{signedMoney(broker.netProfit)}</strong>
+            {money(broker.holdingsValue)} <span className="text-dim">worth now</span>
+            {' − '}{money(broker.netDeposited)} <span className="text-dim">put in</span>
+            {' = '}<strong style={{ color: broker.capitalGain >= 0 ? 'var(--green)' : 'var(--red)' }}>
+              {signedMoney(broker.capitalGain)}
+            </strong>
+            {broker.dividends > 0 && (
+              <>
+                {' '}<span className="text-dim">+</span> {money(broker.dividends)} <span className="text-dim">dividends</span>
+                {' = '}<strong style={{ color: netColor }}>{signedMoney(broker.totalReturn)}</strong>
+              </>
+            )}
           </div>
 
           <div className="text-xs text-dim mt-2">
-            {broker.charges > 0 && broker.costDragPercent != null && (
-              <>Charges ate {percent(broker.costDragPercent)} of the gross gain. </>
-            )}
-            {Math.abs(broker.uninvestedCash) > 1000 && (
-              <>Cash in minus what's invested here leaves {money(Math.abs(broker.uninvestedCash))}
-                {broker.uninvestedCash > 0 ? ' unaccounted — idle at the broker, or withdrawn.' : ' more invested than deposited — check the figures.'}</>
+            {Math.abs(broker.investedGap) > 1000 && (
+              <>This app records {money(broker.holdingsInvested)} invested in these holdings —{' '}
+                {money(Math.abs(broker.investedGap))} {broker.investedGap > 0 ? 'more' : 'less'} than your
+                net amount. Yours is the one to trust; the gap is usually reinvested profit or a rounded buy price.</>
             )}
           </div>
           {broker.note && <div className="text-xs text-muted mt-2">{broker.note}</div>}
@@ -236,7 +242,7 @@ export default function BrokerLedger({ onUpdate }) {
 
   const refresh = async () => { await load(); await onUpdate?.() }
   const t = data.totals
-  const net = Number(t.netProfit) || 0
+  const net = Number(t.totalReturn) || 0
   const netColor = net > 0 ? 'var(--green)' : net < 0 ? 'var(--red)' : 'var(--text2)'
   const dividendBrokers = data.brokers.filter(b => Number(b.dividends) > 0)
 
@@ -263,9 +269,10 @@ export default function BrokerLedger({ onUpdate }) {
           <div className="empty-state-icon" aria-hidden="true">⚖</div>
           <div className="empty-state-title">No broker ledgers yet</div>
           <div className="empty-state-body">
-            The P/L on Overview is only the unrealised part — it can't see brokerage, taxes,
-            the profit and loss you've already booked, or dividends received. Add a ledger per
-            broker with the cash you actually put in, and this tab works out the real number.
+            The P/L on Overview is only the unrealised part, and it ignores every cost. Record
+            the net amount you've actually put into each broker — the figure you already keep,
+            net of what you booked and what it cost — and this compares it against what those
+            holdings are worth today to give the real number.
           </div>
           <AddBrokerForm existing={data.brokers} untracked={data.untracked} onAdded={refresh} />
         </div>
@@ -273,26 +280,21 @@ export default function BrokerLedger({ onUpdate }) {
         <>
           <div className="kpi-row">
             <div className="kpi-card">
-              <div className="kpi-label">Cash put in</div>
+              <div className="kpi-label">Net amount put in</div>
               <div className="kpi-value" style={{ color: 'var(--cyan)', fontSize: 22 }}>{money(t.netDeposited)}</div>
               <div className="kpi-sub text-dim">across {data.brokers.length} broker{data.brokers.length === 1 ? '' : 's'}</div>
             </div>
             <div className="kpi-card">
-              <div className="kpi-label">Held now</div>
+              <div className="kpi-label">Worth now</div>
               <div className="kpi-value" style={{ color: 'var(--purple)', fontSize: 22 }}>{money(t.holdingsValue)}</div>
-              <div className="kpi-sub text-dim">{signedMoney(t.unrealised)} unrealised</div>
+              <div className="kpi-sub text-dim">value of the tagged holdings</div>
             </div>
             <div className="kpi-card">
-              <div className="kpi-label">Booked net</div>
-              <div className="kpi-value" style={{ color: (t.realisedNet || 0) >= 0 ? 'var(--green)' : 'var(--red)', fontSize: 22 }}>
-                {signedMoney(t.realisedNet)}
+              <div className="kpi-label">Capital gain</div>
+              <div className="kpi-value" style={{ color: (t.capitalGain || 0) >= 0 ? 'var(--green)' : 'var(--red)', fontSize: 22 }}>
+                {signedMoney(t.capitalGain)}
               </div>
-              <div className="kpi-sub text-dim">{money(t.realisedProfit)} won · {money(t.realisedLoss)} lost</div>
-            </div>
-            <div className="kpi-card">
-              <div className="kpi-label">Charges & taxes</div>
-              <div className="kpi-value" style={{ color: 'var(--orange)', fontSize: 22 }}>−{money(t.charges)}</div>
-              <div className="kpi-sub text-dim">brokerage, STT, GST, DP</div>
+              <div className="kpi-sub text-dim">worth now − put in</div>
             </div>
             <div className="kpi-card">
               <div className="kpi-label">Dividends</div>
@@ -300,10 +302,10 @@ export default function BrokerLedger({ onUpdate }) {
               <div className="kpi-sub text-dim">net of TDS</div>
             </div>
             <div className="kpi-card" style={{ borderColor: 'rgba(34,211,238,0.35)' }}>
-              <div className="kpi-label">True net profit</div>
+              <div className="kpi-label">Actual return</div>
               <div className="kpi-value" style={{ color: netColor, fontSize: 22 }}>{signedMoney(net)}</div>
               <div className="kpi-sub text-dim">
-                {t.returnPercent != null ? `${t.returnPercent >= 0 ? '+' : ''}${t.returnPercent}% on cash put in` : 'enter cash put in for a %'}
+                {t.returnPercent != null ? `${t.returnPercent >= 0 ? '+' : ''}${t.returnPercent}% on what you put in` : 'enter the amount put in for a %'}
               </div>
             </div>
           </div>
@@ -316,8 +318,8 @@ export default function BrokerLedger({ onUpdate }) {
                   {data.untracked.map(u => `${platformOf(u.platform).label} holds ${money(u.holdingsValue)}`).join(', ')} with no ledger.
                 </strong>{' '}
                 <span className="text-muted">
-                  Those holdings count towards the portfolio but their charges, booked trades and
-                  dividends are missing from the figures above.
+                  They count towards the portfolio, but with no net amount recorded they can't
+                  be compared against what you actually put in.
                 </span>
               </div>
             </div>
@@ -347,7 +349,7 @@ export default function BrokerLedger({ onUpdate }) {
                       <th className="right">Dividends</th>
                       <th className="right col-optional">Share</th>
                       <th className="right col-optional">Yield on cash put in</th>
-                      <th className="right">% of true profit</th>
+                      <th className="right">% of actual return</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -355,7 +357,7 @@ export default function BrokerLedger({ onUpdate }) {
                       const div = Number(b.dividends) || 0
                       const share = t.dividends > 0 ? (div / t.dividends) * 100 : 0
                       const yieldPct = b.netDeposited > 0 ? (div / b.netDeposited) * 100 : null
-                      const ofProfit = b.netProfit > 0 ? (div / b.netProfit) * 100 : null
+                      const ofProfit = b.totalReturn > 0 ? (div / b.totalReturn) * 100 : null
                       return (
                         <tr key={b.id}>
                           <td>
@@ -389,8 +391,10 @@ export default function BrokerLedger({ onUpdate }) {
           </div>
 
           <div className="text-xs text-dim">
-            Overview's P/L is unrealised only — current value minus invested. The figure here
-            adds what you booked and subtracts what it cost, which is why the two differ.
+            Overview's P/L compares current value against the <em>invested</em> figure recorded on
+            each holding, and is unrealised only. This compares it against the net amount you
+            actually put in — which already carries your booked profit, losses and charges — so
+            the two differ, and this one is the real result.
           </div>
         </>
       )}
